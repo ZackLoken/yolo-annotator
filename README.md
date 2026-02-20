@@ -11,13 +11,13 @@ Built with Python + Tkinter — no GPU, no server, no browser required.
 ## Install
 
 ```bash
-pip install git+https://github.com/loken-usda/yolo-annotator.git
+pip install git+https://github.com/ZackLoken/yolo-annotator.git
 ```
 
 Or for development:
 
 ```bash
-git clone https://github.com/loken-usda/yolo-annotator.git
+git clone https://github.com/ZackLoken/yolo-annotator.git
 cd yolo-annotator
 pip install -e .
 ```
