@@ -30,7 +30,7 @@ dependencies = [
 boxlabeler = "boxlabeler:main"
 
 [project.urls]
-Homepage = "https://github.com/loken-usda/yolo-annotator"
+Homepage = "https://github.com/ZackLoken/yolo-annotator.git"
 
 [tool.setuptools.packages.find]
 where = ["src"]
