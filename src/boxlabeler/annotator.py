@@ -27,7 +27,7 @@ from PIL import Image, ImageTk, ExifTags
 
 
 # Default class names (editable). Index = class_id.
-DEFAULT_CLASS_NAMES = {0: "object"}
+DEFAULT_CLASS_NAMES = {0: "catkin", 1: "bud"}
 
 # Colors for different classes (cycles if more classes than colors)
 CLASS_COLORS = [
