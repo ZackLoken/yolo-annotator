@@ -1,5 +1,7 @@
 # BoxLabeler
 
+![BoxLabeler GUI](GUI.png)
+
 Lightweight desktop tool for drawing YOLO bounding-box annotations on images.
 Built with Python + Tkinter — no GPU, no server, no browser required.
 
@@ -65,6 +67,7 @@ python -m boxlabeler /path/to/images
 | Pan left / right        | Shift + Scroll           |
 | Zoom at cursor          | Ctrl + Scroll            |
 | Pan (free)              | Middle-click + drag      |
+| Select class by id      | `0`–`9`                  |
 | Undo last box           | `z`                      |
 | Toggle help overlay     | `h`                      |
 | Quit (saves first)      | `Escape` or close window |
@@ -82,13 +85,13 @@ python -m boxlabeler /path/to/images
 All values are **normalized to 0–1** relative to image dimensions.  
 Compatible with Ultralytics YOLOv5/v8/v11, Darknet, and most YOLO training pipelines.
 
-### CSV (one per image, in `labels/` subdirectory)
+### CSV (consolidated `annotations.csv` in image folder)
 
 ```
-class_id, class_name, x1, y1, x2, y2
+image, class_id, class_name, x1, y1, x2, y2
 ```
 
-Absolute pixel coordinates for convenience.
+Absolute pixel coordinates for convenience. Rebuilt from all label files on exit.
 
 ### `classes.txt`
 
@@ -100,12 +103,12 @@ folder. This file is automatically loaded on next launch so class names persist.
 ## Features
 
 - **Multi-class support** — dropdown selector + inline "Add" for new classes
-- **Auto-resume** — opens at the first unlabeled image
+- **Auto-resume** — reopens at the last annotated image
 - **EXIF orientation** — auto-corrects rotated phone photos
 - **Viewport cropping** — only renders the visible region, safe at any zoom level
 - **Save on exit** — annotations are saved when you quit or close the window
 - **Open Folder button** — switch image folders mid-session
-- **Progress counter** — toolbar shows labeled count vs total
+- **Progress counter** — toolbar shows number of labeled images and annotation class counts
 
 ---
 
