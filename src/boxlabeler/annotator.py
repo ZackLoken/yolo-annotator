@@ -188,6 +188,13 @@ class BoxLabeler:
         root.bind("z", self.undo_box)
         root.bind("h", self.toggle_help)
 
+        # Number keys 1-9 to select class by id (0-indexed: key 1 = class 0)
+        for key_num in range(1, 10):
+            root.bind(
+                str(key_num),
+                lambda e, cid=key_num - 1: self._select_class_by_id(cid),
+            )
+
         # Also catch the window X button
         root.protocol("WM_DELETE_WINDOW", self._quit)
 
@@ -215,8 +222,8 @@ class BoxLabeler:
         ])
         self.labels_dir = os.path.join(folder, "labels")
         os.makedirs(self.labels_dir, exist_ok=True)
-        print(f"[DEBUG] Found {len(self.images)} images in {folder}")
-        print(f"[DEBUG] Labels directory: {self.labels_dir}")
+        print(f"Found {len(self.images)} images in {folder}")
+        print(f"Labels directory: {self.labels_dir}")
 
         # Load classes.txt if present
         classes_file = os.path.join(folder, "classes.txt")
@@ -228,20 +235,39 @@ class BoxLabeler:
                     if name:
                         self.class_names[i] = name
             self._refresh_class_dropdown()
-            print(f"[DEBUG] Loaded {len(self.class_names)} class names from {classes_file}")
+            print(f"Loaded {len(self.class_names)} class names from {classes_file}")
 
         self.index = self._find_resume_index()
 
+    def _has_annotations(self, img_name):
+        """Return True if the image has a non-empty label file (actual boxes)."""
+        stem = os.path.splitext(img_name)[0]
+        label_path = os.path.join(self.labels_dir, f"{stem}.txt")
+        if not os.path.exists(label_path):
+            return False
+        try:
+            with open(label_path, "r") as f:
+                for line in f:
+                    if line.strip():
+                        return True
+        except Exception:
+            pass
+        return False
+
     def _find_resume_index(self):
-        """Find the index of the first image without a label file."""
+        """Find the last image that has actual annotations to resume from."""
+        last_labeled = -1
         for i, img_name in enumerate(self.images):
-            stem = os.path.splitext(img_name)[0]
-            label_path = os.path.join(self.labels_dir, f"{stem}.txt")
-            if not os.path.exists(label_path):
-                print(f"[DEBUG] Resuming at image {i + 1}/{len(self.images)}: {img_name}")
-                return i
-        print(f"[DEBUG] All {len(self.images)} images have labels. Starting at last image.")
-        return len(self.images) - 1
+            if self._has_annotations(img_name):
+                last_labeled = i
+        if last_labeled >= 0:
+            print(
+                f"Resuming at last labeled image "
+                f"{last_labeled + 1}/{len(self.images)}: {self.images[last_labeled]}"
+            )
+            return last_labeled
+        print(f"No labeled images found. Starting at first image.")
+        return 0
 
     def _show_welcome(self):
         """Show a welcome message when no folder is loaded."""
@@ -277,7 +303,7 @@ class BoxLabeler:
             messagebox.showinfo("No images", "No images found in the folder!")
             return
 
-        print(f"[DEBUG] Opened new folder: {new_folder} ({len(self.images)} images)")
+        print(f"Opened new folder: {new_folder} ({len(self.images)} images)")
         self.load_image()
 
     # --------------------------------------------------
@@ -287,9 +313,10 @@ class BoxLabeler:
         """Save current work and exit."""
         try:
             self.save_boxes()
-            print("[DEBUG] Saved boxes before exit.")
+            self.save_consolidated_csv()
+            print("Saved boxes before exit.")
         except Exception as e:
-            print(f"[WARNING] Could not save on exit: {e}")
+            print(f"Warning: Could not save on exit: {e}")
         self.root.destroy()
 
     # --------------------------------------------------
@@ -311,10 +338,18 @@ class BoxLabeler:
         try:
             class_id = int(sel.split(":")[0].strip())
             self.active_class = class_id
-            print(f"[DEBUG] Selected class {class_id} ({self.class_names.get(class_id, '?')})")
+            print(f"Selected class {class_id} ({self.class_names.get(class_id, '?')})")
             self.update_title()
         except (ValueError, IndexError):
             pass
+
+    def _select_class_by_id(self, class_id):
+        """Select a class by its numeric id (from number-key shortcut)."""
+        if class_id in self.class_names:
+            self.active_class = class_id
+            self._refresh_class_dropdown()
+            self.update_title()
+            print(f"Key shortcut -> class {class_id} ({self.class_names[class_id]})")
 
     def _add_new_class(self):
         """Add a new class from the text entry."""
@@ -328,7 +363,7 @@ class BoxLabeler:
                 self._refresh_class_dropdown()
                 self.new_class_entry.delete(0, tk.END)
                 self.update_title()
-                print(f"[DEBUG] Class '{name}' already exists as id {cid}")
+                print(f"Class '{name}' already exists as id {cid}")
                 return
         next_id = max(self.class_names.keys()) + 1 if self.class_names else 0
         self.class_names[next_id] = name
@@ -337,7 +372,7 @@ class BoxLabeler:
         self._refresh_class_dropdown()
         self._save_classes_file()
         self.update_title()
-        print(f"[DEBUG] Added new class {next_id}: {name}")
+        print(f"Added new class {next_id}: {name}")
 
     def _save_classes_file(self):
         """Persist class names to classes.txt so they survive restarts."""
@@ -345,7 +380,7 @@ class BoxLabeler:
         with open(classes_file, "w") as f:
             for cid in sorted(self.class_names.keys()):
                 f.write(f"{self.class_names[cid]}\n")
-        print(f"[DEBUG] Saved classes.txt ({len(self.class_names)} classes)")
+        print(f"Saved classes.txt ({len(self.class_names)} classes)")
 
     # --------------------------------------------------
     # Title
@@ -356,9 +391,7 @@ class BoxLabeler:
         labeled_count = sum(
             1
             for img in self.images
-            if os.path.exists(
-                os.path.join(self.labels_dir, f"{os.path.splitext(img)[0]}.txt")
-            )
+            if self._has_annotations(img)
         )
         self.root.title(
             f"BoxLabeler \u2014 {self.images[self.index]} | "
@@ -393,7 +426,7 @@ class BoxLabeler:
             return
         if self.index >= len(self.images):
             messagebox.showinfo("Done", "All images labeled!")
-            print("[DEBUG] All images labeled. Exiting.")
+            print("All images labeled. Exiting.")
             self.root.destroy()
             return
 
@@ -409,14 +442,14 @@ class BoxLabeler:
         self._cached_tk_image = None
 
         img_path = os.path.join(self.image_folder, self.images[self.index])
-        print(f"[DEBUG] Loading image {self.index + 1}/{len(self.images)}: {img_path}")
+        print(f"Loading image {self.index + 1}/{len(self.images)}: {img_path}")
 
         try:
             self.original_image = Image.open(img_path)
             self.original_image.load()  # Force load to catch corrupt files
             self.original_image = auto_orient_image(self.original_image)
         except Exception as e:
-            print(f"[ERROR] Failed to load image {img_path}: {e}")
+            print(f"Error: Failed to load image {img_path}: {e}")
             messagebox.showwarning("Image Error", f"Could not load:\n{img_path}\n\n{e}")
             self.index += 1
             self.load_image()
@@ -490,9 +523,9 @@ class BoxLabeler:
                         self.class_names[class_id] = f"class_{class_id}"
                         self._refresh_class_dropdown()
 
-            print(f"[DEBUG] Loaded {len(self.boxes)} existing labels from {label_path}")
+            print(f"Loaded {len(self.boxes)} existing labels from {label_path}")
         except Exception as e:
-            print(f"[WARNING] Could not load labels from {label_path}: {e}")
+            print(f"Warning: Could not load labels from {label_path}: {e}")
 
     # --------------------------------------------------
     # Display (throttled)
@@ -588,6 +621,7 @@ class BoxLabeler:
             "  Shift+Scroll          : Pan left/right",
             "  Ctrl+Scroll           : Zoom at cursor",
             "  Middle-click + drag   : Pan",
+            "  1-9                   : Select class (1=class 0, etc.)",
             "  z                     : Undo last box",
             "  h                     : Toggle this help",
             "  Escape                : Quit",
@@ -737,7 +771,7 @@ class BoxLabeler:
 
         # Ignore tiny accidental clicks (less than 3px in image space)
         if (x2 - x1) < 3 or (y2 - y1) < 3:
-            print("[DEBUG] Box too small, ignoring")
+            print("Box too small, ignoring")
             if self.rect:
                 self.canvas.delete(self.rect)
             self.rect = None
@@ -745,7 +779,7 @@ class BoxLabeler:
 
         self.boxes.append((x1, y1, x2, y2, self.active_class))
         print(
-            f"[DEBUG] Added box: class={self.active_class} "
+            f"Added box: class={self.active_class} "
             f"({x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f})"
         )
         self.rect = None
@@ -760,11 +794,11 @@ class BoxLabeler:
         for i, (x1, y1, x2, y2, _) in enumerate(self.boxes):
             if x1 <= click_x <= x2 and y1 <= click_y <= y2:
                 removed = self.boxes.pop(i)
-                print(f"[DEBUG] Right-click deleted box {i}: {removed}")
+                print(f"Right-click deleted box {i}: {removed}")
                 self.display_image()
                 self.update_title()
                 return
-        print(f"[DEBUG] Right-click at ({click_x:.1f}, {click_y:.1f}) \u2014 no box found")
+        print(f"Right-click at ({click_x:.1f}, {click_y:.1f}) \u2014 no box found")
 
     # --------------------------------------------------
     # Navigation
@@ -773,7 +807,7 @@ class BoxLabeler:
         """Save current boxes and advance to next image."""
         self.save_boxes()
         self.index += 1
-        print(f"[DEBUG] Moving to next image: index={self.index}")
+        print(f"Moving to next image: index={self.index}")
         self.load_image()
 
     def prev_image(self, event=None):
@@ -781,7 +815,7 @@ class BoxLabeler:
         if self.index > 0:
             self.save_boxes()
             self.index -= 1
-            print(f"[DEBUG] Moving to previous image: index={self.index}")
+            print(f"Moving to previous image: index={self.index}")
             self.load_image()
 
     # --------------------------------------------------
@@ -791,26 +825,34 @@ class BoxLabeler:
         """Remove the last drawn box."""
         if self.boxes:
             removed = self.boxes.pop()
-            print(f"[DEBUG] Undo last box: {removed}")
+            print(f"Undo last box: {removed}")
             self.display_image()
             self.update_title()
 
     # --------------------------------------------------
-    # Save boxes (YOLO .txt + CSV)
+    # Save boxes (YOLO .txt + consolidated CSV)
     # --------------------------------------------------
     def save_boxes(self):
-        """Save current boxes in YOLO .txt format and CSV."""
+        """Save current boxes in YOLO .txt format. Skip write if no boxes."""
         if not self.images or self.labels_dir is None:
             return
         # Ensure labels directory exists (handles network paths)
         os.makedirs(self.labels_dir, exist_ok=True)
 
         stem = os.path.splitext(self.images[self.index])[0]
+        yolo_path = os.path.join(self.labels_dir, f"{stem}.txt")
+
+        if not self.boxes:
+            # Remove stale label file if the image has no boxes
+            if os.path.exists(yolo_path):
+                os.remove(yolo_path)
+                print(f"Removed empty label file: {yolo_path}")
+            return
+
         img_w = self.img_width
         img_h = self.img_height
 
         # YOLO .txt format (class x_center y_center width height, normalized)
-        yolo_path = os.path.join(self.labels_dir, f"{stem}.txt")
         with open(yolo_path, "w") as f:
             for x1, y1, x2, y2, cls in self.boxes:
                 x_center = ((x1 + x2) / 2) / img_w
@@ -818,17 +860,48 @@ class BoxLabeler:
                 w = (x2 - x1) / img_w
                 h = (y2 - y1) / img_h
                 f.write(f"{cls} {x_center:.6f} {y_center:.6f} {w:.6f} {h:.6f}\n")
-        print(f"[DEBUG] Saved {len(self.boxes)} boxes (YOLO) to {yolo_path}")
+        print(f"Saved {len(self.boxes)} boxes (YOLO) to {yolo_path}")
 
-        # CSV format (absolute pixel coords)
-        csv_path = os.path.join(self.labels_dir, f"{stem}_boxes.csv")
+    def save_consolidated_csv(self):
+        """Rebuild the single consolidated CSV from all individual YOLO label files."""
+        if not self.image_folder or not self.labels_dir:
+            return
+        csv_path = os.path.join(self.image_folder, "annotations.csv")
+        count = 0
         with open(csv_path, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["class_id", "class_name", "x1", "y1", "x2", "y2"])
-            for x1, y1, x2, y2, cls in self.boxes:
-                class_name = self.class_names.get(cls, f"class_{cls}")
-                writer.writerow([cls, class_name, x1, y1, x2, y2])
-        print(f"[DEBUG] Saved {len(self.boxes)} boxes (CSV) to {csv_path}")
+            writer.writerow(["image", "class_id", "class_name", "x1", "y1", "x2", "y2"])
+            for img_name in self.images:
+                stem = os.path.splitext(img_name)[0]
+                label_path = os.path.join(self.labels_dir, f"{stem}.txt")
+                if not os.path.exists(label_path):
+                    continue
+                try:
+                    pil_img = Image.open(os.path.join(self.image_folder, img_name))
+                    iw, ih = pil_img.size
+                    pil_img.close()
+                except Exception:
+                    continue
+                with open(label_path, "r") as lf:
+                    for line in lf:
+                        parts = line.strip().split()
+                        if len(parts) != 5:
+                            continue
+                        cls = int(parts[0])
+                        xc = float(parts[1]) * iw
+                        yc = float(parts[2]) * ih
+                        bw = float(parts[3]) * iw
+                        bh = float(parts[4]) * ih
+                        x1 = xc - bw / 2
+                        y1 = yc - bh / 2
+                        x2 = xc + bw / 2
+                        y2 = yc + bh / 2
+                        class_name = self.class_names.get(cls, f"class_{cls}")
+                        writer.writerow([img_name, cls, class_name,
+                                         f"{x1:.1f}", f"{y1:.1f}",
+                                         f"{x2:.1f}", f"{y2:.1f}"])
+                        count += 1
+        print(f"Saved consolidated CSV ({count} boxes) to {csv_path}")
 
 
 # --------------------------------------------------
@@ -843,19 +916,19 @@ def main():
     if len(sys.argv) > 1:
         folder = sys.argv[1]
         if not os.path.isdir(folder):
-            print(f"[ERROR] Invalid folder: {folder}")
+            print(f"Error: Invalid folder: {folder}")
             sys.exit(1)
     else:
         folder = filedialog.askdirectory(title="Select Folder of Images")
         if not folder:
-            print("[ERROR] No folder selected. Exiting.")
+            print("Error: No folder selected. Exiting.")
             sys.exit(1)
 
     root.deiconify()
-    print(f"[DEBUG] Starting BoxLabeler in folder: {folder}")
+    print(f"Starting BoxLabeler in folder: {folder}")
     app = BoxLabeler(root, image_folder=folder)  # noqa: F841
     root.mainloop()
-    print("[DEBUG] BoxLabeler exited.")
+    print("BoxLabeler exited.")
 
 
 if __name__ == "__main__":
