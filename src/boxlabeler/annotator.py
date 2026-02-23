@@ -188,11 +188,11 @@ class BoxLabeler:
         root.bind("z", self.undo_box)
         root.bind("h", self.toggle_help)
 
-        # Number keys 1-9 to select class by id (0-indexed: key 1 = class 0)
-        for key_num in range(1, 10):
+        # Number keys 0-9 to select class by id directly
+        for key_num in range(0, 10):
             root.bind(
                 str(key_num),
-                lambda e, cid=key_num - 1: self._select_class_by_id(cid),
+                lambda e, cid=key_num: self._select_class_by_id(cid),
             )
 
         # Also catch the window X button
@@ -621,7 +621,7 @@ class BoxLabeler:
             "  Shift+Scroll          : Pan left/right",
             "  Ctrl+Scroll           : Zoom at cursor",
             "  Middle-click + drag   : Pan",
-            "  1-9                   : Select class (1=class 0, etc.)",
+            "  0-9                   : Select class by id",
             "  z                     : Undo last box",
             "  h                     : Toggle this help",
             "  Escape                : Quit",
