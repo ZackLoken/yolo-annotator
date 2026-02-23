@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "boxlabeler"
+name = "yololabeler"
 version = "0.1.0"
-description = "Image annotation tool for YOLO training - draw bounding boxes and export in YOLO format"
+description = "Image annotation tool for YOLO training - draw bounding boxes and polygons, export in YOLO detection + segmentation format"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -21,7 +21,8 @@ dependencies = [
 Homepage = "https://github.com/ZackLoken/yolo-annotator"
 
 [project.scripts]
-boxlabeler = "boxlabeler:main"
+yololabeler = "yololabeler:main"
+boxlabeler = "yololabeler:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
