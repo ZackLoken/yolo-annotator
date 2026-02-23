@@ -393,10 +393,18 @@ class BoxLabeler:
             for img in self.images
             if self._has_annotations(img)
         )
+        # Per-class box counts for the current image
+        class_counts = {}
+        for _, _, _, _, cls in self.boxes:
+            class_counts[cls] = class_counts.get(cls, 0) + 1
+        counts_str = "  ".join(
+            f"{self.class_names.get(c, c)}: {n}"
+            for c, n in sorted(class_counts.items())
+        ) or "0"
         self.root.title(
             f"BoxLabeler \u2014 {self.images[self.index]} | "
             f"Class: {self.active_class} ({class_name}) | "
-            f"Boxes: {len(self.boxes)}"
+            f"Boxes: {counts_str}"
         )
         self.counter_label.config(
             text=f"Image {self.index + 1} / {len(self.images)}  |  Labeled: {labeled_count}"
