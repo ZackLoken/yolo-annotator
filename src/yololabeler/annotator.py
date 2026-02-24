@@ -26,6 +26,25 @@ import csv
 import math
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import contextlib
+import sys
+import os
+# Vertex handle radius in canvas pixels
+VERTEX_HANDLE_RADIUS = 3
+
+# Context manager to suppress macOS Tkinter file dialog warnings
+@contextlib.contextmanager
+def suppress_tk_mac_warnings():
+    if sys.platform == "darwin":
+        with open(os.devnull, "w") as devnull:
+            old_stderr = sys.stderr
+            sys.stderr = devnull
+            try:
+                yield
+            finally:
+                sys.stderr = old_stderr
+    else:
+        yield
 from PIL import Image, ImageTk, ExifTags
 
 
@@ -57,17 +76,17 @@ def auto_orient_image(img):
             return img
         orientation = exif[orientation_key]
         if orientation == 2:
-            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+            img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
         elif orientation == 3:
             img = img.rotate(180, expand=True)
         elif orientation == 4:
-            img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img = img.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
         elif orientation == 5:
-            img = img.transpose(Image.FLIP_LEFT_RIGHT).rotate(270, expand=True)
+            img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT).rotate(270, expand=True)
         elif orientation == 6:
             img = img.rotate(270, expand=True)
         elif orientation == 7:
-            img = img.transpose(Image.FLIP_LEFT_RIGHT).rotate(90, expand=True)
+            img = img.transpose(Image.Transpose.FLIP_LEFT_RIGHT).rotate(90, expand=True)
         elif orientation == 8:
             img = img.rotate(90, expand=True)
     except Exception:
@@ -233,6 +252,10 @@ class YoloLabeler:
         root.bind("<Escape>", self._on_escape)
         root.bind("<Control-z>", self.undo_last)
         root.bind("<Control-y>", self.redo_last)
+        # Add Command+Z/Y for macOS users
+        if sys.platform == "darwin":
+            root.bind("<Command-z>", self.undo_last)
+            root.bind("<Command-y>", self.redo_last)
         root.bind("h", self.toggle_help)
         root.bind("m", self._toggle_mode)
 
@@ -290,8 +313,10 @@ class YoloLabeler:
         self.labels_dir = os.path.join(folder, "labels")
         self.detect_dir = os.path.join(self.labels_dir, "detect")
         self.segment_dir = os.path.join(self.labels_dir, "segment")
-        os.makedirs(self.detect_dir, exist_ok=True)
-        os.makedirs(self.segment_dir, exist_ok=True)
+        if self.detect_dir is not None:
+            os.makedirs(self.detect_dir, exist_ok=True)
+        if self.segment_dir is not None:
+            os.makedirs(self.segment_dir, exist_ok=True)
         print(f"Found {len(self.images)} images in {folder}")
         print(f"Labels directory: {self.labels_dir}")
         print(f"  detect:  {self.detect_dir}")
@@ -361,7 +386,8 @@ class YoloLabeler:
     # --------------------------------------------------
     def _open_folder(self):
         """Open a new image folder mid-session."""
-        new_folder = filedialog.askdirectory(title="Select Folder of Images")
+        with suppress_tk_mac_warnings():
+            new_folder = filedialog.askdirectory(title="Select Folder of Images")
         if not new_folder:
             return
 
@@ -458,6 +484,9 @@ class YoloLabeler:
 
     def _save_classes_file(self):
         """Persist class names to classes.txt so they survive restarts."""
+        if self.image_folder is None:
+            print("Warning: image_folder is None, cannot save classes.txt")
+            return
         classes_file = os.path.join(self.image_folder, "classes.txt")
         with open(classes_file, "w") as f:
             for cid in sorted(self.class_names.keys()):
@@ -543,6 +572,9 @@ class YoloLabeler:
         self._cached_scale = None
         self._cached_tk_image = None
 
+        if self.image_folder is None or not self.images:
+            print("Error: image_folder or images list is None/empty.")
+            return
         img_path = os.path.join(self.image_folder, self.images[self.index])
         print(f"Loading image {self.index + 1}/{len(self.images)}: {img_path}")
 
@@ -601,8 +633,8 @@ class YoloLabeler:
         stem = os.path.splitext(self.images[self.index])[0]
 
         # Load detection boxes from labels/detect/
-        detect_path = os.path.join(self.detect_dir, f"{stem}.txt")
-        if os.path.exists(detect_path):
+        detect_path = os.path.join(self.detect_dir, f"{stem}.txt") if self.detect_dir else None
+        if detect_path is not None and os.path.exists(detect_path):
             try:
                 with open(detect_path, "r") as f:
                     for line in f:
@@ -627,8 +659,8 @@ class YoloLabeler:
                 print(f"Warning: Could not load detect labels from {detect_path}: {e}")
 
         # Load segmentation polygons from labels/segment/
-        segment_path = os.path.join(self.segment_dir, f"{stem}.txt")
-        if os.path.exists(segment_path):
+        segment_path = os.path.join(self.segment_dir, f"{stem}.txt") if self.segment_dir else None
+        if segment_path is not None and os.path.exists(segment_path):
             try:
                 with open(segment_path, "r") as f:
                     for line in f:
@@ -699,10 +731,7 @@ class YoloLabeler:
                 cropped = self.original_image.crop((crop_x1, crop_y1, crop_x2, crop_y2))
                 out_w = max(int(crop_w * self.scale), 1)
                 out_h = max(int(crop_h * self.scale), 1)
-                try:
-                    resample = Image.Resampling.LANCZOS
-                except AttributeError:
-                    resample = Image.LANCZOS
+                resample = Image.Resampling.LANCZOS
                 self.displayed_image = cropped.resize((out_w, out_h), resample)
                 self._cached_tk_image = ImageTk.PhotoImage(self.displayed_image)
             else:
@@ -838,21 +867,26 @@ class YoloLabeler:
             "  h                     : Toggle this help",
         ]
 
-        font_family = "Consolas"
+        # Use a more universal monospace font on macOS
+        if sys.platform == "darwin":
+            font_family = "Menlo"
+        else:
+            font_family = "Consolas"
         font_size = 10
         line_height = 16
         pad = 10
-        # Use a generous character width for Consolas 10pt
+        # Use a generous character width for monospace font
         char_width = font_size * 0.65
 
-        block_w = int(max(len(line) for line in help_lines) * char_width + pad * 3)
+        # Add extra right padding to ensure all text is contained
+        block_w = int(max(len(line) for line in help_lines) * char_width + pad * 4)
         block_h = len(help_lines) * line_height + pad * 2
 
         x0, y0 = 10, 10
 
         self.canvas.create_rectangle(
             x0, y0, x0 + block_w, y0 + block_h,
-            fill="black", outline="gray", width=1, stipple="gray50",
+            fill="black", outline="gray", width=1,
         )
 
         for i, line in enumerate(help_lines):
@@ -1072,7 +1106,7 @@ class YoloLabeler:
 
     def _box_drag(self, event):
         """Update box preview while dragging."""
-        if self.rect:
+        if self.rect and self.start_x is not None and self.start_y is not None:
             self.canvas.coords(self.rect, self.start_x, self.start_y, event.x, event.y)
 
     def _box_release(self, event):
@@ -1338,18 +1372,20 @@ class YoloLabeler:
         """
         if not self.images or self.labels_dir is None:
             return
-        os.makedirs(self.detect_dir, exist_ok=True)
-        os.makedirs(self.segment_dir, exist_ok=True)
+        if self.detect_dir is not None:
+            os.makedirs(self.detect_dir, exist_ok=True)
+        if self.segment_dir is not None:
+            os.makedirs(self.segment_dir, exist_ok=True)
 
         stem = os.path.splitext(self.images[self.index])[0]
-        detect_path = os.path.join(self.detect_dir, f"{stem}.txt")
-        segment_path = os.path.join(self.segment_dir, f"{stem}.txt")
+        detect_path = os.path.join(self.detect_dir, f"{stem}.txt") if self.detect_dir else None
+        segment_path = os.path.join(self.segment_dir, f"{stem}.txt") if self.segment_dir else None
 
         img_w = self.img_width
         img_h = self.img_height
 
         # --- Detection boxes ---
-        if self.boxes:
+        if self.boxes and detect_path is not None:
             with open(detect_path, "w") as f:
                 for x1, y1, x2, y2, cls in self.boxes:
                     x_center = ((x1 + x2) / 2) / img_w
@@ -1362,11 +1398,11 @@ class YoloLabeler:
                     )
             print(f"Saved {len(self.boxes)} boxes to {detect_path}")
         else:
-            if os.path.exists(detect_path):
+            if detect_path is not None and os.path.exists(detect_path):
                 os.remove(detect_path)
 
         # --- Segmentation polygons ---
-        if self.polygons:
+        if self.polygons and segment_path is not None:
             with open(segment_path, "w") as f:
                 for points, cls in self.polygons:
                     coords = " ".join(
@@ -1375,7 +1411,7 @@ class YoloLabeler:
                     f.write(f"{cls} {coords}\n")
             print(f"Saved {len(self.polygons)} polygons to {segment_path}")
         else:
-            if os.path.exists(segment_path):
+            if segment_path is not None and os.path.exists(segment_path):
                 os.remove(segment_path)
 
         total = len(self.boxes) + len(self.polygons)
@@ -1406,8 +1442,8 @@ class YoloLabeler:
                     continue
 
                 # Detection boxes from labels/detect/
-                detect_path = os.path.join(self.detect_dir, f"{stem}.txt")
-                if os.path.exists(detect_path):
+                detect_path = os.path.join(self.detect_dir, f"{stem}.txt") if self.detect_dir else None
+                if detect_path is not None and os.path.exists(detect_path):
                     with open(detect_path, "r") as lf:
                         for line in lf:
                             parts = line.strip().split()
@@ -1432,8 +1468,8 @@ class YoloLabeler:
                             count += 1
 
                 # Segmentation polygons from labels/segment/
-                segment_path = os.path.join(self.segment_dir, f"{stem}.txt")
-                if os.path.exists(segment_path):
+                segment_path = os.path.join(self.segment_dir, f"{stem}.txt") if self.segment_dir else None
+                if segment_path is not None and os.path.exists(segment_path):
                     with open(segment_path, "r") as lf:
                         for line in lf:
                             parts = line.strip().split()
@@ -1462,18 +1498,25 @@ class YoloLabeler:
         print(f"Saved consolidated CSV ({count} annotations) to {csv_path}")
 
 
-# Backward-compatible alias
-BoxLabeler = YoloLabeler
-
-
 # --------------------------------------------------
 # MAIN
 # --------------------------------------------------
 def main():
-    """Entry point for the boxlabeler command."""
+    """Entry point for the yololabeler command."""
+
     root = tk.Tk()
     root.geometry("1200x800")
     root.withdraw()
+
+    # Set app icon for Windows taskbar if icon file exists
+    if sys.platform.startswith("win"):
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "..", "icon.ico")
+        icon_path = os.path.abspath(icon_path)
+        if os.path.exists(icon_path):
+            try:
+                root.iconbitmap(icon_path)
+            except Exception as e:
+                print(f"Warning: Could not set app icon: {e}")
 
     if len(sys.argv) > 1:
         folder = sys.argv[1]
@@ -1481,7 +1524,8 @@ def main():
             print(f"Error: Invalid folder: {folder}")
             sys.exit(1)
     else:
-        folder = filedialog.askdirectory(title="Select Folder of Images")
+        with suppress_tk_mac_warnings():
+            folder = filedialog.askdirectory(title="Select Folder of Images")
         if not folder:
             print("Error: No folder selected. Exiting.")
             sys.exit(1)
