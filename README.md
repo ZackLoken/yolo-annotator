@@ -64,10 +64,10 @@ python -m yololabeler /path/to/images
 | Action                       | Input                    |
 |------------------------------|--------------------------|
 | Toggle Box / Polygon mode    | `m`                      |
-|                      **Box mode**                       |
+| **Box mode**                 |                          |
 | Draw a box                   | Left-click + drag        |
 | Delete a box                 | Right-click on box       |
-|                     **Polygon mode**                    |
+| **Polygon mode**             |                          |
 | Place vertex                 | Left-click               |
 | Close polygon                | Double-click             |
 | Move vertex                  | Drag vertex              |
@@ -75,7 +75,7 @@ python -m yololabeler /path/to/images
 | Delete vertex                | Right-click vertex       |
 | Delete polygon               | Right-click in polygon   |
 | Cancel polygon in progress   | `Escape`                 |
-|                  **Navigation & view**                  |
+| **Navigation & view**        |                          |
 | Next / Previous image        | Right / Left arrow       |
 | Pan up / down                | Scroll                   |
 | Pan left / right             | Shift + Scroll           |
