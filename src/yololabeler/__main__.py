@@ -1,4 +1,4 @@
-"""Allow running with `python -m boxlabeler`."""
+"""Allow running with `python -m yololabeler`."""
 
 from .annotator import main
 
