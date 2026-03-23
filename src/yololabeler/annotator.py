@@ -1436,6 +1436,7 @@ class YoloLabeler:
                     pil_img = Image.open(
                         os.path.join(self.image_folder, img_name)
                     )
+                    pil_img = auto_orient_image(pil_img)
                     iw, ih = pil_img.size
                     pil_img.close()
                 except Exception:
