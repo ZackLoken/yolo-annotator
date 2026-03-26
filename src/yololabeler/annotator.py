@@ -1,5 +1,5 @@
 """
-YoloLabeler v3 — Image Annotation Tool for YOLO Training
+YoloLabeler v2 — Image Annotation Tool for YOLO Training
 
 CustomTkinter dark-theme UI inspired by Roboflow/CVAT.  Standard dark gray
 background (#1E1E1E) with light gray text (#E0E0E0) and SI Green accent.
@@ -39,6 +39,7 @@ import time
 import getpass
 import datetime
 import contextlib
+import copy
 import tkinter as tk
 import tkinter.font as tkFont
 from tkinter import filedialog, messagebox, colorchooser
@@ -51,8 +52,8 @@ ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 VERTEX_HANDLE_RADIUS = 4
-STREAM_MIN_DISTANCE = 8   # min image-pixel distance between streamed vertices
-SNAP_RADIUS = 12           # canvas-pixel radius for vertex snapping
+STREAM_MIN_DISTANCE = 6   # min image-pixel distance between streamed vertices
+SNAP_RADIUS = 15           # canvas-pixel radius for vertex/edge snapping
 
 DEFAULT_CLASS_NAMES = {0: "catkin", 1: "bud"}
 
@@ -162,8 +163,8 @@ def auto_orient_image(img):
         }
         if orientation in ops:
             img = ops[orientation](img)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: Could not auto-orient image: {e}")
     return img
 
 
@@ -179,7 +180,7 @@ def _point_to_segment_dist(px, py, ax, ay, bx, by):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  YoloLabeler  (v3)
+#  YoloLabeler  (v2)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class YoloLabeler:
@@ -214,7 +215,7 @@ class YoloLabeler:
         self._mouse_canvas_x = 0
         self._mouse_canvas_y = 0
 
-        # Vertex streaming (v3: toggle-based)
+        # Vertex streaming =
         self._stream_mode = False       # toggled by 'v' key
         self._stream_active = False     # currently recording stream
         self._last_stream_pos = None
@@ -264,14 +265,15 @@ class YoloLabeler:
 
         # Time tracking
         self._image_start_time = None
-        self._stats = {"sessions": [], "images": {}}
+        self._stats = {"sessions": [], "image_status": {}}
         self._current_user = getpass.getuser()
         self._session_start = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
         self._timer_after_id = None
-        self._session_annotated_images = set()  # images with new annotations this session
-        self._session_total_time = 0.0
-        self._session_annotation_count = 0
-        self._session_baseline_counts = {}  # {img_name: count before this session}
+        self._session_annotated_images = set()
+        self._session_images = {}  # {img_name: per-image stats for current session}
+        self._session_loaded_counts = {}  # {img_name: annotation count when loaded from disk}
+        self._session_add_counts = {}  # {img_name: gross annotations added this session}
+        self._session_total_adds = 0
 
         # Cached image dims for fast CSV export
         self._image_dims = {}
@@ -451,7 +453,7 @@ class YoloLabeler:
         si = ctk.CTkFrame(self.status_bar, fg_color="transparent")
         si.pack(fill="x", padx=8, pady=2)
 
-        # ── Mode toggle ──
+        # ── Left side: Mode, Stream, Snap, Fit ──
         self.mode_btn = ctk.CTkButton(
             si, text="Mode: Box \u25ad", width=120,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
@@ -459,13 +461,19 @@ class YoloLabeler:
             command=self._toggle_mode)
         self.mode_btn.pack(side="left", padx=(0, 4))
 
-        # ── Stream toggle ──
         self.stream_btn = ctk.CTkButton(
             si, text="Stream: Off", width=95,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11),
             command=self._toggle_stream)
         self.stream_btn.pack(side="left", padx=(0, 4))
+
+        self.snap_btn = ctk.CTkButton(
+            si, text="Snap: Off", width=80,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR, font=(self.font_family, 11),
+            command=self._toggle_snap)
+        self.snap_btn.pack(side="left", padx=(0, 4))
 
         self._status_sep(si)
 
@@ -481,40 +489,37 @@ class YoloLabeler:
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11),
             command=self._fit_to_height)
-        self.fit_h_btn.pack(side="left", padx=(0, 8))
+        self.fit_h_btn.pack(side="left", padx=(0, 4))
 
-        self._status_sep(si)
+        # ── Right side: User, Time, Zoom ──
+        self.status_user = ctk.CTkLabel(
+            si, text=f"User: {self._current_user}",
+            font=(self.font_family, 11), text_color=FG_COLOR)
+        self.status_user.pack(side="right", padx=(8, 0))
 
-        self.snap_btn = ctk.CTkButton(
-            si, text="Snap: Off", width=80,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11),
-            command=self._toggle_snap)
-        self.snap_btn.pack(side="left", padx=(0, 8))
-
-        self._status_sep(si)
-
-        self.status_zoom = ctk.CTkLabel(
-            si, text="Zoom: 100%", font=(self.font_family, 11),
-            text_color=FG_COLOR)
-        self.status_zoom.pack(side="left", padx=(0, 16))
-
-        self._status_sep(si)
+        self._status_sep_right(si)
 
         self.status_time = ctk.CTkLabel(
             si, text="Image time: 0:00", font=(self.font_family, 11),
             text_color=FG_COLOR)
-        self.status_time.pack(side="left", padx=(0, 16))
+        self.status_time.pack(side="right", padx=(8, 0))
 
-        self.status_user = ctk.CTkLabel(
-            si, text=f"User: {self._current_user}",
-            font=(self.font_family, 11), text_color=FG_COLOR)
-        self.status_user.pack(side="right", padx=(16, 0))
+        self._status_sep_right(si)
+
+        self.status_zoom = ctk.CTkLabel(
+            si, text="Zoom: 100%", font=(self.font_family, 11),
+            text_color=FG_COLOR)
+        self.status_zoom.pack(side="right", padx=(8, 0))
 
     def _status_sep(self, parent):
         sep = ctk.CTkFrame(parent, width=1, height=20,
                            fg_color=BORDER_COLOR)
         sep.pack(side="left", padx=6, fill="y")
+
+    def _status_sep_right(self, parent):
+        sep = ctk.CTkFrame(parent, width=1, height=20,
+                           fg_color=BORDER_COLOR)
+        sep.pack(side="right", padx=6, fill="y")
 
     def _update_status(self):
         pct = int(self.scale * 100)
@@ -679,6 +684,14 @@ class YoloLabeler:
         self._load_class_colors()
         self._load_stats()
         self._load_completed_from_stats()
+        # Prepopulate image_status for every image in the folder
+        for img_name in self.images:
+            if img_name not in self._stats["image_status"]:
+                if self._has_annotations(img_name):
+                    self._stats["image_status"][img_name] = "partial"
+                else:
+                    self._stats["image_status"][img_name] = "unannotated"
+        self._save_stats()
         self._image_dims = {}
         self._rebuild_filter()
         self.index = 0
@@ -699,15 +712,6 @@ class YoloLabeler:
             except Exception:
                 pass
         return False
-
-    def _find_resume_index(self):
-        last_labeled = -1
-        for i, img_name in enumerate(self.images):
-            if self._has_annotations(img_name):
-                last_labeled = i
-        if last_labeled >= 0:
-            return last_labeled
-        return 0
 
     def _show_welcome(self):
         self.canvas.delete("all")
@@ -763,10 +767,11 @@ class YoloLabeler:
             return
 
         self._session_start = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-        self._session_total_time = 0.0
-        self._session_annotation_count = 0
         self._session_annotated_images = set()
-        self._session_baseline_counts = {}
+        self._session_images = {}
+        self._session_loaded_counts = {}
+        self._session_add_counts = {}
+        self._session_total_adds = 0
         self.load_image()
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -785,6 +790,8 @@ class YoloLabeler:
                 print("[YoloLabeler] Done.")
             except Exception as e:
                 print(f"Warning: Could not save on exit: {e}")
+        if self._timer_after_id:
+            self.root.after_cancel(self._timer_after_id)
         self.root.destroy()
 
     def _on_escape(self, event=None):
@@ -819,12 +826,19 @@ class YoloLabeler:
                     self._stats = json.load(f)
                 if "sessions" not in self._stats:
                     self._stats["sessions"] = []
-                if "images" not in self._stats:
-                    self._stats["images"] = {}
+                if "image_status" not in self._stats:
+                    self._stats["image_status"] = {}
+                # Migrate old format: extract completion from top-level "images"
+                if "images" in self._stats:
+                    for iname, ientry in self._stats["images"].items():
+                        if ientry.get("status") == "complete":
+                            self._stats["image_status"].setdefault(
+                                iname, "complete")
+                    del self._stats["images"]
             except Exception:
-                self._stats = {"sessions": [], "images": {}}
+                self._stats = {"sessions": [], "image_status": {}}
         else:
-            self._stats = {"sessions": [], "images": {}}
+            self._stats = {"sessions": [], "image_status": {}}
 
     def _save_stats(self):
         path = self._stats_path()
@@ -841,54 +855,63 @@ class YoloLabeler:
         """Call whenever user creates/modifies an annotation."""
         if self.images:
             img_name = self.images[self.index]
-            if img_name not in self._session_annotated_images:
-                # Record baseline count before any edits this session
-                entry = self._stats["images"].get(img_name, {})
-                self._session_baseline_counts[img_name] = entry.get(
-                    "annotation_count", 0)
             self._session_annotated_images.add(img_name)
             if self._image_start_time is None:
                 self._image_start_time = time.time()
+
+    def _record_annotation_added(self):
+        """Increment gross-add counter for the current image (box or polygon creation only)."""
+        if self.images:
+            img_name = self.images[self.index]
+            self._session_add_counts[img_name] = (
+                self._session_add_counts.get(img_name, 0) + 1)
+            self._session_total_adds += 1
 
     def _record_image_time(self):
         if self._image_start_time is None or not self.images:
             return
         elapsed = time.time() - self._image_start_time
-        self._image_start_time = time.time()
+        self._image_start_time = None
 
         img_name = self.images[self.index]
         if img_name not in self._session_annotated_images:
             return
-        entry = self._stats["images"].setdefault(
-            img_name, {"total_seconds": 0.0, "annotation_count": 0,
-                       "last_modified_by": ""})
-        entry["total_seconds"] += elapsed
-        entry["last_modified_by"] = self._current_user
 
-        # Accumulate per-session totals
-        self._session_total_time += elapsed
+        entry = self._session_images.setdefault(
+            img_name, {"session_seconds": 0.0,
+                       "loaded_annotation_count": self._session_loaded_counts.get(img_name, 0),
+                       "annotations_added": 0,
+                       "final_annotation_count": 0})
+        entry["session_seconds"] += elapsed
 
         count = len(self.boxes) + len(self.polygons)
-        entry["annotation_count"] = count
-        if count > 0:
+        entry["final_annotation_count"] = count
+        adds = self._session_add_counts.get(img_name, 0)
+        entry["annotations_added"] += adds
+        self._session_add_counts[img_name] = 0
+
+        if entry["annotations_added"] > 0:
             entry["avg_seconds_per_annotation"] = round(
-                entry["total_seconds"] / count, 2)
+                entry["session_seconds"] / entry["annotations_added"], 2)
         else:
             entry["avg_seconds_per_annotation"] = 0.0
-        # Set status to partial if not already marked complete
-        if entry.get("status") != "complete":
-            entry["status"] = "partial" if count > 0 else "unannotated"
+
+        # Remove image entry if it ended up with nothing
+        if count == 0 and entry["annotations_added"] == 0:
+            self._session_images.pop(img_name, None)
+            self._session_annotated_images.discard(img_name)
+
+        # Update persistent image_status
+        if self._stats.get("image_status", {}).get(img_name) != "complete":
+            self._stats["image_status"][img_name] = (
+                "partial" if count > 0 else "unannotated")
 
     def _end_session(self):
-        # Count only NEW annotations created during this session
-        total_annotations = 0
-        for img_name in self._session_annotated_images:
-            entry = self._stats["images"].get(img_name, {})
-            current = entry.get("annotation_count", 0)
-            baseline = self._session_baseline_counts.get(img_name, 0)
-            total_annotations += max(0, current - baseline)
-
-        total_time = round(self._session_total_time, 2)
+        total_annotations = self._session_total_adds
+        # Sum time only from images where annotations were added
+        total_time = round(sum(
+            img["session_seconds"] for img in self._session_images.values()
+            if img.get("annotations_added", 0) > 0), 2)
         avg_time = (round(total_time / total_annotations, 2)
                     if total_annotations > 0 else 0.0)
 
@@ -901,6 +924,8 @@ class YoloLabeler:
             "total_annotations": total_annotations,
             "total_time_seconds": total_time,
             "avg_seconds_per_annotation": avg_time,
+            "images": {k: v for k, v in self._session_images.items()
+                       if v.get("annotations_added", 0) > 0},
         })
 
     def _start_timer_display(self):
@@ -921,17 +946,13 @@ class YoloLabeler:
     def _load_completed_from_stats(self):
         """Populate _completed_images set from stats JSON on folder load."""
         self._completed_images = set()
-        for img_name, entry in self._stats.get("images", {}).items():
-            if entry.get("status") == "complete":
+        for img_name, status in self._stats.get("image_status", {}).items():
+            if status == "complete":
                 self._completed_images.add(img_name)
 
     def _get_image_status(self, img_name):
         """Return 'complete', 'partial', or 'unannotated' for an image."""
-        if img_name in self._completed_images:
-            return "complete"
-        if self._has_annotations(img_name):
-            return "partial"
-        return "unannotated"
+        return self._stats.get("image_status", {}).get(img_name, "unannotated")
 
     def _on_complete_toggled(self):
         """Handle the Complete checkbox toggle."""
@@ -944,11 +965,8 @@ class YoloLabeler:
         else:
             self._completed_images.discard(img_name)
             status = "partial" if self._has_annotations(img_name) else "unannotated"
-        # Write into stats
-        entry = self._stats["images"].setdefault(
-            img_name, {"total_seconds": 0.0, "annotation_count": 0,
-                       "last_modified_by": ""})
-        entry["status"] = status
+        # Persist completion status
+        self._stats["image_status"][img_name] = status
         self._save_stats()
         self._rebuild_filter()
         self._update_filter_label()
@@ -1122,9 +1140,12 @@ class YoloLabeler:
         if self.image_folder is None:
             return
         classes_file = os.path.join(self.image_folder, "classes.txt")
-        with open(classes_file, "w") as f:
-            for cid in sorted(self.class_names.keys()):
-                f.write(f"{self.class_names[cid]}\n")
+        try:
+            with open(classes_file, "w") as f:
+                for cid in sorted(self.class_names.keys()):
+                    f.write(f"{self.class_names[cid]}\n")
+        except OSError as e:
+            print(f"Warning: Could not save classes file: {e}")
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Class colors
@@ -1287,9 +1308,12 @@ class YoloLabeler:
         if not self.image_folder:
             return
         path = os.path.join(self.image_folder, "class_colors.json")
-        with open(path, "w") as f:
-            json.dump({str(k): v for k, v in self.class_colors.items()},
-                      f, indent=2)
+        try:
+            with open(path, "w") as f:
+                json.dump({str(k): v for k, v in self.class_colors.items()},
+                          f, indent=2)
+        except OSError as e:
+            print(f"Warning: Could not save class colors: {e}")
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Title & counter
@@ -1436,11 +1460,18 @@ class YoloLabeler:
 
         self._initial_fit()
         self._load_existing_labels()
+        # Record loaded count on first visit per session (baseline for delta)
+        img_name = self.images[self.index]
+        if img_name not in self._session_loaded_counts:
+            self._session_loaded_counts[img_name] = (
+                len(self.boxes) + len(self.polygons))
         self.display_image()
         self.update_title()
         self._update_status()
 
     def _initial_fit(self):
+        if self.img_width <= 0 or self.img_height <= 0:
+            return
         cw = self.canvas.winfo_width()
         ch = self.canvas.winfo_height()
         if cw < 10:
@@ -1458,6 +1489,8 @@ class YoloLabeler:
     def _fit_to_width(self, event=None):
         if not self.original_image:
             return
+        if self.img_width <= 0 or self.img_height <= 0:
+            return
         cw = self.canvas.winfo_width() or 1200
         ch = self.canvas.winfo_height() or 750
         fit_scale = cw / self.img_width
@@ -1470,6 +1503,8 @@ class YoloLabeler:
 
     def _fit_to_height(self, event=None):
         if not self.original_image:
+            return
+        if self.img_width <= 0 or self.img_height <= 0:
             return
         cw = self.canvas.winfo_width() or 1200
         ch = self.canvas.winfo_height() or 750
@@ -1519,8 +1554,8 @@ class YoloLabeler:
                         if class_id not in self.class_names:
                             self.class_names[class_id] = f"class_{class_id}"
                             self._refresh_class_dropdown()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Warning: Could not load detect labels for {stem}: {e}")
 
         segment_path = os.path.join(self.segment_dir, f"{stem}.txt")
         if os.path.exists(segment_path):
@@ -1541,8 +1576,8 @@ class YoloLabeler:
                         if class_id not in self.class_names:
                             self.class_names[class_id] = f"class_{class_id}"
                             self._refresh_class_dropdown()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Warning: Could not load segment labels for {stem}: {e}")
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Canvas resize debounce
@@ -1624,7 +1659,7 @@ class YoloLabeler:
         s = self.scale
         line_w = max(1, min(2 + s * 0.5, 6))
         poly_w = max(1, min(2.5 + s * 0.5, 7))
-        vert_r = max(2, min(VERTEX_HANDLE_RADIUS * (0.6 + s * 0.4), 12))
+        vert_r = max(3, min(VERTEX_HANDLE_RADIUS * (1.6 - s * 0.2), 12))
         label_size = max(7, min(int(9 * (0.6 + s * 0.4)), 18))
         dash_a = max(2, int(4 * (0.5 + s * 0.5)))
         dash_b = max(2, int(4 * (0.5 + s * 0.5)))
@@ -1653,7 +1688,7 @@ class YoloLabeler:
             if len(canvas_pts) >= 6:
                 self.canvas.create_polygon(
                     *canvas_pts, outline=draw_color, fill="",
-                    width=poly_w * (1.5 if is_selected else 1))
+                    width=poly_w)
             # Show vertices: selected polygon always, hovered, or dragged
             if self.mode == "polygon":
                 show_verts = (
@@ -1899,17 +1934,17 @@ class YoloLabeler:
             snapped = self._maybe_snap(ix, iy)
             if snapped != (ix, iy):
                 sx, sy = self.image_to_canvas(*snapped)
-                r = SNAP_RADIUS + 4
+                snap_r = max(4, min(SNAP_RADIUS * (1.6 - self.scale * 0.2), 14))
                 if self._snap_indicator_item:
                     try:
                         self.canvas.coords(
                             self._snap_indicator_item,
-                            sx - r, sy - r, sx + r, sy + r)
+                            sx - snap_r, sy - snap_r, sx + snap_r, sy + snap_r)
                     except tk.TclError:
                         self._snap_indicator_item = None
                 if not self._snap_indicator_item:
                     self._snap_indicator_item = self.canvas.create_oval(
-                        sx - r, sy - r, sx + r, sy + r,
+                        sx - snap_r, sy - snap_r, sx + snap_r, sy + snap_r,
                         outline="#FFE7B1", fill="#FFE7B1",
                         width=2, stipple="gray50")
             else:
@@ -2176,12 +2211,13 @@ class YoloLabeler:
         self._push_undo()
         self.boxes.append((x1, y1, x2, y2, self.active_class))
         self._mark_image_annotated()
+        self._record_annotation_added()
         self.rect = None
         self.display_image()
         self.update_title()
 
     # ──────────────────────────────────────────────────────────────────────────
-    #  Polygon mode — v3 rework
+    #  Polygon mode
     # ──────────────────────────────────────────────────────────────────────────
     def _poly_press(self, event):
         ix, iy = self.canvas_to_image(event.x, event.y)
@@ -2309,6 +2345,7 @@ class YoloLabeler:
         self._push_undo()
         self.polygons.append((clamped, self.active_class))
         self._mark_image_annotated()
+        self._record_annotation_added()
         self.current_polygon = []
         self._poly_preview_line = None
         self.display_image()
@@ -2409,7 +2446,7 @@ class YoloLabeler:
         """Snapshot current annotation state before a mutation."""
         snapshot = (
             list(self.boxes),
-            [(list(pts), cls) for pts, cls in self.polygons],
+            copy.deepcopy(self.polygons),
             self._selected_polygon_idx,
         )
         self._undo_stack.append(snapshot)
@@ -2430,7 +2467,7 @@ class YoloLabeler:
         # Push current state to redo
         redo_snapshot = (
             list(self.boxes),
-            [(list(pts), cls) for pts, cls in self.polygons],
+            copy.deepcopy(self.polygons),
             self._selected_polygon_idx,
         )
         self._redo_stack.append(redo_snapshot)
@@ -2455,7 +2492,7 @@ class YoloLabeler:
             return
         undo_snapshot = (
             list(self.boxes),
-            [(list(pts), cls) for pts, cls in self.polygons],
+            copy.deepcopy(self.polygons),
             self._selected_polygon_idx,
         )
         self._undo_stack.append(undo_snapshot)
@@ -2483,27 +2520,33 @@ class YoloLabeler:
         segment_path = os.path.join(self.segment_dir, f"{stem}.txt")
         img_w = self.img_width
         img_h = self.img_height
+        if img_w <= 0 or img_h <= 0:
+            print(f"Warning: Invalid image dimensions ({img_w}x{img_h}), skipping save")
+            return
 
-        if self.boxes:
-            with open(detect_path, "w") as f:
-                for x1, y1, x2, y2, cls in self.boxes:
-                    xc = ((x1 + x2) / 2) / img_w
-                    yc = ((y1 + y2) / 2) / img_h
-                    w = (x2 - x1) / img_w
-                    h = (y2 - y1) / img_h
-                    f.write(f"{cls} {xc:.6f} {yc:.6f} {w:.6f} {h:.6f}\n")
-        elif os.path.exists(detect_path):
-            os.remove(detect_path)
+        try:
+            if self.boxes:
+                with open(detect_path, "w") as f:
+                    for x1, y1, x2, y2, cls in self.boxes:
+                        xc = ((x1 + x2) / 2) / img_w
+                        yc = ((y1 + y2) / 2) / img_h
+                        w = (x2 - x1) / img_w
+                        h = (y2 - y1) / img_h
+                        f.write(f"{cls} {xc:.6f} {yc:.6f} {w:.6f} {h:.6f}\n")
+            elif os.path.exists(detect_path):
+                os.remove(detect_path)
 
-        if self.polygons:
-            with open(segment_path, "w") as f:
-                for points, cls in self.polygons:
-                    coords = " ".join(
-                        f"{x / img_w:.6f} {y / img_h:.6f}"
-                        for x, y in points)
-                    f.write(f"{cls} {coords}\n")
-        elif os.path.exists(segment_path):
-            os.remove(segment_path)
+            if self.polygons:
+                with open(segment_path, "w") as f:
+                    for points, cls in self.polygons:
+                        coords = " ".join(
+                            f"{x / img_w:.6f} {y / img_h:.6f}"
+                            for x, y in points)
+                        f.write(f"{cls} {coords}\n")
+            elif os.path.exists(segment_path):
+                os.remove(segment_path)
+        except OSError as e:
+            print(f"Warning: Could not save annotations: {e}")
 
     def _get_oriented_size(self, img_path):
         """Get image dimensions accounting for EXIF orientation without loading pixels."""
@@ -2615,16 +2658,6 @@ def main():
     root.geometry("1200x800")
     root.title("YoloLabeler")
     root.configure(fg_color=BG_COLOR)
-
-    if sys.platform.startswith("win"):
-        icon_path = os.path.join(
-            os.path.dirname(__file__), "..", "..", "icon.ico")
-        icon_path = os.path.abspath(icon_path)
-        if os.path.exists(icon_path):
-            try:
-                root.iconbitmap(icon_path)
-            except Exception:
-                pass
 
     folder = None
     if len(sys.argv) > 1:
