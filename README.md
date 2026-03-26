@@ -4,9 +4,9 @@
 
 Lightweight desktop tool for drawing YOLO bounding-box and instance segmentation
 annotations on images.
-Built with Python + Tkinter — no GPU, no server, no browser required.
+Built with Python + CustomTkinter — no GPU, no server, no browser required.
 
-![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue)
+![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -27,9 +27,9 @@ pip install -e .
 
 ### Requirements
 
-- Python 3.8+
+- Python 3.9+
 - Pillow ≥ 9.0
-- Tkinter (included with most Python installations)
+- CustomTkinter ≥ 5.0
 
 ---
 
@@ -64,27 +64,30 @@ python -m yololabeler /path/to/images
 | Action                       | Input                    |
 |------------------------------|--------------------------|
 | Toggle Box / Polygon mode    | `m`                      |
+| Toggle vertex streaming      | `v`                      |
+| Toggle vertex snapping       | `s`                      |
+| Select class by id           | `0`–`9`                  |
+| Undo                         | `Ctrl+Z`                 |
+| Redo                         | `Ctrl+Y`                 |
+| Toggle help overlay          | `h`                      |
+| Cancel / Deselect polygon    | `Escape`                 |
+| Next / Previous image        | `→` / `←`                |
 | **Box mode**                 |                          |
 | Draw a box                   | Left-click + drag        |
 | Delete a box                 | Right-click on box       |
 | **Polygon mode**             |                          |
 | Place vertex                 | Left-click               |
+| Select polygon               | Left-click on polygon    |
 | Close polygon                | Double-click             |
-| Move vertex                  | Drag vertex              |
-| Insert vertex on edge        | Click on edge            |
+| Move vertex                  | Drag vertex (selected)   |
+| Insert vertex on edge        | Click edge (selected)    |
 | Delete vertex                | Right-click vertex       |
 | Delete polygon               | Right-click in polygon   |
-| Cancel polygon in progress   | `Escape`                 |
 | **Navigation & view**        |                          |
-| Next / Previous image        | Right / Left arrow       |
 | Pan up / down                | Scroll                   |
 | Pan left / right             | Shift + Scroll           |
 | Zoom at cursor               | Ctrl + Scroll            |
 | Pan (free)                   | Middle-click + drag      |
-| Select class by id           | `0`–`9`                  |
-| Undo                         | `Ctrl+Z`                 |
-| Redo                         | `Ctrl+Y`                 |
-| Toggle help overlay          | `h`                      |
 
 ---
 
@@ -141,17 +144,25 @@ folder. This file is automatically loaded on next launch so class names persist.
 
 ## Features
 
+- **Dark theme** — modern CustomTkinter UI
 - **Box + Polygon modes** — toggle with `m` key or toolbar button
-- **Full vertex editing** — drag, insert on edge, right-click delete
-- **Multi-class support** — dropdown selector + inline "Add" for new classes
-- **Undo / Redo** — `Ctrl+Z` / `Ctrl+Y` for boxes, polygons, and vertices
+- **Vertex streaming** — continuous vertex placement while moving the mouse (`v` to toggle)
+- **Edge snapping** — snap to nearby polygon edges while streaming (`s` to toggle)
+- **Polygon selection** — click a polygon to select it for editing; Escape to deselect
+- **Full vertex editing** — drag, insert on edge, right-click delete (on selected polygon)
+- **Snapshot undo / redo** — `Ctrl+Z` / `Ctrl+Y` undoes/redoes any mutation including deletes, vertex moves, and edge inserts
+- **Multi-class support** — dropdown selector + inline "Add" for new classes, per-class colors
+- **Completion tracking** — mark images as complete with a checkbox; filter by status (All / Complete / Partial / Unannotated)
+- **Annotation stats** — per-image and per-session timing, annotation counts, saved to `annotation_stats.json`
 - **Separate label dirs** — `labels/detect/` and `labels/segment/` for clean Ultralytics training
-- **Auto-resume** — reopens at the last annotated image
+- **Dynamic symbology** — line widths, vertex sizes, and labels scale with zoom level
+- **Fit-to-view** — auto-fits image on open and window resize
+- **Wrap-around navigation** — next/prev image wraps to start/end instead of closing
 - **EXIF orientation** — auto-corrects rotated phone photos
 - **Viewport cropping** — only renders the visible region, safe at any zoom level
 - **Save on navigate** — annotations are saved when you change images, quit, or close the window
 - **Open Folder button** — switch image folders mid-session
-- **Progress counter** — toolbar shows number of labeled images and annotation class counts
+- **Consolidated CSV** — pixel-coordinate CSV export rebuilt from all label files on exit
 
 ---
 
