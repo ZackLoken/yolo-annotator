@@ -26,7 +26,6 @@ Features:
 """
 
 import os
-import re
 import sys
 import json
 import math
@@ -35,15 +34,24 @@ import getpass
 import datetime
 import contextlib
 import copy
-from collections import defaultdict
+from collections import namedtuple
 import tkinter as tk
 import tkinter.font as tkFont
 from tkinter import filedialog, messagebox, colorchooser
 from PIL import Image, ImageTk, ExifTags
 
 import customtkinter as ctk
-from shapely.geometry import Polygon as ShapelyPolygon
-from shapely.validation import make_valid
+import shutil
+
+from yololabeler.label_io import (
+    parse_detect_labels, parse_segment_labels,
+    parse_detect_predictions, parse_segment_predictions,
+    write_detect_labels, write_segment_labels,
+)
+from yololabeler.matching import (
+    point_to_segment_dist, point_in_polygon,
+    box_iou, polygon_iou, box_to_points, compute_matches,
+)
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
@@ -52,6 +60,9 @@ ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 VERTEX_HANDLE_RADIUS = 4
 STREAM_MIN_DISTANCE = 6   # min image-pixel distance between streamed vertices
 SNAP_RADIUS = 15           # canvas-pixel radius for vertex/edge snapping
+
+# Lightweight event object for synthesised clicks
+_SynthEvent = namedtuple('_SynthEvent', ['x', 'y'])
 
 
 # ── Dark Theme Palette ─────────────────────────────────────────────────────────
@@ -201,15 +212,8 @@ def auto_orient_image(img):
     return img
 
 
-def _point_to_segment_dist(px, py, ax, ay, bx, by):
-    dx, dy = bx - ax, by - ay
-    len_sq = dx * dx + dy * dy
-    if len_sq == 0:
-        return math.hypot(px - ax, py - ay)
-    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / len_sq))
-    proj_x = ax + t * dx
-    proj_y = ay + t * dy
-    return math.hypot(px - proj_x, py - proj_y)
+# Backwards-compatible alias — callers use _point_to_segment_dist
+_point_to_segment_dist = point_to_segment_dist
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -358,6 +362,11 @@ class YoloLabeler:
         self._completed_images = set()
         self._active_filter = "all"  # "all", "complete", "partial", "unannotated"
         self._filtered_indices = []  # indices into self.images matching filter
+
+        # Deferred display / review flags
+        self._defer_display = False
+        self._review_recompute_on_return = False
+        self._review_editing_det = None
 
         # SI logo image ref (prevent GC)
         self._logo_image = None
@@ -1038,22 +1047,34 @@ class YoloLabeler:
         self._key_action(action)
 
     def _on_right_key(self, event=None):
+        focused = self.root.focus_get()
+        if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
+            return
         if self.tabview.get() == "Review":
             self._review_next_detection()
         else:
             self.next_image()
 
     def _on_left_key(self, event=None):
+        focused = self.root.focus_get()
+        if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
+            return
         if self.tabview.get() == "Review":
             self._review_prev_detection()
         else:
             self.prev_image()
 
     def _on_up_key(self, event=None):
+        focused = self.root.focus_get()
+        if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
+            return
         if self.tabview.get() == "Review":
             self._review_next_image()
 
     def _on_down_key(self, event=None):
+        focused = self.root.focus_get()
+        if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
+            return
         if self.tabview.get() == "Review":
             self._review_prev_image()
 
@@ -1076,10 +1097,6 @@ class YoloLabeler:
         cx = self.canvas.winfo_pointerx() - self.canvas.winfo_rootx()
         cy = self.canvas.winfo_pointery() - self.canvas.winfo_rooty()
         # Create a synthetic event
-        class _SynthEvent:
-            def __init__(self, x: int, y: int):
-                self.x = x
-                self.y = y
         fake = _SynthEvent(cx, cy)
         self.on_button_press(fake)
 
@@ -1211,7 +1228,6 @@ class YoloLabeler:
 
     def _migrate_state_files(self):
         """Move legacy JSON files from image folder root into state/."""
-        import shutil
         for name in ("annotation_stats.json", "review_stats.json",
                      "review_state.json", "classes.json"):
             old = os.path.join(self.image_folder, name)
@@ -1235,7 +1251,7 @@ class YoloLabeler:
             if not os.path.exists(label_path):
                 continue
             try:
-                with open(label_path, "r") as f:
+                with open(label_path, "r", encoding="utf-8") as f:
                     for line in f:
                         if line.strip():
                             return True
@@ -1311,8 +1327,8 @@ class YoloLabeler:
                 self.save_annotations()
                 self._end_session()
                 self._save_stats()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Warning: Could not save before opening new folder: {e}")
 
         self._init_folder(new_folder)
 
@@ -1355,6 +1371,10 @@ class YoloLabeler:
                 print(f"Warning: Could not save on exit: {e}")
         if self._timer_after_id:
             self.root.after_cancel(self._timer_after_id)
+        if self._resize_after_id:
+            self.root.after_cancel(self._resize_after_id)
+        if self._review_resize_after_id:
+            self.root.after_cancel(self._review_resize_after_id)
         self.root.destroy()
 
     def _on_escape(self, event=None):
@@ -1387,7 +1407,7 @@ class YoloLabeler:
         path = self._stats_path()
         if path and os.path.exists(path):
             try:
-                with open(path, "r") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     self._stats = json.load(f)
                 if "sessions" not in self._stats:
                     self._stats["sessions"] = []
@@ -1411,7 +1431,7 @@ class YoloLabeler:
             return
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(self._stats, f, indent=2)
         except Exception as e:
             print(f"Warning: Could not save stats: {e}")
@@ -1427,7 +1447,7 @@ class YoloLabeler:
         path = self._review_state_path()
         if path and os.path.exists(path):
             try:
-                with open(path, "r") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     self._review_state = json.load(f)
             except Exception:
                 self._review_state = {}
@@ -1439,7 +1459,7 @@ class YoloLabeler:
         if not path:
             return
         try:
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(self._review_state, f, indent=2)
         except Exception as e:
             print(f"Warning: Could not save review state: {e}")
@@ -1707,41 +1727,9 @@ class YoloLabeler:
             pass
 
     def _on_class_enter(self, event=None):
-        text = self.class_dropdown.get().strip()
-        if not text:
-            return
-        # Strip off the " (N)" count suffix if present (from dropdown display)
-        text = re.sub(r'\s*\(\d+\)\s*$', '', text).strip()
-
-        if ":" in text:
-            try:
-                class_id = int(text.split(":")[0].strip())
-                if class_id in self.class_names:
-                    self.active_class = class_id
-                    self._refresh_class_dropdown()
-                    self._update_color_btn()
-                    self.update_title()
-                    return
-            except (ValueError, IndexError):
-                pass
-
-        for cid, cname in self.class_names.items():
-            if cname.lower() == text.lower():
-                self.active_class = cid
-                self._refresh_class_dropdown()
-                self._update_color_btn()
-                self.update_title()
-                return
-
-        next_id = (max(self.class_names.keys()) + 1
-                   if self.class_names else 0)
-        self.class_names[next_id] = text
-        self.active_class = next_id
-        print(f"[YoloLabeler] New class added: {next_id}: {text}")
-        self._refresh_class_dropdown()
-        self._update_color_btn()
-        self._save_classes_file()
-        self.update_title()
+        # NOTE: dead code — method is not bound to any event.
+        #       Retained as placeholder; remove if never wired up.
+        pass
 
     def _add_class_dialog(self):
         """Open a small dialog to add a new class by name."""
@@ -1798,7 +1786,7 @@ class YoloLabeler:
             if cid in self.class_colors:
                 data[str(cid)]["color"] = self.class_colors[cid]
         try:
-            with open(classes_path, "w") as f:
+            with open(classes_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except OSError as e:
             print(f"Warning: Could not save classes.json: {e}")
@@ -1965,7 +1953,7 @@ class YoloLabeler:
         classes_json_path = os.path.join(self.state_dir, "classes.json")
         if os.path.exists(classes_json_path):
             try:
-                with open(classes_json_path, "r") as f:
+                with open(classes_json_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self.class_names = {}
                 self.class_colors = {}
@@ -2106,15 +2094,29 @@ class YoloLabeler:
 
         img_path = os.path.join(self.image_folder, self.images[self.index])
 
-        try:
-            self.original_image = Image.open(img_path)
-            self.original_image.load()
-            self.original_image = auto_orient_image(self.original_image)
-        except Exception as e:
-            messagebox.showwarning("Image Error",
-                                    f"Could not load:\n{img_path}\n\n{e}")
-            self.index += 1
-            self.load_image()
+        # Try loading the image; skip corrupt files (bounded to avoid infinite loop)
+        attempts = 0
+        while attempts < len(self.images):
+            img_path = os.path.join(self.image_folder,
+                                    self.images[self.index])
+            try:
+                self.original_image = Image.open(img_path)
+                self.original_image.load()
+                self.original_image = auto_orient_image(self.original_image)
+                break  # success
+            except Exception as e:
+                messagebox.showwarning(
+                    "Image Error",
+                    f"Could not load:\n{img_path}\n\n{e}")
+                self.index += 1
+                if self.index >= len(self.images):
+                    self.index = 0
+                attempts += 1
+        else:
+            # Every image failed to load
+            messagebox.showerror(
+                "No Valid Images",
+                "No loadable images found in this folder.")
             return
 
         self.img_width, self.img_height = self.original_image.size
@@ -2169,51 +2171,30 @@ class YoloLabeler:
         stem = os.path.splitext(self.images[self.index])[0]
 
         detect_path = os.path.join(self.detect_dir, f"{stem}.txt")
-        if os.path.exists(detect_path):
-            try:
-                with open(detect_path, "r") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) != 5:
-                            continue
-                        class_id = int(parts[0])
-                        vals = [float(v) for v in parts[1:]]
-                        xc = vals[0] * self.img_width
-                        yc = vals[1] * self.img_height
-                        w = vals[2] * self.img_width
-                        h = vals[3] * self.img_height
-                        self.boxes.append((
-                            xc - w / 2, yc - h / 2,
-                            xc + w / 2, yc + h / 2, class_id))
-                        if class_id not in self.class_names:
-                            self.class_names[class_id] = f"class_{class_id}"
-                            self._refresh_class_dropdown()
-                            self._save_classes_file()
-            except Exception as e:
-                print(f"Warning: Could not load detect labels for {stem}: {e}")
+        try:
+            boxes, det_cids = parse_detect_labels(
+                detect_path, self.img_width, self.img_height)
+            self.boxes.extend(boxes)
+            for cid in det_cids:
+                if cid not in self.class_names:
+                    self.class_names[cid] = f"class_{cid}"
+                    self._refresh_class_dropdown()
+                    self._save_classes_file()
+        except Exception as e:
+            print(f"Warning: Could not load detect labels for {stem}: {e}")
 
         segment_path = os.path.join(self.segment_dir, f"{stem}.txt")
-        if os.path.exists(segment_path):
-            try:
-                with open(segment_path, "r") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) < 7 or len(parts) % 2 != 1:
-                            continue
-                        class_id = int(parts[0])
-                        vals = [float(v) for v in parts[1:]]
-                        points = []
-                        for i in range(0, len(vals), 2):
-                            px = vals[i] * self.img_width
-                            py = vals[i + 1] * self.img_height
-                            points.append((px, py))
-                        self.polygons.append((points, class_id))
-                        if class_id not in self.class_names:
-                            self.class_names[class_id] = f"class_{class_id}"
-                            self._refresh_class_dropdown()
-                            self._save_classes_file()
-            except Exception as e:
-                print(f"Warning: Could not load segment labels for {stem}: {e}")
+        try:
+            polygons, seg_cids = parse_segment_labels(
+                segment_path, self.img_width, self.img_height)
+            self.polygons.extend(polygons)
+            for cid in seg_cids:
+                if cid not in self.class_names:
+                    self.class_names[cid] = f"class_{cid}"
+                    self._refresh_class_dropdown()
+                    self._save_classes_file()
+        except Exception as e:
+            print(f"Warning: Could not load segment labels for {stem}: {e}")
 
     def _load_predictions(self, image_name, img_w, img_h):
         """Load model predictions for an image.
@@ -2228,219 +2209,46 @@ class YoloLabeler:
             return pred_boxes, pred_polygons
         stem = os.path.splitext(image_name)[0]
 
-        # Detect predictions: class_id confidence cx cy w h
         detect_path = os.path.join(self.pred_detect_dir, f"{stem}.txt")
-        if os.path.exists(detect_path):
-            try:
-                with open(detect_path, "r") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) != 6:
-                            continue
-                        class_id = int(parts[0])
-                        conf = float(parts[1])
-                        vals = [float(v) for v in parts[2:]]
-                        xc = vals[0] * img_w
-                        yc = vals[1] * img_h
-                        w = vals[2] * img_w
-                        h = vals[3] * img_h
-                        pred_boxes.append((
-                            xc - w / 2, yc - h / 2,
-                            xc + w / 2, yc + h / 2,
-                            class_id, conf))
-                        if class_id not in self.class_names:
-                            self.class_names[class_id] = f"class_{class_id}"
-                            self._refresh_class_dropdown()
-                            self._save_classes_file()
-            except Exception as e:
-                print(f"Warning: Could not load detect predictions for {stem}: {e}")
+        try:
+            pboxes, det_cids = parse_detect_predictions(
+                detect_path, img_w, img_h)
+            pred_boxes.extend(pboxes)
+            for cid in det_cids:
+                if cid not in self.class_names:
+                    self.class_names[cid] = f"class_{cid}"
+                    self._refresh_class_dropdown()
+                    self._save_classes_file()
+        except Exception as e:
+            print(f"Warning: Could not load detect predictions for {stem}: {e}")
 
-        # Segment predictions: class_id confidence x1 y1 x2 y2 ...
         segment_path = os.path.join(self.pred_segment_dir, f"{stem}.txt")
-        if os.path.exists(segment_path):
-            try:
-                with open(segment_path, "r") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) < 8:  # class + conf + at least 3 x,y pairs
-                            continue
-                        if (len(parts) - 2) % 2 != 0:
-                            continue
-                        class_id = int(parts[0])
-                        conf = float(parts[1])
-                        vals = [float(v) for v in parts[2:]]
-                        points = []
-                        for i in range(0, len(vals), 2):
-                            px = vals[i] * img_w
-                            py = vals[i + 1] * img_h
-                            points.append((px, py))
-                        pred_polygons.append((points, class_id, conf))
-                        if class_id not in self.class_names:
-                            self.class_names[class_id] = f"class_{class_id}"
-                            self._refresh_class_dropdown()
-                            self._save_classes_file()
-            except Exception as e:
-                print(f"Warning: Could not load segment predictions for {stem}: {e}")
+        try:
+            ppolys, seg_cids = parse_segment_predictions(
+                segment_path, img_w, img_h)
+            pred_polygons.extend(ppolys)
+            for cid in seg_cids:
+                if cid not in self.class_names:
+                    self.class_names[cid] = f"class_{cid}"
+                    self._refresh_class_dropdown()
+                    self._save_classes_file()
+        except Exception as e:
+            print(f"Warning: Could not load segment predictions for {stem}: {e}")
 
         return pred_boxes, pred_polygons
 
     # ──────────────────────────────────────────────────────────────────────────
-    #  IoU matching engine (review tab)
+    #  IoU matching engine — delegates to matching.py
     # ──────────────────────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _box_iou(b1, b2):
-        """Compute IoU between two boxes (x1, y1, x2, y2, ...)."""
-        x1 = max(b1[0], b2[0])
-        y1 = max(b1[1], b2[1])
-        x2 = min(b1[2], b2[2])
-        y2 = min(b1[3], b2[3])
-        inter = max(0, x2 - x1) * max(0, y2 - y1)
-        area1 = (b1[2] - b1[0]) * (b1[3] - b1[1])
-        area2 = (b2[2] - b2[0]) * (b2[3] - b2[1])
-        union = area1 + area2 - inter
-        if union <= 0:
-            return 0.0
-        return inter / union
-
-    @staticmethod
-    def _polygon_iou_geom(geom1, area1, geom2, area2):
-        """Compute IoU between two pre-built Shapely geometries."""
-        try:
-            inter = geom1.intersection(geom2).area
-            union = area1 + area2 - inter
-            if union <= 0:
-                return 0.0
-            return inter / union
-        except Exception:
-            return 0.0
-
-    @staticmethod
-    def _box_to_points(box):
-        """Convert (x1, y1, x2, y2, ...) to polygon points."""
-        x1, y1, x2, y2 = box[0], box[1], box[2], box[3]
-        return [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+    _box_iou = staticmethod(box_iou)
+    _polygon_iou_geom = staticmethod(polygon_iou)
+    _box_to_points = staticmethod(box_to_points)
 
     def _compute_matches(self, gt_boxes, gt_polygons, pred_boxes, pred_polygons,
                          iou_threshold=0.5, conf_threshold=0.25):
-        """Match predictions to GT and classify as TP/FP/FN.
-
-        Uses greedy matching: sort all same-class GT–Pred pairs by IoU
-        descending, then assign greedily.
-
-        Optimizations:
-          - Box-vs-box pairs use fast arithmetic IoU (no Shapely).
-          - Pairs are grouped by class to avoid useless cross-class checks.
-          - Shapely geometries are built once and reused for polygon pairs.
-
-        Returns dict with keys:
-          'tp': [(gt_type, gt_idx, pred_type, pred_idx, iou, class_id, conf), ...]
-          'fp': [(pred_type, pred_idx, class_id, conf), ...]
-          'fn': [(gt_type, gt_idx, class_id), ...]
-        """
-        # Build unified lists: (type, idx, class_id, box_or_pts)
-        gt_items = []
-        for i, (x1, y1, x2, y2, cid) in enumerate(gt_boxes):
-            gt_items.append(('box', i, cid, (x1, y1, x2, y2)))
-        for i, (pts, cid) in enumerate(gt_polygons):
-            gt_items.append(('polygon', i, cid, pts))
-
-        pred_items = []
-        for i, (x1, y1, x2, y2, cid, conf) in enumerate(pred_boxes):
-            if conf < conf_threshold:
-                continue
-            pred_items.append(('box', i, cid, conf, (x1, y1, x2, y2)))
-        for i, (pts, cid, conf) in enumerate(pred_polygons):
-            if conf < conf_threshold:
-                continue
-            pred_items.append(('polygon', i, cid, conf, pts))
-
-        # Group by class to avoid N×M cross-class iteration
-        gt_by_class = defaultdict(list)
-        for gi, item in enumerate(gt_items):
-            gt_by_class[item[2]].append(gi)
-        pred_by_class = defaultdict(list)
-        for pi, item in enumerate(pred_items):
-            pred_by_class[item[2]].append(pi)
-
-        # Pre-build Shapely geometries only for polygons (lazy, indexed)
-        gt_geom_cache = {}   # gi -> (geom, area)
-        pred_geom_cache = {} # pi -> (geom, area)
-
-        def _get_gt_geom(gi):
-            if gi not in gt_geom_cache:
-                gt_type, _, _, data = gt_items[gi]
-                pts = self._box_to_points(data) if gt_type == 'box' else data
-                g = ShapelyPolygon(pts)
-                if not g.is_valid:
-                    g = make_valid(g)
-                gt_geom_cache[gi] = (g, g.area)
-            return gt_geom_cache[gi]
-
-        def _get_pred_geom(pi):
-            if pi not in pred_geom_cache:
-                p_type, _, _, _, data = pred_items[pi]
-                pts = self._box_to_points(data) if p_type == 'box' else data
-                g = ShapelyPolygon(pts)
-                if not g.is_valid:
-                    g = make_valid(g)
-                pred_geom_cache[pi] = (g, g.area)
-            return pred_geom_cache[pi]
-
-        # Compute IoU pairs, grouped by class
-        pairs = []  # (iou, gt_list_idx, pred_list_idx)
-        box_iou = self._box_iou
-        poly_iou = self._polygon_iou_geom
-
-        for cid in gt_by_class:
-            if cid not in pred_by_class:
-                continue
-            gt_indices = gt_by_class[cid]
-            pred_indices = pred_by_class[cid]
-            for gi in gt_indices:
-                gt_type = gt_items[gi][0]
-                gt_data = gt_items[gi][3]
-                for pi in pred_indices:
-                    p_type = pred_items[pi][0]
-                    p_data = pred_items[pi][4]
-                    # Fast path: box vs box
-                    if gt_type == 'box' and p_type == 'box':
-                        iou = box_iou(gt_data, p_data)
-                    else:
-                        g1, a1 = _get_gt_geom(gi)
-                        g2, a2 = _get_pred_geom(pi)
-                        iou = poly_iou(g1, a1, g2, a2)
-                    if iou >= iou_threshold:
-                        pairs.append((iou, gi, pi))
-
-        # Greedy matching (descending IoU)
-        pairs.sort(key=lambda x: x[0], reverse=True)
-        matched_gt = set()
-        matched_pred = set()
-        tp_list = []
-
-        for iou, gi, pi in pairs:
-            if gi in matched_gt or pi in matched_pred:
-                continue
-            matched_gt.add(gi)
-            matched_pred.add(pi)
-            gt_type, gt_idx, gt_cid, _ = gt_items[gi]
-            p_type, p_idx, p_cid, p_conf, _ = pred_items[pi]
-            tp_list.append((gt_type, gt_idx, p_type, p_idx, iou, gt_cid, p_conf))
-
-        # Unmatched predictions = FP
-        fp_list = []
-        for pi, (p_type, p_idx, p_cid, p_conf, _) in enumerate(pred_items):
-            if pi not in matched_pred:
-                fp_list.append((p_type, p_idx, p_cid, p_conf))
-
-        # Unmatched GT = FN
-        fn_list = []
-        for gi, (gt_type, gt_idx, gt_cid, _) in enumerate(gt_items):
-            if gi not in matched_gt:
-                fn_list.append((gt_type, gt_idx, gt_cid))
-
-        return {'tp': tp_list, 'fp': fp_list, 'fn': fn_list}
+        return compute_matches(gt_boxes, gt_polygons, pred_boxes,
+                               pred_polygons, iou_threshold, conf_threshold)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Canvas resize debounce
@@ -2499,12 +2307,12 @@ class YoloLabeler:
                     (crop_x1, crop_y1, crop_x2, crop_y2))
                 out_w = max(int(crop_w * self.scale), 1)
                 out_h = max(int(crop_h * self.scale), 1)
-                self.displayed_image = cropped.resize(
+                resized = cropped.resize(
                     (out_w, out_h),
                     Image.Resampling.BILINEAR if self._fast_resample
                     else Image.Resampling.LANCZOS)
                 self._cached_tk_image = ImageTk.PhotoImage(
-                    self.displayed_image)
+                    resized)
             else:
                 self._cached_tk_image = None
             self._cached_scale = cache_key
@@ -3327,19 +3135,7 @@ class YoloLabeler:
                     best = (pi, ei, (ix, iy))
         return best
 
-    @staticmethod
-    def _point_in_polygon(px, py, points):
-        n = len(points)
-        inside = False
-        j = n - 1
-        for i in range(n):
-            xi, yi = points[i]
-            xj, yj = points[j]
-            if ((yi > py) != (yj > py)) and \
-               (px < (xj - xi) * (py - yi) / (yj - yi) + xi):
-                inside = not inside
-            j = i
-        return inside
+    _point_in_polygon = staticmethod(point_in_polygon)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  Review Tab
@@ -3512,43 +3308,20 @@ class YoloLabeler:
         stem = os.path.splitext(img_name)[0]
 
         detect_path = os.path.join(self.detect_dir, f"{stem}.txt")
-        if os.path.exists(detect_path):
-            try:
-                with open(detect_path, "r") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) != 5:
-                            continue
-                        cid = int(parts[0])
-                        vals = [float(v) for v in parts[1:]]
-                        xc = vals[0] * self._review_img_w
-                        yc = vals[1] * self._review_img_h
-                        w = vals[2] * self._review_img_w
-                        h = vals[3] * self._review_img_h
-                        self._review_gt_boxes.append((
-                            xc - w / 2, yc - h / 2,
-                            xc + w / 2, yc + h / 2, cid))
-            except Exception:
-                pass
+        try:
+            boxes, _ = parse_detect_labels(
+                detect_path, self._review_img_w, self._review_img_h)
+            self._review_gt_boxes.extend(boxes)
+        except Exception:
+            pass
 
         segment_path = os.path.join(self.segment_dir, f"{stem}.txt")
-        if os.path.exists(segment_path):
-            try:
-                with open(segment_path, "r") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) < 7 or len(parts) % 2 != 1:
-                            continue
-                        cid = int(parts[0])
-                        vals = [float(v) for v in parts[1:]]
-                        points = []
-                        for i in range(0, len(vals), 2):
-                            points.append((
-                                vals[i] * self._review_img_w,
-                                vals[i + 1] * self._review_img_h))
-                        self._review_gt_polygons.append((points, cid))
-            except Exception:
-                pass
+        try:
+            polys, _ = parse_segment_labels(
+                segment_path, self._review_img_w, self._review_img_h)
+            self._review_gt_polygons.extend(polys)
+        except Exception:
+            pass
 
         # Load predictions
         self._review_pred_boxes, self._review_pred_polygons = \
@@ -4305,31 +4078,6 @@ class YoloLabeler:
         if self._review_show_help:
             self._draw_review_help_overlay(c, cw, ch)
 
-    def _pred_det_color(self, pred_idx, pred_type, is_focused):
-        """Get color for a prediction based on its match status."""
-        if not is_focused:
-            return "#555555"  # dimmed
-        # Check if this pred is in FP list
-        for p_type, p_idx, _, _ in self._review_matches.get('fp', []):
-            if p_type == pred_type and p_idx == pred_idx:
-                return "#EF5350"  # red for FP
-        # Must be TP
-        return "#4CAF50"  # green for TP
-
-    @staticmethod
-    def _dim_color(hex_color):
-        """Dim a hex color by reducing brightness."""
-        try:
-            r = int(hex_color[1:3], 16)
-            g = int(hex_color[3:5], 16)
-            b = int(hex_color[5:7], 16)
-            r = int(r * 0.35)
-            g = int(g * 0.35)
-            b = int(b * 0.35)
-            return f"#{r:02x}{g:02x}{b:02x}"
-        except (ValueError, IndexError):
-            return "#333333"
-
     def _draw_review_help_overlay(self, c, cw, ch):
         """Draw a semi-transparent help overlay on the review canvas."""
         help_lines = [
@@ -4792,45 +4540,22 @@ class YoloLabeler:
         # Reload GT boxes
         self._review_gt_boxes = []
         detect_path = os.path.join(self.detect_dir, f"{stem}.txt")
-        if os.path.exists(detect_path):
-            try:
-                with open(detect_path, "r") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) != 5:
-                            continue
-                        cid = int(parts[0])
-                        vals = [float(v) for v in parts[1:]]
-                        xc = vals[0] * self._review_img_w
-                        yc = vals[1] * self._review_img_h
-                        w = vals[2] * self._review_img_w
-                        h = vals[3] * self._review_img_h
-                        self._review_gt_boxes.append((
-                            xc - w / 2, yc - h / 2,
-                            xc + w / 2, yc + h / 2, cid))
-            except Exception:
-                pass
+        try:
+            boxes, _ = parse_detect_labels(
+                detect_path, self._review_img_w, self._review_img_h)
+            self._review_gt_boxes.extend(boxes)
+        except Exception:
+            pass
 
         # Reload GT polygons
         self._review_gt_polygons = []
         segment_path = os.path.join(self.segment_dir, f"{stem}.txt")
-        if os.path.exists(segment_path):
-            try:
-                with open(segment_path, "r") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if len(parts) < 7 or len(parts) % 2 != 1:
-                            continue
-                        cid = int(parts[0])
-                        vals = [float(v) for v in parts[1:]]
-                        points = []
-                        for i in range(0, len(vals), 2):
-                            points.append((
-                                vals[i] * self._review_img_w,
-                                vals[i + 1] * self._review_img_h))
-                        self._review_gt_polygons.append((points, cid))
-            except Exception:
-                pass
+        try:
+            polys, _ = parse_segment_labels(
+                segment_path, self._review_img_w, self._review_img_h)
+            self._review_gt_polygons.extend(polys)
+        except Exception:
+            pass
 
         self._review_recompute_and_advance()
 
@@ -4876,7 +4601,6 @@ class YoloLabeler:
         """
         if self._review_state.get("labels_backed_up"):
             return
-        import shutil
         for label_dir in (self.detect_dir, self.segment_dir):
             if not os.path.isdir(label_dir):
                 continue
@@ -4906,38 +4630,21 @@ class YoloLabeler:
 
         # Save detect labels
         detect_path = os.path.join(self.detect_dir, f"{stem}.txt")
-        if self._review_gt_boxes:
-            try:
-                with open(detect_path, "w") as f:
-                    for x1, y1, x2, y2, cid in self._review_gt_boxes:
-                        xc = (x1 + x2) / 2 / self._review_img_w
-                        yc = (y1 + y2) / 2 / self._review_img_h
-                        w = (x2 - x1) / self._review_img_w
-                        h = (y2 - y1) / self._review_img_h
-                        f.write(
-                            f"{cid} {xc:.6f} {yc:.6f} {w:.6f} {h:.6f}\n")
-            except Exception as e:
-                print(f"Warning: Could not save detect labels: {e}")
-        else:
-            if os.path.exists(detect_path):
-                os.remove(detect_path)
+        try:
+            write_detect_labels(
+                detect_path, self._review_gt_boxes,
+                self._review_img_w, self._review_img_h)
+        except Exception as e:
+            print(f"Warning: Could not save detect labels: {e}")
 
         # Save segment labels
         segment_path = os.path.join(self.segment_dir, f"{stem}.txt")
-        if self._review_gt_polygons:
-            try:
-                with open(segment_path, "w") as f:
-                    for pts, cid in self._review_gt_polygons:
-                        coords = " ".join(
-                            f"{px / self._review_img_w:.6f} "
-                            f"{py / self._review_img_h:.6f}"
-                            for px, py in pts)
-                        f.write(f"{cid} {coords}\n")
-            except Exception as e:
-                print(f"Warning: Could not save segment labels: {e}")
-        else:
-            if os.path.exists(segment_path):
-                os.remove(segment_path)
+        try:
+            write_segment_labels(
+                segment_path, self._review_gt_polygons,
+                self._review_img_w, self._review_img_h)
+        except Exception as e:
+            print(f"Warning: Could not save segment labels: {e}")
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Navigation
@@ -5067,26 +4774,8 @@ class YoloLabeler:
             return
 
         try:
-            if self.boxes:
-                with open(detect_path, "w") as f:
-                    for x1, y1, x2, y2, cls in self.boxes:
-                        xc = ((x1 + x2) / 2) / img_w
-                        yc = ((y1 + y2) / 2) / img_h
-                        w = (x2 - x1) / img_w
-                        h = (y2 - y1) / img_h
-                        f.write(f"{cls} {xc:.6f} {yc:.6f} {w:.6f} {h:.6f}\n")
-            elif os.path.exists(detect_path):
-                os.remove(detect_path)
-
-            if self.polygons:
-                with open(segment_path, "w") as f:
-                    for points, cls in self.polygons:
-                        coords = " ".join(
-                            f"{x / img_w:.6f} {y / img_h:.6f}"
-                            for x, y in points)
-                        f.write(f"{cls} {coords}\n")
-            elif os.path.exists(segment_path):
-                os.remove(segment_path)
+            write_detect_labels(detect_path, self.boxes, img_w, img_h)
+            write_segment_labels(segment_path, self.polygons, img_w, img_h)
         except OSError as e:
             print(f"Warning: Could not save annotations: {e}")
 
