@@ -187,13 +187,13 @@ def _point_to_segment_dist(px, py, ax, ay, bx, by):
 class YoloLabeler:
     def __init__(self, root, image_folder=None, class_names=None):
         self.root = root
-        self.image_folder = image_folder
+        self.image_folder = image_folder or ""
         self.class_names = dict(class_names) if class_names else {}
         self.class_colors = {}
         self.images = []
-        self.labels_dir = None
-        self.detect_dir = None
-        self.segment_dir = None
+        self.labels_dir = ""
+        self.detect_dir = ""
+        self.segment_dir = ""
         self.img_width = 0
         self.img_height = 0
         self.original_image = None
@@ -1722,7 +1722,7 @@ class YoloLabeler:
 
     def _save_classes_file(self):
         """Save classes and colors to classes.json (unified format)."""
-        if self.image_folder is None:
+        if not self.image_folder:
             return
         classes_path = os.path.join(self.image_folder, "classes.json")
         data = {}
@@ -2005,7 +2005,7 @@ class YoloLabeler:
     #  Load image
     # ──────────────────────────────────────────────────────────────────────────
     def load_image(self):
-        if not self.images or self.image_folder is None:
+        if not self.images or not self.image_folder:
             return
         if self.index >= len(self.images):
             self.index = 0
@@ -2098,7 +2098,7 @@ class YoloLabeler:
     #  Load existing YOLO labels
     # ──────────────────────────────────────────────────────────────────────────
     def _load_existing_labels(self):
-        if self.detect_dir is None or self.segment_dir is None:
+        if not self.detect_dir or not self.segment_dir:
             return
         stem = os.path.splitext(self.images[self.index])[0]
 
@@ -4775,7 +4775,7 @@ class YoloLabeler:
     #  Save annotations
     # ──────────────────────────────────────────────────────────────────────────
     def save_annotations(self):
-        if not self.images or self.labels_dir is None or self.detect_dir is None or self.segment_dir is None:
+        if not self.images or not self.labels_dir or not self.detect_dir or not self.segment_dir:
             return
         print(f"[YoloLabeler] Saving annotations for {self.images[self.index]} "
               f"({len(self.boxes)} boxes, {len(self.polygons)} polygons)")
