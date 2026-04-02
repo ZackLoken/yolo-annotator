@@ -24,7 +24,9 @@ Homepage = "https://github.com/ZackLoken/yolo-annotator"
 
 [project.scripts]
 yololabeler = "yololabeler:main"
-boxlabeler = "yololabeler:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+yololabeler = ["assets/*"]
