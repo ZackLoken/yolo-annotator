@@ -177,8 +177,8 @@ next launch.
 
 ```json
 {
-  "0": {"name": "cat", "color": "#e6194b"},
-  "1": {"name": "dog", "color": "#3cb44b"}
+  "0": {"name": "catkin", "color": "#e6194b"},
+  "1": {"name": "bud", "color": "#3cb44b"}
 }
 ```
 
