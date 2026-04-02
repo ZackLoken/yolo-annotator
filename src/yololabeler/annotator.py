@@ -115,7 +115,11 @@ def suppress_tk_mac_warnings():
         yield
 
 
+_CUSTOM_FONT_LOADED = False
+
+
 def _load_custom_fonts():
+    global _CUSTOM_FONT_LOADED
     if not os.path.isdir(ASSETS_DIR):
         return False
     if sys.platform.startswith("win"):
@@ -128,14 +132,42 @@ def _load_custom_fonts():
                 path = os.path.join(ASSETS_DIR, name)
                 if os.path.exists(path):
                     gdi32.AddFontResourceExW(path, FR_PRIVATE, 0)
+            _CUSTOM_FONT_LOADED = True
             return True
+        except Exception:
+            return False
+    elif sys.platform == "darwin":
+        try:
+            import ctypes
+            import ctypes.util
+            ct_path = ctypes.util.find_library("CoreText")
+            if ct_path:
+                ct = ctypes.cdll.LoadLibrary(ct_path)
+                cf_path = ctypes.util.find_library("CoreFoundation")
+                cf = ctypes.cdll.LoadLibrary(cf_path)
+                for name in ("Archivo-Regular.ttf", "Archivo-Bold.ttf",
+                             "Archivo-Medium.ttf", "Archivo-SemiBold.ttf"):
+                    path = os.path.join(ASSETS_DIR, name)
+                    if os.path.exists(path):
+                        url_ref = cf.CFURLCreateFromFileSystemRepresentation(
+                            None, path.encode("utf-8"), len(path.encode("utf-8")), False)
+                        if url_ref:
+                            ct.CTFontManagerRegisterFontsForURL(url_ref, 1, None)
+                _CUSTOM_FONT_LOADED = True
+                return True
         except Exception:
             return False
     return False
 
 
 def _get_font_family():
-    return "Archivo"
+    if _CUSTOM_FONT_LOADED:
+        return "Archivo"
+    # Fallback to common cross-platform fonts
+    for family in ("Segoe UI", "Helvetica Neue", "Helvetica",
+                   "Arial", "DejaVu Sans", "sans-serif"):
+        return family
+    return "TkDefaultFont"
 
 
 def auto_orient_image(img):
@@ -194,6 +226,7 @@ class YoloLabeler:
         self.labels_dir = ""
         self.detect_dir = ""
         self.segment_dir = ""
+        self.state_dir = ""
         self.img_width = 0
         self.img_height = 0
         self.original_image = None
@@ -299,6 +332,7 @@ class YoloLabeler:
         self.pan_start_offset_y = None
 
         self._redraw_pending = False
+        self._motion_last_time = 0.0
         self._resize_after_id = None
         self._review_resize_after_id = None
         self._fast_resample = False
@@ -660,7 +694,10 @@ class YoloLabeler:
             command=self._on_review_pred_toggled)
         self._review_pred_cb.pack(side="left", padx=(0, 4))
 
-        self._status_sep(self._review_status_frame)
+        self._review_action_sep = ctk.CTkFrame(
+            self._review_status_frame, width=1, height=20,
+            fg_color=BORDER_COLOR)
+        self._review_action_sep.pack(side="left", padx=12, fill="y")
 
         self._review_accept_btn = ctk.CTkButton(
             self._review_status_frame, text="Accept (A)", width=90,
@@ -747,8 +784,8 @@ class YoloLabeler:
             self._toolbar_annotate_right.pack_forget()
             self._review_status_frame.pack(side="left")
             # Show counts in the right-side status area
-            self._review_counts_label.pack(side="right", padx=(8, 0))
             self._review_counts_sep.pack(side="right", padx=6, fill="y")
+            self._review_counts_label.pack(side="right", padx=(8, 0))
             # Returning from edit: reload GT, recompute, and advance
             if getattr(self, '_review_recompute_on_return', False):
                 self._review_recompute_on_return = False
@@ -798,7 +835,14 @@ class YoloLabeler:
                 self.scale = self._review_scale
                 self.offset_x = self._review_offset_x
                 self.offset_y = self._review_offset_y
+                self.zoom_index = self._nearest_zoom_index(self._review_scale)
                 self._cached_scale = None
+            # Default to polygon mode if polygon labels exist
+            if self.mode != "polygon" and self.polygons:
+                self.mode = "polygon"
+                self.mode_btn.configure(text="Mode: Polygon \u2b21")
+                self.stream_btn.pack(side="left", padx=(0, 4))
+                self.snap_btn.pack(side="left", padx=(0, 4))
             if self.original_image is not None:
                 self.display_image()
             self.update_title()
@@ -916,12 +960,21 @@ class YoloLabeler:
         c.bind("<B1-Motion>", self.on_move_press)
         c.bind("<ButtonRelease-1>", self.on_button_release)
         c.bind("<Double-Button-1>", self._on_double_click)
-        c.bind("<ButtonPress-3>", self.on_right_click)
         c.bind("<Motion>", self._on_motion)
 
-        c.bind("<ButtonPress-2>", self.on_middle_press)
-        c.bind("<B2-Motion>", self.on_middle_drag)
-        c.bind("<ButtonRelease-2>", self.on_middle_release)
+        if sys.platform == "darwin":
+            # macOS: Button-2 is right-click, Button-3 is middle
+            c.bind("<ButtonPress-2>", self.on_right_click)
+            c.bind("<ButtonPress-3>", self.on_middle_press)
+            c.bind("<B3-Motion>", self.on_middle_drag)
+            c.bind("<ButtonRelease-3>", self.on_middle_release)
+            # Control+click also triggers right-click on macOS
+            c.bind("<Control-ButtonPress-1>", self.on_right_click)
+        else:
+            c.bind("<ButtonPress-3>", self.on_right_click)
+            c.bind("<ButtonPress-2>", self.on_middle_press)
+            c.bind("<B2-Motion>", self.on_middle_drag)
+            c.bind("<ButtonRelease-2>", self.on_middle_release)
 
         c.bind("<MouseWheel>", self._on_mousewheel)
         c.bind("<Control-MouseWheel>", self._on_ctrl_mousewheel)
@@ -953,6 +1006,7 @@ class YoloLabeler:
         r.bind("a", lambda e: self._review_key(self._review_accept))
         r.bind("r", lambda e: self._review_key(self._review_reject))
         r.bind("e", lambda e: self._review_key(self._review_edit))
+        r.bind("<space>", self._on_space_key)
 
         for key_num in range(10):
             r.bind(str(key_num),
@@ -1007,6 +1061,28 @@ class YoloLabeler:
         """Toggle help in both tabs."""
         self._key_action(self.toggle_help)
 
+    def _on_space_key(self, event):
+        """Spacebar = left click at current cursor position (annotate only)."""
+        if self.tabview.get() != "Annotate":
+            return
+        focused = self.root.focus_get()
+        if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
+            return
+        if focused is not None:
+            parent = focused.master
+            if isinstance(parent, ctk.CTkComboBox):
+                return
+        # Get cursor position relative to the canvas
+        cx = self.canvas.winfo_pointerx() - self.canvas.winfo_rootx()
+        cy = self.canvas.winfo_pointery() - self.canvas.winfo_rooty()
+        # Create a synthetic event
+        class _SynthEvent:
+            def __init__(self, x: int, y: int):
+                self.x = x
+                self.y = y
+        fake = _SynthEvent(cx, cy)
+        self.on_button_press(fake)
+
     # ──────────────────────────────────────────────────────────────────────────
     #  Mode toggle
     # ──────────────────────────────────────────────────────────────────────────
@@ -1014,6 +1090,8 @@ class YoloLabeler:
         if self.mode == "box":
             self.mode = "polygon"
             self.mode_btn.configure(text="Mode: Polygon \u2b21")
+            self.stream_btn.pack(side="left", padx=(0, 4))
+            self.snap_btn.pack(side="left", padx=(0, 4))
         else:
             self.mode = "box"
             self.mode_btn.configure(text="Mode: Box \u25ad")
@@ -1024,6 +1102,8 @@ class YoloLabeler:
             self._stream_mode = False
             self._stream_active = False
             self.stream_btn.configure(text="Stream: Off")
+            self.stream_btn.pack_forget()
+            self.snap_btn.pack_forget()
         self.display_image()
         self.update_title()
         self._update_status()
@@ -1067,6 +1147,11 @@ class YoloLabeler:
         os.makedirs(self.detect_dir, exist_ok=True)
         os.makedirs(self.segment_dir, exist_ok=True)
 
+        # State directory (annotation_stats, review_stats, classes)
+        self.state_dir = os.path.join(folder, "state")
+        os.makedirs(self.state_dir, exist_ok=True)
+        self._migrate_state_files()
+
         # Prediction directories (for review tab)
         self.pred_detect_dir = os.path.join(folder, "predictions", "detect")
         self.pred_segment_dir = os.path.join(folder, "predictions", "segment")
@@ -1105,9 +1190,28 @@ class YoloLabeler:
             if has_det:
                 self.mode = "box"
                 self.mode_btn.configure(text="Mode: Box \u25ad")
+                self.stream_btn.pack_forget()
+                self.snap_btn.pack_forget()
 
         # Pre-cache the review filtered image list so switching tabs is fast
         self._rebuild_review_image_list()
+
+    def _migrate_state_files(self):
+        """Move legacy JSON files from image folder root into state/."""
+        import shutil
+        for name in ("annotation_stats.json", "review_stats.json",
+                     "review_state.json", "classes.json"):
+            old = os.path.join(self.image_folder, name)
+            if not os.path.exists(old):
+                continue
+            # For review_state.json (legacy name), migrate to review_stats.json
+            dest_name = "review_stats.json" if name == "review_state.json" else name
+            new = os.path.join(self.state_dir, dest_name)
+            if os.path.exists(new):
+                # state/ already has the file — skip (don't overwrite)
+                continue
+            shutil.move(old, new)
+            print(f"[YoloLabeler] Migrated {name} → state/{dest_name}")
 
     def _has_annotations(self, img_name):
         stem = os.path.splitext(img_name)[0]
@@ -1263,7 +1367,7 @@ class YoloLabeler:
     # ──────────────────────────────────────────────────────────────────────────
     def _stats_path(self):
         if self.image_folder:
-            return os.path.join(self.image_folder, "annotation_stats.json")
+            return os.path.join(self.state_dir, "annotation_stats.json")
         return None
 
     def _load_stats(self):
@@ -1303,7 +1407,7 @@ class YoloLabeler:
 
     def _review_state_path(self):
         if self.image_folder:
-            return os.path.join(self.image_folder, "review_state.json")
+            return os.path.join(self.state_dir, "review_stats.json")
         return None
 
     def _load_review_state(self):
@@ -1317,74 +1421,6 @@ class YoloLabeler:
         else:
             self._review_state = {}
 
-        migrated = False
-
-        # ── Migration: old flat-key "per_detection" → new "per_image" ──
-        if "per_detection" in self._review_state:
-            old_pd = self._review_state.pop("per_detection")
-            per_image = self._review_state.setdefault("per_image", {})
-            for img_name, keys in old_pd.items():
-                if img_name in per_image:
-                    continue  # already migrated
-                img_data = {"status": "in_progress", "detections": []}
-                for key_str in keys:
-                    # Old format: "tp:0:0.1831:0.4418"
-                    parts = key_str.split(":")
-                    if len(parts) >= 4:
-                        match_type = parts[0].upper()
-                        try:
-                            class_id = int(parts[1])
-                            cx = float(parts[2])
-                            cy = float(parts[3])
-                        except (ValueError, IndexError):
-                            continue
-                        entry = {
-                            "match_type": match_type,
-                            "action": "accepted",  # assume accepted for old data
-                            "class_id": class_id,
-                            "class_name": self.class_names.get(class_id, f"class_{class_id}"),
-                            "gt_bbox_norm": [cx, cy, 0, 0] if match_type == "FN" else None,
-                            "pred_bbox_norm": [cx, cy, 0, 0] if match_type != "FN" else None,
-                            "iou": None,
-                            "conf": None,
-                        }
-                        img_data["detections"].append(entry)
-                per_image[img_name] = img_data
-            migrated = True
-
-        # ── Migration: reviewed_images from old review_state ──
-        if "reviewed_images" in self._review_state:
-            per_image = self._review_state.setdefault("per_image", {})
-            for img_name in self._review_state["reviewed_images"]:
-                if img_name not in per_image:
-                    per_image[img_name] = {"status": "complete", "detections": []}
-                else:
-                    per_image[img_name]["status"] = "complete"
-            del self._review_state["reviewed_images"]
-            migrated = True
-
-        # ── Migration: review_status from annotation_stats → review_state ──
-        old_rs = self._stats.get("review_status", {})
-        if old_rs:
-            per_image = self._review_state.setdefault("per_image", {})
-            for img_name, val in old_rs.items():
-                if img_name not in per_image:
-                    per_image[img_name] = {"status": "complete", "detections": []}
-                elif val:
-                    per_image[img_name]["status"] = "complete"
-            del self._stats["review_status"]
-            self._save_stats()
-            migrated = True
-
-        # Remove legacy threshold fields
-        for key in ("iou_threshold", "conf_threshold"):
-            if key in self._review_state:
-                del self._review_state[key]
-                migrated = True
-
-        if migrated:
-            self._save_review_state()
-
     def _save_review_state(self):
         path = self._review_state_path()
         if not path:
@@ -1396,27 +1432,27 @@ class YoloLabeler:
             print(f"Warning: Could not save review state: {e}")
 
     def _mark_image_reviewed(self, img_name):
-        """Mark an image as fully reviewed in review_state.json."""
-        per_image = self._review_state.setdefault("per_image", {})
-        img_data = per_image.setdefault(img_name, {"status": "complete", "detections": []})
-        img_data["status"] = "complete"
+        """Mark an image as fully reviewed in review_stats.json."""
+        per_image = self._review_state.setdefault("image", {})
+        img_data = per_image.setdefault(img_name, {"img_status": "completed", "detections": []})
+        img_data["img_status"] = "completed"
         self._save_review_state()
 
     def _is_image_reviewed(self, img_name):
         """Check if image has been reviewed."""
-        per_image = self._review_state.get("per_image", {})
+        per_image = self._review_state.get("image", {})
         img_data = per_image.get(img_name)
         if not img_data:
             return False
-        return img_data.get("status") == "complete"
+        return img_data.get("img_status") == "completed"
 
     def _get_image_review_status(self, img_name):
-        """Get review status string for an image: 'complete', 'in_progress', or 'not_started'."""
-        per_image = self._review_state.get("per_image", {})
+        """Get review status string for an image: 'completed', 'started', or 'not_started'."""
+        per_image = self._review_state.get("image", {})
         img_data = per_image.get(img_name)
         if not img_data:
             return "not_started"
-        return img_data.get("status", "not_started")
+        return img_data.get("img_status", "not_started")
 
     def _mark_image_annotated(self):
         """Call whenever user creates/modifies an annotation."""
@@ -1523,9 +1559,9 @@ class YoloLabeler:
         if not self.images:
             return
         img_name = self.images[self._review_index]
-        per_image = self._review_state.setdefault("per_image", {})
+        per_image = self._review_state.setdefault("image", {})
         img_data = per_image.setdefault(
-            img_name, {"status": "not_started", "detections": []})
+            img_name, {"img_status": "not_started", "detections": []})
         img_data["review_seconds"] = round(
             img_data.get("review_seconds", 0.0) + elapsed, 2)
         self._save_review_state()
@@ -1740,7 +1776,7 @@ class YoloLabeler:
         """Save classes and colors to classes.json (unified format)."""
         if not self.image_folder:
             return
-        classes_path = os.path.join(self.image_folder, "classes.json")
+        classes_path = os.path.join(self.state_dir, "classes.json")
         data = {}
         for cid in sorted(self.class_names.keys()):
             data[str(cid)] = {
@@ -1913,7 +1949,7 @@ class YoloLabeler:
         """Load classes and colors from classes.json."""
         if not self.image_folder:
             return
-        classes_json_path = os.path.join(self.image_folder, "classes.json")
+        classes_json_path = os.path.join(self.state_dir, "classes.json")
         if os.path.exists(classes_json_path):
             try:
                 with open(classes_json_path, "r") as f:
@@ -2043,6 +2079,7 @@ class YoloLabeler:
         self._last_stream_pos = None
         self._selected_polygon_idx = None
         self._hovered_polygon_idx = None
+        self._annotate_pred_reference = None
         self.start_x = None
         self.start_y = None
         self.rect = None
@@ -2469,6 +2506,7 @@ class YoloLabeler:
         line_w = max(1, min(2 + s * 0.5, 6))
         poly_w = max(1, min(2.5 + s * 0.5, 7))
         vert_r = max(3, min(VERTEX_HANDLE_RADIUS * (1.6 - s * 0.2), 12))
+        sel_vert_r = max(vert_r + 2, min(VERTEX_HANDLE_RADIUS * (2.2 - s * 0.2), 16))
         label_size = max(7, min(int(9 * (0.6 + s * 0.4)), 18))
         dash_a = max(2, int(4 * (0.5 + s * 0.5)))
         dash_b = max(2, int(4 * (0.5 + s * 0.5)))
@@ -2522,11 +2560,12 @@ class YoloLabeler:
                         and self._dragging_vertex[0] == poly_idx)
                 )
                 if show_verts:
+                    r = sel_vert_r if is_selected else vert_r
                     for px, py in points:
                         cx, cy = self.image_to_canvas(px, py)
                         self.canvas.create_oval(
-                            cx - vert_r, cy - vert_r,
-                            cx + vert_r, cy + vert_r,
+                            cx - r, cy - r,
+                            cx + r, cy + r,
                             fill=draw_color, outline="white", width=1)
                 if points:
                     lx, ly = self.image_to_canvas(*points[0])
@@ -2795,8 +2834,12 @@ class YoloLabeler:
                     self.display_image()
             # Fall through to snap indicator + hover (don't return)
 
+        # Throttle expensive hover/snap checks (~60fps cap)
+        now = time.monotonic()
+        _motion_throttled = (now - self._motion_last_time) < 0.016
+
         # Update snap indicator
-        if self.mode == "polygon" and self.snap_enabled:
+        if not _motion_throttled and self.mode == "polygon" and self.snap_enabled:
             ix, iy = self.canvas_to_image(event.x, event.y)
             snapped = self._maybe_snap(ix, iy)
             if snapped != (ix, iy):
@@ -2821,7 +2864,7 @@ class YoloLabeler:
                     except tk.TclError:
                         pass
                     self._snap_indicator_item = None
-        else:
+        elif not (self.mode == "polygon" and self.snap_enabled):
             if self._snap_indicator_item:
                 try:
                     self.canvas.delete(self._snap_indicator_item)
@@ -2830,7 +2873,8 @@ class YoloLabeler:
                 self._snap_indicator_item = None
 
         # Polygon hover detection (for showing vertices on adjacent polygons)
-        if self.mode == "polygon":
+        if not _motion_throttled and self.mode == "polygon":
+            self._motion_last_time = now
             ix, iy = self.canvas_to_image(event.x, event.y)
             new_hover = None
             hover_thr = 25  # canvas-pixel proximity to reveal vertices
@@ -3300,11 +3344,22 @@ class YoloLabeler:
     def _setup_review_bindings(self):
         """Canvas bindings for the review tab (zoom and pan only)."""
         c = self._review_canvas
-        c.bind("<ButtonPress-2>", self._review_pan_start)
-        c.bind("<B2-Motion>", self._review_pan_drag)
+        if sys.platform == "darwin":
+            c.bind("<ButtonPress-3>", self._review_pan_start)
+            c.bind("<B3-Motion>", self._review_pan_drag)
+        else:
+            c.bind("<ButtonPress-2>", self._review_pan_start)
+            c.bind("<B2-Motion>", self._review_pan_drag)
         c.bind("<Control-MouseWheel>", self._review_zoom)
         c.bind("<MouseWheel>", self._review_scroll)
         c.bind("<Shift-MouseWheel>", self._review_hscroll)
+        # Linux scroll bindings
+        c.bind("<Button-4>", lambda e: self._review_scroll_linux(e, 1))
+        c.bind("<Button-5>", lambda e: self._review_scroll_linux(e, -1))
+        c.bind("<Control-Button-4>", lambda e: self._review_zoom_linux(e, 1))
+        c.bind("<Control-Button-5>", lambda e: self._review_zoom_linux(e, -1))
+        c.bind("<Shift-Button-4>", lambda e: self._review_hscroll_linux(e, 1))
+        c.bind("<Shift-Button-5>", lambda e: self._review_hscroll_linux(e, -1))
         c.bind("<Configure>", self._on_review_canvas_configure)
 
     def _refresh_review_class_filter(self):
@@ -3354,16 +3409,43 @@ class YoloLabeler:
         self._update_status()
 
     def _review_scroll(self, event):
-        delta = -event.delta // 3
+        if sys.platform == "darwin":
+            delta = -event.delta * 2
+        else:
+            delta = -event.delta // 3
         self._review_offset_y -= delta
         self._review_cached_scale = None
         self._display_review_image()
 
     def _review_hscroll(self, event):
-        delta = -event.delta // 3
+        if sys.platform == "darwin":
+            delta = -event.delta * 2
+        else:
+            delta = -event.delta // 3
         self._review_offset_x -= delta
         self._review_cached_scale = None
         self._display_review_image()
+
+    def _review_scroll_linux(self, event, direction):
+        self._review_offset_y += direction * 40
+        self._review_cached_scale = None
+        self._display_review_image()
+
+    def _review_hscroll_linux(self, event, direction):
+        self._review_offset_x += direction * 40
+        self._review_cached_scale = None
+        self._display_review_image()
+
+    def _review_zoom_linux(self, event, direction):
+        cx, cy = self._review_canvas_to_image(event.x, event.y)
+        factor = 1.15 if direction > 0 else 1 / 1.15
+        new_scale = max(0.05, min(10.0, self._review_scale * factor))
+        self._review_offset_x = event.x - cx * new_scale
+        self._review_offset_y = event.y - cy * new_scale
+        self._review_scale = new_scale
+        self._review_cached_scale = None
+        self._display_review_image()
+        self._update_status()
 
     def _on_review_canvas_configure(self, event=None):
         """Redraw review canvas on window resize (debounced)."""
@@ -3469,9 +3551,13 @@ class YoloLabeler:
         # Force geometry update so canvas dimensions are accurate
         self._review_canvas.update_idletasks()
 
-        # Fit image to canvas
-        cw = self._review_canvas.winfo_width() or 800
-        ch = self._review_canvas.winfo_height() or 600
+        # Fit image to canvas (use scheduled dimensions if canvas not ready)
+        cw = self._review_canvas.winfo_width()
+        ch = self._review_canvas.winfo_height()
+        if cw < 10 or ch < 10:
+            # Canvas not realized yet — schedule a deferred load
+            self.root.after(50, self._review_deferred_zoom)
+            return
         sx = cw / max(self._review_img_w, 1)
         sy = ch / max(self._review_img_h, 1)
         self._review_scale = min(sx, sy)
@@ -3479,15 +3565,41 @@ class YoloLabeler:
         self._review_offset_y = (ch - self._review_img_h * self._review_scale) / 2
         self._review_cached_scale = None
 
-        # Zoom to first detection if any
+        # Zoom to first unreviewed detection (or first if all reviewed)
+        self._review_zoom_to_first_unreviewed()
+
+        self._update_review_labels()
+
+    def _review_deferred_zoom(self):
+        """Deferred zoom after canvas geometry is available."""
+        cw = self._review_canvas.winfo_width()
+        ch = self._review_canvas.winfo_height()
+        if cw < 10 or ch < 10:
+            self.root.after(50, self._review_deferred_zoom)
+            return
+        sx = cw / max(self._review_img_w, 1)
+        sy = ch / max(self._review_img_h, 1)
+        self._review_scale = min(sx, sy)
+        self._review_offset_x = (cw - self._review_img_w * self._review_scale) / 2
+        self._review_offset_y = (ch - self._review_img_h * self._review_scale) / 2
+        self._review_cached_scale = None
+        self._review_zoom_to_first_unreviewed()
+        self._update_review_labels()
+
+    def _review_zoom_to_first_unreviewed(self):
+        """Zoom to first unreviewed detection, or first if all reviewed."""
         if self._review_detections:
-            self._review_detection_idx = 0
+            img_name = self.images[self._review_index] if self.images else ""
+            first_unreviewed = 0
+            for i, det in enumerate(self._review_detections):
+                if not self._find_reviewed_entry(det, img_name):
+                    first_unreviewed = i
+                    break
+            self._review_detection_idx = first_unreviewed
             self._zoom_to_detection()
         else:
             self._review_detection_idx = 0
             self._display_review_image()
-
-        self._update_review_labels()
 
     # ── Review detection management ──────────────────────────────────────────
 
@@ -3671,7 +3783,7 @@ class YoloLabeler:
 
         Returns the reviewed entry dict or None.
         """
-        per_image = self._review_state.get("per_image", {})
+        per_image = self._review_state.get("image", {})
         img_data = per_image.get(img_name)
         if not img_data:
             return None
@@ -3714,13 +3826,14 @@ class YoloLabeler:
             return
         img_name = self.images[self._review_index]
 
-        per_image = self._review_state.setdefault("per_image", {})
-        img_data = per_image.setdefault(img_name, {"status": "in_progress", "detections": []})
+        per_image = self._review_state.setdefault("image", {})
+        img_data = per_image.setdefault(img_name, {"img_status": "started", "detections": []})
 
         # Build the reviewed entry
         class_name = self.class_names.get(det['class_id'], f"class_{det['class_id']}")
         entry = {
             "match_type": det['det_type'].upper(),
+            "det_status": "reviewed",
             "action": action,
             "class_id": det['class_id'],
             "class_name": class_name,
@@ -3739,6 +3852,10 @@ class YoloLabeler:
         else:
             img_data["detections"].append(entry)
 
+        # Ensure img_status is at least "started"
+        if img_data.get("img_status") == "not_started":
+            img_data["img_status"] = "started"
+
         self._save_review_state()
 
     def _check_image_review_complete(self):
@@ -3756,14 +3873,14 @@ class YoloLabeler:
         if total == 0:
             return
 
-        per_image = self._review_state.get("per_image", {})
+        per_image = self._review_state.get("image", {})
         img_data = per_image.get(img_name)
         if not img_data:
             return
 
         reviewed_count = len(img_data.get("detections", []))
         if reviewed_count >= total:
-            img_data["status"] = "complete"
+            img_data["img_status"] = "completed"
             self._save_review_state()
 
     def _zoom_to_detection(self):
@@ -3930,19 +4047,41 @@ class YoloLabeler:
         # Build sets of visible GT/pred indices from filtered detection list
         visible_gt = set()   # (type, idx)
         visible_pred = set() # (type, idx)
+        reviewed_gt = set()  # (type, idx) — GT annotations already reviewed
+        img_name = self.images[self._review_index] if self.images else ""
         for det in self._review_detections:
             if det.get('gt_type') is not None:
                 visible_gt.add((det['gt_type'], det['gt_idx']))
+                if img_name and self._find_reviewed_entry(det, img_name):
+                    reviewed_gt.add((det['gt_type'], det['gt_idx']))
             if det.get('pred_type') is not None:
                 visible_pred.add((det['pred_type'], det['pred_idx']))
 
         # Constant line width (1.5pt ≈ 2px) regardless of zoom
         line_w = 2
+        focused_line_w = 3
         label_size = 12
         PRED_COLOR = "#00BFFF"  # highlighter blue for focused prediction
-        # For FN, highlight the GT in blue since there's no prediction overlay
-        focused_is_fn = (focused_det is not None
-                         and focused_det['det_type'] == 'fn')
+        FOCUSED_GT_COLOR = "#FFD700"  # gold for focused GT annotation
+
+        def _reviewed_fill(hex_color):
+            """Create a very transparent version of a color for reviewed fill.
+
+            Tkinter Canvas doesn't support alpha, so we blend with BG_COLOR.
+            """
+            try:
+                r = int(hex_color[1:3], 16)
+                g = int(hex_color[3:5], 16)
+                b = int(hex_color[5:7], 16)
+                # ~15% opacity blend with dark background (#1E1E1E)
+                bg_r, bg_g, bg_b = 0x1E, 0x1E, 0x1E
+                a = 0.15
+                r2 = int(r * a + bg_r * (1 - a))
+                g2 = int(g * a + bg_g * (1 - a))
+                b2 = int(b * a + bg_b * (1 - a))
+                return f"#{r2:02x}{g2:02x}{b2:02x}"
+            except (ValueError, IndexError):
+                return ""
 
         def _halo_text(x, y, text, fill, **kw):
             """Draw text with black outline halo for readability."""
@@ -3980,12 +4119,15 @@ class YoloLabeler:
                         continue
                     color = self._get_class_color(cid)
                     is_focused = ('box', i) in focused_gt
-                    highlight = is_focused and focused_is_fn
-                    draw_color = PRED_COLOR if highlight else color
+                    draw_color = FOCUSED_GT_COLOR if is_focused else color
+                    is_reviewed = ('box', i) in reviewed_gt
+                    fill_color = _reviewed_fill(color) if is_reviewed and not is_focused else ""
+                    lw = focused_line_w if is_focused else line_w
                     cx1, cy1 = self._review_image_to_canvas(x1, y1)
                     cx2, cy2 = self._review_image_to_canvas(x2, y2)
                     c.create_rectangle(cx1, cy1, cx2, cy2,
-                                       outline=draw_color, width=line_w)
+                                       outline=draw_color, fill=fill_color,
+                                       width=lw)
                     if is_focused:
                         name = self.class_names.get(cid, str(cid))
                         _halo_text(cx1 + 2, cy1 - 2, anchor="sw",
@@ -4001,16 +4143,19 @@ class YoloLabeler:
                             continue
                         color = self._get_class_color(cid)
                         is_focused = ('polygon', i) in focused_gt
-                        highlight = is_focused and focused_is_fn
-                        draw_color = PRED_COLOR if highlight else color
+                        draw_color = FOCUSED_GT_COLOR if is_focused else color
+                        is_reviewed = ('polygon', i) in reviewed_gt
+                        fill_color = _reviewed_fill(color) if is_reviewed and not is_focused else ""
                         xs = [p[0] for p in pts]
                         ys = [p[1] for p in pts]
                         bx1, by1 = min(xs), min(ys)
                         bx2, by2 = max(xs), max(ys)
+                        lw = focused_line_w if is_focused else line_w
                         cx1, cy1 = self._review_image_to_canvas(bx1, by1)
                         cx2, cy2 = self._review_image_to_canvas(bx2, by2)
                         c.create_rectangle(cx1, cy1, cx2, cy2,
-                                           outline=draw_color, width=line_w)
+                                           outline=draw_color,
+                                           fill=fill_color, width=lw)
                         if is_focused:
                             name = self.class_names.get(cid, str(cid))
                             _halo_text(cx1 + 2, cy1 - 2, anchor="sw",
@@ -4026,16 +4171,18 @@ class YoloLabeler:
                         continue
                     color = self._get_class_color(cid)
                     is_focused = ('polygon', i) in focused_gt
-                    highlight = is_focused and focused_is_fn
-                    draw_color = PRED_COLOR if highlight else color
+                    draw_color = FOCUSED_GT_COLOR if is_focused else color
+                    is_reviewed = ('polygon', i) in reviewed_gt
+                    fill_color = _reviewed_fill(color) if is_reviewed and not is_focused else ""
                     canvas_pts = []
                     for px_pt, py_pt in pts:
                         cx_p, cy_p = self._review_image_to_canvas(
                             px_pt, py_pt)
                         canvas_pts.extend([cx_p, cy_p])
                     if len(canvas_pts) >= 6:
+                        lw = focused_line_w if is_focused else line_w
                         c.create_polygon(*canvas_pts, outline=draw_color,
-                                         fill="", width=line_w)
+                                         fill=fill_color, width=lw)
                     if is_focused and pts:
                         lx, ly = self._review_image_to_canvas(*pts[0])
                         name = self.class_names.get(cid, str(cid))
@@ -4052,8 +4199,9 @@ class YoloLabeler:
                             continue
                         color = self._get_class_color(cid)
                         is_focused = ('box', i) in focused_gt
-                        highlight = is_focused and focused_is_fn
-                        draw_color = PRED_COLOR if highlight else color
+                        draw_color = FOCUSED_GT_COLOR if is_focused else color
+                        is_reviewed = ('box', i) in reviewed_gt
+                        fill_color = _reviewed_fill(color) if is_reviewed and not is_focused else ""
                         rect_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
                         canvas_pts = []
                         corner_pts = []
@@ -4062,8 +4210,9 @@ class YoloLabeler:
                                 px_pt, py_pt)
                             canvas_pts.extend([cx_p, cy_p])
                             corner_pts.append((cx_p, cy_p))
+                        lw = focused_line_w if is_focused else line_w
                         c.create_polygon(*canvas_pts, outline=draw_color,
-                                         fill="", width=line_w)
+                                         fill=fill_color, width=lw)
                         if is_focused:
                             name = self.class_names.get(cid, str(cid))
                             cx_p, cy_p = self._review_image_to_canvas(
@@ -4397,13 +4546,16 @@ class YoloLabeler:
         self.scale = rev_scale
         self.offset_x = rev_ox
         self.offset_y = rev_oy
+        self.zoom_index = self._nearest_zoom_index(rev_scale)
         self._cached_scale = None
 
-        # Determine appropriate mode from GT or prediction type
+        # Determine appropriate mode: prefer polygon if polygon labels exist
         gt_type = det.get('gt_type')
         gt_idx = det.get('gt_idx')
-        target_mode = None
-        if gt_type == 'polygon':
+        # Always default to polygon when polygon labels are present
+        if self.polygons:
+            target_mode = 'polygon'
+        elif gt_type == 'polygon':
             target_mode = 'polygon'
         elif gt_type == 'box':
             target_mode = 'box'
@@ -4411,11 +4563,15 @@ class YoloLabeler:
             target_mode = 'polygon'
         elif det.get('pred_type') == 'box':
             target_mode = 'box'
+        else:
+            target_mode = None
 
         if target_mode == 'polygon':
             if self.mode != 'polygon':
                 self.mode = 'polygon'
                 self.mode_btn.configure(text="Mode: Polygon \u2b21")
+                self.stream_btn.pack(side="left", padx=(0, 4))
+                self.snap_btn.pack(side="left", padx=(0, 4))
             if gt_idx is not None and 0 <= gt_idx < len(self.polygons):
                 self._selected_polygon_idx = gt_idx
         elif target_mode == 'box':
@@ -4424,6 +4580,8 @@ class YoloLabeler:
                 self.mode_btn.configure(text="Mode: Box \u25ad")
                 self.current_polygon = []
                 self._selected_polygon_idx = None
+                self.stream_btn.pack_forget()
+                self.snap_btn.pack_forget()
 
         # Switch tab and display with correct zoom
         self.tabview.set("Annotate")
@@ -4500,6 +4658,78 @@ class YoloLabeler:
         self.tabview.set("Review")
         self._on_tab_changed()
 
+    def _review_advance_or_switch_type(self):
+        """Advance to next image, or switch match-type filter if unreviewed dets remain.
+
+        If the current filter is not 'all', checks other match types for
+        unreviewed detections on the same image before advancing.
+        """
+        if self._review_filter_type != "all" and self._review_matches:
+            img_name = self.images[self._review_index] if self.images else ""
+            type_order = ["tp", "fp", "fn"]
+            for mtype in type_order:
+                if mtype == self._review_filter_type:
+                    continue
+                entries = self._review_matches.get(mtype, [])
+                if not entries:
+                    continue
+                # Build a quick det dict for each entry to check review status
+                for entry in entries:
+                    if mtype == "tp":
+                        gt_type, gt_idx, p_type, p_idx, iou, cid, conf = entry
+                        det = {'det_type': 'tp', 'class_id': cid, 'conf': conf,
+                               'iou': iou, 'gt_type': gt_type, 'gt_idx': gt_idx,
+                               'pred_type': p_type, 'pred_idx': p_idx}
+                    elif mtype == "fp":
+                        p_type, p_idx, cid, conf = entry
+                        det = {'det_type': 'fp', 'class_id': cid, 'conf': conf,
+                               'iou': None, 'gt_type': None, 'gt_idx': None,
+                               'pred_type': p_type, 'pred_idx': p_idx}
+                    else:  # fn
+                        gt_type, gt_idx, cid = entry
+                        det = {'det_type': 'fn', 'class_id': cid, 'conf': None,
+                               'iou': None, 'gt_type': gt_type, 'gt_idx': gt_idx,
+                               'pred_type': None, 'pred_idx': None}
+                    if not self._find_reviewed_entry(det, img_name):
+                        # Found unreviewed det in another type — switch filter
+                        self._review_filter_type = mtype
+                        self._review_type_var.set(mtype.upper())
+                        self._rebuild_review_detections()
+                        self._review_detection_idx = 0
+                        # Jump to first unreviewed in new list
+                        for i, d in enumerate(self._review_detections):
+                            if not self._find_reviewed_entry(d, img_name):
+                                self._review_detection_idx = i
+                                break
+                        self._zoom_to_detection()
+                        self._update_review_labels()
+                        return
+        # Also check with "all" filter to catch any missed detections
+        if self._review_filter_type != "all" and self._review_matches:
+            img_name = self.images[self._review_index] if self.images else ""
+            saved_type = self._review_filter_type
+            self._review_filter_type = "all"
+            self._rebuild_review_detections()
+            has_unreviewed = False
+            for d in self._review_detections:
+                if not self._find_reviewed_entry(d, img_name):
+                    has_unreviewed = True
+                    break
+            if has_unreviewed:
+                self._review_type_var.set("All")
+                self._review_detection_idx = 0
+                for i, d in enumerate(self._review_detections):
+                    if not self._find_reviewed_entry(d, img_name):
+                        self._review_detection_idx = i
+                        break
+                self._zoom_to_detection()
+                self._update_review_labels()
+                return
+            # Restore and advance
+            self._review_filter_type = saved_type
+            self._rebuild_review_detections()
+        self._review_next_image()
+
     def _review_step_next(self, action="accepted"):
         """Record action and advance to the next unreviewed detection.
 
@@ -4508,7 +4738,7 @@ class YoloLabeler:
         """
         if not self._review_detections:
             self._check_image_review_complete()
-            self._review_next_image()
+            self._review_advance_or_switch_type()
             return
         # Record the action for the current detection
         det = self._review_detections[self._review_detection_idx]
@@ -4522,7 +4752,7 @@ class YoloLabeler:
             if next_idx >= n:
                 # Reached end of list — check if all reviewed
                 self._check_image_review_complete()
-                self._review_next_image()
+                self._review_advance_or_switch_type()
                 return
             next_det = self._review_detections[next_idx]
             if not self._find_reviewed_entry(next_det, img_name):
@@ -4533,7 +4763,7 @@ class YoloLabeler:
                 return
         # All are reviewed
         self._check_image_review_complete()
-        self._review_next_image()
+        self._review_advance_or_switch_type()
 
     def _review_reload_gt_and_advance(self):
         """Reload GT from disk after annotate edit, recompute, and advance."""
@@ -4601,7 +4831,7 @@ class YoloLabeler:
 
         if not self._review_detections:
             self._check_image_review_complete()
-            self._review_next_image()
+            self._review_advance_or_switch_type()
             return
 
         # Try to find next unreviewed detection from current position
@@ -4613,9 +4843,10 @@ class YoloLabeler:
                 found = True
                 break
         if not found:
-            # All reviewed after recompute
+            # All reviewed in current filter after recompute
             self._check_image_review_complete()
-            self._review_detection_idx = 0
+            self._review_advance_or_switch_type()
+            return
         self._zoom_to_detection()
         self._update_review_labels()
 
@@ -4624,7 +4855,7 @@ class YoloLabeler:
 
         Creates labels/detect/.original/ and labels/segment/.original/
         with copies of all label .txt files. Only runs once per folder
-        (tracked by 'labels_backed_up' flag in review_state.json).
+        (tracked by 'labels_backed_up' flag in review_stats.json).
         """
         if self._review_state.get("labels_backed_up"):
             return
