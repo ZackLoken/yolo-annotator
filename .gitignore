@@ -23,3 +23,7 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+TEST_MATRIX.md
+src/yololabeler/annotator_v1_backup.py
+src/yololabeler/annotator_v2_backup.py
+src/yololabeler/annotator_v3_backup.py
