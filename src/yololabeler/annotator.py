@@ -277,7 +277,7 @@ class YoloLabeler:
 
         # Common state
         self.active_class = 0
-        self.show_help = True
+        self.show_help = False
 
         # View transform
         self.scale = 1.0
@@ -754,16 +754,30 @@ class YoloLabeler:
             # Normal switch: full image load
             elif self.images:
                 if self._review_original_image is None:
-                    self._review_index = self.index
+                    # First switch — pick the first reviewable image
                     if self._review_filtered_images:
-                        if self._review_index not in self._review_filtered_images:
-                            self._review_index = self._review_filtered_images[0]
+                        self._review_index = self._review_filtered_images[0]
+                    else:
+                        # No images to review
+                        self._display_review_image()
+                        self._update_review_labels()
+                        self._update_status()
+                        return
+                elif not self._review_filtered_images:
+                    # Returning to review but nothing to review
+                    self._review_original_image = None
+                    self._display_review_image()
+                    self._update_review_labels()
+                    self._update_status()
+                    return
                 self._review_load_image()
             self._update_review_labels()
             self._update_status()
         elif self.tabview.get() == "Annotate":
             # Record review time, restart annotate timer
             self._record_review_time()
+            if self.images:
+                self._image_start_time = time.time()
             # Show annotate toolbar sections, hide review controls
             self._review_status_frame.pack_forget()
             self._review_counts_label.pack_forget()
@@ -2459,9 +2473,11 @@ class YoloLabeler:
 
         def _halo(x, y, text, fill, **kw):
             """Draw text with dark outline for readability on any background."""
-            for dx, dy in [(-1, -1), (-1, 0), (-1, 1),
-                           (0, -1), (0, 1),
-                           (1, -1), (1, 0), (1, 1)]:
+            for dx, dy in [(-2,-2),(-2,-1),(-2,0),(-2,1),(-2,2),
+                           (-1,-2),(-1,-1),(-1,0),(-1,1),(-1,2),
+                           (0,-2),(0,-1),(0,1),(0,2),
+                           (1,-2),(1,-1),(1,0),(1,1),(1,2),
+                           (2,-2),(2,-1),(2,0),(2,1),(2,2)]:
                 self.canvas.create_text(x + dx, y + dy, text=text,
                                         fill="black", **kw)
             self.canvas.create_text(x, y, text=text, fill=fill, **kw)
@@ -4381,17 +4397,26 @@ class YoloLabeler:
         self.offset_y = rev_oy
         self._cached_scale = None
 
-        # Select the GT annotation and switch to matching mode
+        # Determine appropriate mode from GT or prediction type
         gt_type = det.get('gt_type')
         gt_idx = det.get('gt_idx')
+        target_mode = None
         if gt_type == 'polygon':
-            # Switch to polygon mode so the annotation is visible
+            target_mode = 'polygon'
+        elif gt_type == 'box':
+            target_mode = 'box'
+        elif det.get('pred_type') == 'polygon':
+            target_mode = 'polygon'
+        elif det.get('pred_type') == 'box':
+            target_mode = 'box'
+
+        if target_mode == 'polygon':
             if self.mode != 'polygon':
                 self.mode = 'polygon'
                 self.mode_btn.configure(text="Mode: Polygon \u2b21")
             if gt_idx is not None and 0 <= gt_idx < len(self.polygons):
                 self._selected_polygon_idx = gt_idx
-        elif gt_type == 'box':
+        elif target_mode == 'box':
             if self.mode != 'box':
                 self.mode = 'box'
                 self.mode_btn.configure(text="Mode: Box \u25ad")
