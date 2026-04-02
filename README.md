@@ -56,7 +56,6 @@ yololabeler /path/to/images
 python -m yololabeler /path/to/images
 ```
 
-> The legacy `boxlabeler` command also works as an alias.
 
 ---
 
@@ -115,9 +114,10 @@ behavior for FP / FN / TP detections.
 images/
 ├── img001.jpg
 ├── img002.jpg
-├── classes.json
-├── annotation_stats.json
-├── review_state.json
+├── state/
+│   ├── annotation_stats.json
+│   ├── review_stats.json
+│   └── classes.json
 ├── labels/
 │   ├── detect/
 │   │   ├── img001.txt          # bounding boxes (YOLO format)
@@ -211,7 +211,7 @@ next launch.
 - **Accept / Reject / Edit** — per-detection actions with type-specific behavior
 - **Prediction reference overlay** — dashed blue overlay shows prediction geometry while editing
 - **Viewport sync** — zoom and position carry over between Annotate and Review tabs
-- **Review state persistence** — progress saved to `review_state.json`, survives across sessions
+- **Review state persistence** — progress saved to `review_stats.json`, survives across sessions
 - **Review timer** — tracks time spent reviewing per image
 - **Original label backup** — `.original/` copies made before first destructive edit
 
