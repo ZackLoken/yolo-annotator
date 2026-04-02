@@ -736,6 +736,8 @@ class YoloLabeler:
             self._record_image_time()
             if self._review_image_start_time is None:
                 self._review_image_start_time = time.time()
+            # Back up original labels before any review actions
+            self._backup_original_labels()
             # Clean up prediction reference from annotate
             if self._review_return_pending:
                 self._annotate_pred_reference = None
