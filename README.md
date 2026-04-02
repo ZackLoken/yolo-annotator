@@ -2,8 +2,8 @@
 
 ![YoloLabeler GUI](GUI.png)
 
-Lightweight desktop tool for drawing YOLO bounding-box and instance segmentation
-annotations on images.
+Lightweight desktop tool for drawing YOLO bounding-box and instance-segmentation
+annotations — and reviewing model predictions against ground truth.
 Built with Python + CustomTkinter — no GPU, no server, no browser required.
 
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)
@@ -30,6 +30,7 @@ pip install -e .
 - Python 3.9+
 - Pillow ≥ 9.0
 - CustomTkinter ≥ 5.0
+- Shapely ≥ 2.0
 
 ---
 
@@ -61,6 +62,8 @@ python -m yololabeler /path/to/images
 
 ## Controls
 
+### Annotate tab
+
 | Action                       | Input                    |
 |------------------------------|--------------------------|
 | Toggle Box / Polygon mode    | `m`                      |
@@ -89,27 +92,56 @@ python -m yololabeler /path/to/images
 | Zoom at cursor               | Ctrl + Scroll            |
 | Pan (free)                   | Middle-click + drag      |
 
+### Review tab
+
+| Action                        | Input  |
+|-------------------------------|--------|
+| Accept detection              | `a`    |
+| Reject detection              | `r`    |
+| Edit detection (→ Annotate)   | `e`    |
+| Previous / Next detection     | `←` / `→` |
+| Next / Previous image         | `↑` / `↓` |
+| Toggle Box / Polygon mode     | `m`    |
+| Toggle help overlay           | `h`    |
+
+Press `h` in either tab for a full keybinding reference including per-action
+behavior for FP / FN / TP detections.
+
 ---
 
-## Output Format
-
-### YOLO `.txt` — separate directories for training compatibility
-
-Annotations are saved to two subdirectories so each is directly compatible with
-Ultralytics `yolo detect train` and `yolo segment train`:
+## Folder Structure
 
 ```
 images/
 ├── img001.jpg
 ├── img002.jpg
-└── labels/
+├── classes.json
+├── annotation_stats.json
+├── review_state.json
+├── labels/
+│   ├── detect/
+│   │   ├── img001.txt          # bounding boxes (YOLO format)
+│   │   └── img002.txt
+│   └── segment/
+│       ├── img001.txt          # polygon masks (YOLO format)
+│       └── img002.txt
+└── predictions/
     ├── detect/
-    │   ├── img001.txt      # bounding boxes only
+    │   ├── img001.txt          # model-predicted boxes
     │   └── img002.txt
     └── segment/
-        ├── img001.txt      # polygon masks only
+        ├── img001.txt          # model-predicted polygons
         └── img002.txt
 ```
+
+---
+
+## Output Formats
+
+### YOLO `.txt` — separate directories for training compatibility
+
+Annotations are saved to two subdirectories so each is directly compatible with
+Ultralytics `yolo detect train` and `yolo segment train`.
 
 **Detection** (`labels/detect/`):
 
@@ -125,44 +157,63 @@ images/
 
 All values are **normalized to 0–1** relative to image dimensions.
 
-### CSV (consolidated `annotations.csv` in image folder)
+### Predictions (for review)
 
+Place model prediction files in `predictions/detect/` and `predictions/segment/`
+using the same YOLO format with an added confidence score:
+
+**Detection**: `<class_id> <confidence> <x_center> <y_center> <width> <height>`
+
+**Segmentation**: `<class_id> <confidence> <x1> <y1> ... <xN> <yN>`
+
+The Review tab matches predictions against ground truth using IoU (default 0.60)
+to classify each as TP, FP, or FN.
+
+### `classes.json`
+
+When you add classes via the toolbar, a `classes.json` file is saved in the image
+folder. This file stores class names and colors and is automatically loaded on
+next launch.
+
+```json
+{
+  "0": {"name": "cat", "color": "#e6194b"},
+  "1": {"name": "dog", "color": "#3cb44b"}
+}
 ```
-image, type, class_id, class_name, x1, y1, x2, y2, polygon_points
-```
-
-Absolute pixel coordinates for convenience. Includes both box and polygon entries.
-Polygon bounding boxes are auto-computed from vertices. Rebuilt from all label
-files on exit.
-
-### `classes.txt`
-
-When you add classes via the toolbar, a `classes.txt` file is saved in the image
-folder. This file is automatically loaded on next launch so class names persist.
 
 ---
 
 ## Features
 
+### Annotate tab
 - **Dark theme** — modern CustomTkinter UI
 - **Box + Polygon modes** — toggle with `m` key or toolbar button
 - **Vertex streaming** — continuous vertex placement while moving the mouse (`v` to toggle)
 - **Edge snapping** — snap to nearby polygon edges while streaming (`s` to toggle)
 - **Polygon selection** — click a polygon to select it for editing; Escape to deselect
 - **Full vertex editing** — drag, insert on edge, right-click delete (on selected polygon)
-- **Snapshot undo / redo** — `Ctrl+Z` / `Ctrl+Y` undoes/redoes any mutation including deletes, vertex moves, and edge inserts
+- **Snapshot undo / redo** — `Ctrl+Z` / `Ctrl+Y` for any mutation
 - **Multi-class support** — dropdown selector + inline "Add" for new classes, per-class colors
-- **Completion tracking** — mark images as complete with a checkbox; filter by status (All / Complete / Partial / Unannotated)
-- **Annotation stats** — per-image and per-session timing, annotation counts, saved to `annotation_stats.json`
+- **Completion tracking** — mark images as complete; filter by status
+- **Annotation stats** — per-image and per-session timing, annotation counts (`annotation_stats.json`)
 - **Separate label dirs** — `labels/detect/` and `labels/segment/` for clean Ultralytics training
 - **Dynamic symbology** — line widths, vertex sizes, and labels scale with zoom level
+- **Text halo** — annotation labels use dark outlines for readability on any background
 - **Fit-to-view** — auto-fits image on open and window resize
-- **Wrap-around navigation** — next/prev image wraps to start/end instead of closing
 - **EXIF orientation** — auto-corrects rotated phone photos
 - **Viewport cropping** — only renders the visible region, safe at any zoom level
-- **Save on navigate** — annotations are saved when you change images, quit, or close the window
-- **Open Folder button** — switch image folders mid-session
-- **Consolidated CSV** — pixel-coordinate CSV export rebuilt from all label files on exit
+- **Save on navigate** — annotations are saved when you change images, quit, or close
+
+### Review tab
+- **IoU-based matching** — automatically matches predictions to ground truth (IoU ≥ 0.60)
+- **Detection cycling** — step through FP / FN / TP detections with auto-zoom
+- **Accept / Reject / Edit** — per-detection actions with type-specific behavior
+- **Prediction reference overlay** — dashed blue overlay shows prediction geometry while editing
+- **Viewport sync** — zoom and position carry over between Annotate and Review tabs
+- **Review state persistence** — progress saved to `review_state.json`, survives across sessions
+- **Review timer** — tracks time spent reviewing per image
+- **Original label backup** — `.original/` copies made before first destructive edit
 
 ---
 
