@@ -1158,7 +1158,17 @@ class YoloLabeler:
         os.makedirs(self.pred_detect_dir, exist_ok=True)
         os.makedirs(self.pred_segment_dir, exist_ok=True)
 
+        # Preserve classes added before folder was opened, then load JSON
+        pre_open_names = dict(self.class_names)
+        pre_open_colors = dict(self.class_colors)
         self._load_classes_json()
+        # Merge: keep pre-open classes that weren't in the JSON
+        for cid, name in pre_open_names.items():
+            if cid not in self.class_names:
+                self.class_names[cid] = name
+        for cid, color in pre_open_colors.items():
+            if cid not in self.class_colors:
+                self.class_colors[cid] = color
         self._refresh_class_dropdown()
 
         self._load_stats()
@@ -1192,6 +1202,9 @@ class YoloLabeler:
                 self.mode_btn.configure(text="Mode: Box \u25ad")
                 self.stream_btn.pack_forget()
                 self.snap_btn.pack_forget()
+
+        # Persist classes (merges pre-open + JSON + ensures file exists)
+        self._save_classes_file()
 
         # Pre-cache the review filtered image list so switching tabs is fast
         self._rebuild_review_image_list()
@@ -2175,6 +2188,7 @@ class YoloLabeler:
                         if class_id not in self.class_names:
                             self.class_names[class_id] = f"class_{class_id}"
                             self._refresh_class_dropdown()
+                            self._save_classes_file()
             except Exception as e:
                 print(f"Warning: Could not load detect labels for {stem}: {e}")
 
@@ -2197,6 +2211,7 @@ class YoloLabeler:
                         if class_id not in self.class_names:
                             self.class_names[class_id] = f"class_{class_id}"
                             self._refresh_class_dropdown()
+                            self._save_classes_file()
             except Exception as e:
                 print(f"Warning: Could not load segment labels for {stem}: {e}")
 
@@ -2236,6 +2251,7 @@ class YoloLabeler:
                         if class_id not in self.class_names:
                             self.class_names[class_id] = f"class_{class_id}"
                             self._refresh_class_dropdown()
+                            self._save_classes_file()
             except Exception as e:
                 print(f"Warning: Could not load detect predictions for {stem}: {e}")
 
@@ -2262,6 +2278,7 @@ class YoloLabeler:
                         if class_id not in self.class_names:
                             self.class_names[class_id] = f"class_{class_id}"
                             self._refresh_class_dropdown()
+                            self._save_classes_file()
             except Exception as e:
                 print(f"Warning: Could not load segment predictions for {stem}: {e}")
 
