@@ -175,9 +175,14 @@ def _get_font_family():
     if _CUSTOM_FONT_LOADED:
         return "Archivo"
     # Fallback to common cross-platform fonts
+    try:
+        available = set(tkFont.families())
+    except Exception:
+        available = set()
     for family in ("Segoe UI", "Helvetica Neue", "Helvetica",
                    "Arial", "DejaVu Sans", "sans-serif"):
-        return family
+        if family in available:
+            return family
     return "TkDefaultFont"
 
 
@@ -251,6 +256,8 @@ class YoloLabeler:
         self._poly_preview_line = None
         self._mouse_canvas_x = 0
         self._mouse_canvas_y = 0
+        self._poly_bboxes = []          # precomputed (min_x, min_y, max_x, max_y) per polygon
+        self._poly_bboxes_dirty = True  # rebuild on next spatial query
 
         # State — predictions (review tab, read-only)
         self.pred_boxes = []
@@ -280,10 +287,12 @@ class YoloLabeler:
         self._review_pan_start_x = None
         self._review_pan_start_y = None
         self._review_state = {}  # persisted review state
+        self._reviewed_lookup = ("", {}, {})  # (img_name, pred_map, gt_map)
         self._review_show_gt = True
         self._review_show_pred = True
         self._review_filtered_images = []  # indices of images with preds/annotations
         self._review_status_filter = "all"  # all / not_reviewed / reviewed
+        self._review_needs_first_zoom = False  # zoom on first Review tab switch
         self._review_det_reviewed = {}  # {img_name: set of reviewed det keys}
         self._annotation_visible = True
         self._review_show_help = False
@@ -567,7 +576,7 @@ class YoloLabeler:
             command=self._on_filter_changed)
         self.filter_dropdown.pack(side="right", padx=(0, 4))
 
-        ctk.CTkLabel(self._toolbar_annotate_right, text="Filter:",
+        ctk.CTkLabel(self._toolbar_annotate_right, text="Status:",
                      font=(self.font_family, 11),
                      text_color=FG_COLOR).pack(side="right", padx=(4, 2))
 
@@ -639,10 +648,10 @@ class YoloLabeler:
         self._status_sep(self._review_status_frame)
 
         ctk.CTkLabel(
-            self._review_status_frame, text="Filter:",
+            self._review_status_frame, text="Status:",
             font=(self.font_family, 11), text_color=FG_COLOR
         ).pack(side="left", padx=(0, 2))
-        self._review_filter_var = ctk.StringVar(value="All")
+        self._review_filter_var = tk.StringVar(value="All")
         self._review_filter_combo = ctk.CTkComboBox(
             self._review_status_frame, width=110,
             values=["All", "Not Reviewed", "Reviewed"],
@@ -650,10 +659,20 @@ class YoloLabeler:
             command=self._on_review_filter_changed,
             font=(self.font_family, 11),
             dropdown_font=(self.font_family, 11),
+            fg_color=ENTRY_BG, border_color=BORDER_COLOR,
+            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR, dropdown_fg_color=BG_COLOR,
+            dropdown_text_color=FG_COLOR, dropdown_hover_color=ACCENT,
             state="readonly")
         self._review_filter_combo.pack(side="left", padx=(0, 4))
 
         self._status_sep(self._review_status_frame)
+
+        # Per-detection review status indicator (inside det nav group)
+        self._review_det_status_label = ctk.CTkLabel(
+            self._review_status_frame, text="",
+            font=(self.font_family, 11), text_color=FG_COLOR)
+        self._review_det_status_label.pack(side="left", padx=(0, 4))
 
         self._review_prev_det_btn = ctk.CTkButton(
             self._review_status_frame, text="\u25c0", width=30,
@@ -673,12 +692,6 @@ class YoloLabeler:
             text_color=FG_COLOR, font=(self.font_family, 11),
             command=self._review_next_detection)
         self._review_next_det_btn.pack(side="left", padx=(2, 4))
-
-        # Per-detection review status indicator
-        self._review_det_status_label = ctk.CTkLabel(
-            self._review_status_frame, text="",
-            font=(self.font_family, 11), text_color=FG_COLOR)
-        self._review_det_status_label.pack(side="left", padx=(0, 4))
 
         self._status_sep(self._review_status_frame)
 
@@ -742,21 +755,21 @@ class YoloLabeler:
         self.status_user = ctk.CTkLabel(
             si, text=f"User: {self._current_user}",
             font=(self.font_family, 11), text_color=FG_COLOR)
-        self.status_user.pack(side="right", padx=(8, 0))
+        self.status_user.pack(side="right", padx=(6, 6))
 
         self._status_sep_right(si)
 
         self.status_time = ctk.CTkLabel(
             si, text="Image time: 0:00", font=(self.font_family, 11),
             text_color=FG_COLOR)
-        self.status_time.pack(side="right", padx=(8, 0))
+        self.status_time.pack(side="right", padx=(6, 6))
 
         self._status_sep_right(si)
 
         self.status_zoom = ctk.CTkLabel(
             si, text="Zoom: 100%", font=(self.font_family, 11),
             text_color=FG_COLOR)
-        self.status_zoom.pack(side="right", padx=(8, 0))
+        self.status_zoom.pack(side="right", padx=(6, 6))
 
     def _status_sep(self, parent):
         sep = ctk.CTkFrame(parent, width=1, height=20,
@@ -794,12 +807,17 @@ class YoloLabeler:
             self._review_status_frame.pack(side="left")
             # Show counts in the right-side status area
             self._review_counts_sep.pack(side="right", padx=6, fill="y")
-            self._review_counts_label.pack(side="right", padx=(8, 0))
+            self._review_counts_label.pack(side="right", padx=(6, 6))
             # Returning from edit: reload GT, recompute, and advance
             if getattr(self, '_review_recompute_on_return', False):
                 self._review_recompute_on_return = False
                 self._review_reload_gt_and_advance()
-            # Normal switch: full image load
+            # Returning from annotate (manual tab switch): recompute in
+            # case the user added/modified GT annotations ad-hoc.
+            elif (self._review_original_image is not None
+                  and self._review_matches is not None):
+                self._review_reload_gt_and_advance()
+            # Normal switch: full image load or restore
             elif self.images:
                 if self._review_original_image is None:
                     # First switch — pick the first reviewable image
@@ -811,6 +829,8 @@ class YoloLabeler:
                         self._update_review_labels()
                         self._update_status()
                         return
+                    self._review_load_image()
+                    self._review_needs_first_zoom = True
                 elif not self._review_filtered_images:
                     # Returning to review but nothing to review
                     self._review_original_image = None
@@ -818,7 +838,14 @@ class YoloLabeler:
                     self._update_review_labels()
                     self._update_status()
                     return
-                self._review_load_image()
+                else:
+                    # Already loaded — preserve det index and zoom
+                    self._review_cached_scale = None
+                    self._display_review_image()
+                # Zoom to first detection on initial switch
+                if self._review_needs_first_zoom:
+                    self._review_needs_first_zoom = False
+                    self._review_zoom_to_first_unreviewed()
             self._update_review_labels()
             self._update_status()
         elif self.tabview.get() == "Annotate":
@@ -898,7 +925,7 @@ class YoloLabeler:
             return
         filtered = []
         has_any_preds = False
-        for i, img_name in enumerate(self.images):
+        for img_name in self.images:
             stem = os.path.splitext(img_name)[0]
             has_pred = (
                 (self.pred_detect_dir and os.path.exists(
@@ -1345,14 +1372,15 @@ class YoloLabeler:
         self._session_total_adds = 0
         self.load_image()
 
-        # Reset and refresh review canvas for the new folder
+        # Reset and pre-load review for the new folder
         self._review_original_image = None
         self._review_index = 0
         self._review_detection_idx = 0
+        self._review_needs_first_zoom = False
         if self._review_filtered_images:
+            self._review_index = self._review_filtered_images[0]
             self._review_load_image()
-        else:
-            self._display_review_image()
+            self._review_needs_first_zoom = True
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Quit
@@ -1453,6 +1481,7 @@ class YoloLabeler:
                 self._review_state = {}
         else:
             self._review_state = {}
+        self._invalidate_reviewed_lookup()
 
     def _save_review_state(self):
         path = self._review_state_path()
@@ -1725,11 +1754,6 @@ class YoloLabeler:
                 self.display_image()
         except (ValueError, IndexError):
             pass
-
-    def _on_class_enter(self, event=None):
-        # NOTE: dead code — method is not bound to any event.
-        #       Retained as placeholder; remove if never wired up.
-        pass
 
     def _add_class_dialog(self):
         """Open a small dialog to add a new class by name."""
@@ -2068,6 +2092,7 @@ class YoloLabeler:
 
         self.boxes = []
         self.polygons = []
+        self._invalidate_poly_bboxes()
         self.current_polygon = []
         self._undo_stack = []
         self._redo_stack = []
@@ -2188,6 +2213,7 @@ class YoloLabeler:
             polygons, seg_cids = parse_segment_labels(
                 segment_path, self.img_width, self.img_height)
             self.polygons.extend(polygons)
+            self._invalidate_poly_bboxes()
             for cid in seg_cids:
                 if cid not in self.class_names:
                     self.class_names[cid] = f"class_{cid}"
@@ -2352,6 +2378,9 @@ class YoloLabeler:
                 x1, y1, x2, y2, class_id = box
                 if class_id != self.active_class:
                     continue
+                # Viewport culling — skip boxes entirely outside visible region
+                if x2 < vis_x1 or x1 > vis_x2 or y2 < vis_y1 or y1 > vis_y2:
+                    continue
                 cx1, cy1 = self.image_to_canvas(x1, y1)
                 cx2, cy2 = self.image_to_canvas(x2, y2)
                 color = self._get_class_color(class_id)
@@ -2367,6 +2396,12 @@ class YoloLabeler:
                 is_selected = (poly_idx == self._selected_polygon_idx)
                 if class_id != self.active_class and not is_selected:
                     continue
+                # Viewport culling — skip polygons entirely outside visible region
+                if points and not is_selected:
+                    pxs = [p[0] for p in points]
+                    pys = [p[1] for p in points]
+                    if max(pxs) < vis_x1 or min(pxs) > vis_x2 or max(pys) < vis_y1 or min(pys) > vis_y2:
+                        continue
                 color = self._get_class_color(class_id)
                 draw_color = "#00BFFF" if is_selected else color
                 canvas_pts = []
@@ -2384,6 +2419,22 @@ class YoloLabeler:
                     or (self._dragging_vertex is not None
                         and self._dragging_vertex[0] == poly_idx)
                 )
+                # During snap-drag, also show vertices on nearby polygons
+                if (not show_verts
+                        and self._dragging_vertex is not None
+                        and self.snap_enabled
+                        and points):
+                    dpi = self._dragging_vertex[0]
+                    if dpi < len(self.polygons):
+                        dvi = self._dragging_vertex[1]
+                        dpts = self.polygons[dpi][0]
+                        if dvi < len(dpts):
+                            dcx, dcy = self.image_to_canvas(*dpts[dvi])
+                            for px, py in points:
+                                pcx, pcy = self.image_to_canvas(px, py)
+                                if math.hypot(dcx - pcx, dcy - pcy) < SNAP_RADIUS * 3:
+                                    show_verts = True
+                                    break
                 if show_verts:
                     r = sel_vert_r if is_selected else vert_r
                     for px, py in points:
@@ -2669,7 +2720,7 @@ class YoloLabeler:
             snapped = self._maybe_snap(ix, iy)
             if snapped != (ix, iy):
                 sx, sy = self.image_to_canvas(*snapped)
-                snap_r = max(4, min(SNAP_RADIUS * (1.6 - self.scale * 0.2), 14))
+                snap_r = 12
                 if self._snap_indicator_item:
                     try:
                         self.canvas.coords(
@@ -2709,9 +2760,9 @@ class YoloLabeler:
                 if vhit:
                     new_hover = vhit[0]
                 else:
-                    ehit = self._find_nearest_edge(event.x, event.y, threshold=hover_thr)
-                    if ehit:
-                        new_hover = ehit[0]
+                    ehit = self._find_nearest_edge_selected(event.x, event.y, threshold=hover_thr)
+                    if ehit is not None:
+                        new_hover = ehit
                     else:
                         for pi, (points, _) in enumerate(self.polygons):
                             if self._point_in_polygon(ix, iy, points):
@@ -2723,9 +2774,9 @@ class YoloLabeler:
                 if vhit:
                     new_hover = vhit[0]
                 else:
-                    ehit = self._find_nearest_edge(event.x, event.y, threshold=hover_thr)
-                    if ehit:
-                        new_hover = ehit[0]
+                    ehit = self._find_nearest_edge_selected(event.x, event.y, threshold=hover_thr)
+                    if ehit is not None:
+                        new_hover = ehit
                     else:
                         for pi, (points, _) in enumerate(self.polygons):
                             if self._point_in_polygon(ix, iy, points):
@@ -2753,14 +2804,23 @@ class YoloLabeler:
     # ──────────────────────────────────────────────────────────────────────────
     #  Vertex snapping
     # ──────────────────────────────────────────────────────────────────────────
-    def _maybe_snap(self, ix, iy):
+    def _maybe_snap(self, ix, iy, exclude=None):
         if not self.snap_enabled:
             return (ix, iy)
+        self._ensure_poly_bboxes()
         cx, cy = self.image_to_canvas(ix, iy)
+        img_thr = SNAP_RADIUS / self.scale if self.scale > 0 else 1e9
         best_dist = SNAP_RADIUS
         best_pt = None
-        for points, _ in self.polygons:
-            for px, py in points:
+        for pidx, (points, _) in enumerate(self.polygons):
+            if pidx < len(self._poly_bboxes):
+                bx1, by1, bx2, by2 = self._poly_bboxes[pidx]
+                if (ix + img_thr < bx1 or ix - img_thr > bx2
+                        or iy + img_thr < by1 or iy - img_thr > by2):
+                    continue
+            for vidx, (px, py) in enumerate(points):
+                if exclude is not None and (pidx, vidx) == exclude:
+                    continue
                 pcx, pcy = self.image_to_canvas(px, py)
                 dist = math.hypot(cx - pcx, cy - pcy)
                 if dist < best_dist:
@@ -2776,10 +2836,17 @@ class YoloLabeler:
         or the original point if nothing is within SNAP_RADIUS."""
         if not self.snap_enabled:
             return (ix, iy)
+        self._ensure_poly_bboxes()
         cx, cy = self.image_to_canvas(ix, iy)
+        img_thr = SNAP_RADIUS / self.scale if self.scale > 0 else 1e9
         best_dist = SNAP_RADIUS
         best_pt = None
-        for points, _ in self.polygons:
+        for pidx, (points, _) in enumerate(self.polygons):
+            if pidx < len(self._poly_bboxes):
+                bx1, by1, bx2, by2 = self._poly_bboxes[pidx]
+                if (ix + img_thr < bx1 or ix - img_thr > bx2
+                        or iy + img_thr < by1 or iy - img_thr > by2):
+                    continue
             n = len(points)
             for ei in range(n):
                 ax, ay = self.image_to_canvas(*points[ei])
@@ -2869,6 +2936,7 @@ class YoloLabeler:
                         new_pts = list(points)
                         new_pts.pop(vi)
                         self.polygons[pi] = (new_pts, cls)
+                    self._invalidate_poly_bboxes()
                     self._clear_drag_state()
                     self._mark_image_annotated()
                     self.display_image()
@@ -2879,6 +2947,7 @@ class YoloLabeler:
                                           self.polygons[pi][0]):
                     self._push_undo()
                     self.polygons.pop(pi)
+                    self._invalidate_poly_bboxes()
                     self._selected_polygon_idx = None
                     self._clear_drag_state()
                     self._mark_image_annotated()
@@ -2906,6 +2975,7 @@ class YoloLabeler:
                 self._push_undo()
                 self._clear_drag_state()
                 self.polygons.pop(i)
+                self._invalidate_poly_bboxes()
                 self._selected_polygon_idx = None
                 self._mark_image_annotated()
                 self.display_image()
@@ -2995,35 +3065,67 @@ class YoloLabeler:
         if self._selected_polygon_idx is not None:
             pi = self._selected_polygon_idx
             if pi < len(self.polygons):
-                # Vertex drag on the selected polygon
-                vertex_hit = self._find_nearest_vertex(event.x, event.y)
-                if vertex_hit and vertex_hit[0] == pi:
-                    vi = vertex_hit[1]
+                # Vertex drag — check only this polygon's vertices so
+                # a coincident vertex on another polygon can't steal the hit
+                best_vi, best_vd = None, 8
+                for vi, (px, py) in enumerate(self.polygons[pi][0]):
+                    vcx, vcy = self.image_to_canvas(px, py)
+                    d = math.hypot(event.x - vcx, event.y - vcy)
+                    if d < best_vd:
+                        best_vd = d
+                        best_vi = vi
+                if best_vi is not None:
                     self._push_undo()
-                    self._dragging_vertex = (pi, vi)
-                    self._drag_orig_pos = self.polygons[pi][0][vi]
+                    self._dragging_vertex = (pi, best_vi)
+                    self._drag_orig_pos = self.polygons[pi][0][best_vi]
                     self.canvas.config(cursor="fleur")
                     return
-                # Edge insert on the selected polygon
-                edge_hit = self._find_nearest_edge(event.x, event.y)
-                if edge_hit and edge_hit[0] == pi:
-                    ei, insert_pt = edge_hit[1], edge_hit[2]
+                # Edge insert — check only this polygon's edges
+                best_ei, best_ed, best_ept = None, 6, None
+                pts_sel = self.polygons[pi][0]
+                n_sel = len(pts_sel)
+                for ei in range(n_sel):
+                    ax, ay = self.image_to_canvas(*pts_sel[ei])
+                    bx, by = self.image_to_canvas(*pts_sel[(ei + 1) % n_sel])
+                    d = _point_to_segment_dist(event.x, event.y, ax, ay, bx, by)
+                    if d < best_ed:
+                        best_ed = d
+                        # Project click onto edge
+                        edx, edy = bx - ax, by - ay
+                        len_sq = edx * edx + edy * edy
+                        if len_sq == 0:
+                            proj_cx, proj_cy = ax, ay
+                        else:
+                            t = max(0.0, min(1.0, ((event.x - ax) * edx + (event.y - ay) * edy) / len_sq))
+                            proj_cx = ax + t * edx
+                            proj_cy = ay + t * edy
+                        pix, piy = self.canvas_to_image(proj_cx, proj_cy)
+                        pix = max(0, min(self.img_width, pix))
+                        piy = max(0, min(self.img_height, piy))
+                        best_ei = ei
+                        best_ept = (pix, piy)
+                if best_ei is not None:
                     self._push_undo()
                     points, cls = self.polygons[pi]
                     new_points = list(points)
-                    new_points.insert(ei + 1, insert_pt)
+                    new_points.insert(best_ei + 1, best_ept)
                     self.polygons[pi] = (new_points, cls)
-                    self._dragging_vertex = (pi, ei + 1)
-                    self._drag_orig_pos = insert_pt
+                    self._invalidate_poly_bboxes()
+                    self._dragging_vertex = (pi, best_ei + 1)
+                    self._drag_orig_pos = best_ept
                     self.canvas.config(cursor="fleur")
                     self.display_image()
                     return
             # Click not on selected polygon's vertex/edge — deselect
+            # and fall through to check if clicking on another polygon
+            just_deselected = True
             self._selected_polygon_idx = None
-            self.display_image()
             if self._review_return_pending:
+                self.display_image()
                 self.root.after(50, self._review_confirm_dialog)
-            return
+                return
+        else:
+            just_deselected = False
 
         # ── Not drawing, nothing selected — check if clicking on polygon ──
         # When snap is enabled, skip vertex-proximity selection so the user
@@ -3040,6 +3142,11 @@ class YoloLabeler:
                 self._selected_polygon_idx = pi
                 self.display_image()
                 return
+
+        # If we just deselected, only redraw — don't start a new polygon
+        if just_deselected:
+            self.display_image()
+            return
 
         # ── Start new polygon (empty space) ──
         ix, iy = self._maybe_snap(ix, iy)
@@ -3063,15 +3170,41 @@ class YoloLabeler:
             if pi != self._selected_polygon_idx:
                 self._clear_drag_state()
                 return
-            ix, iy = self.canvas_to_image(event.x, event.y)
-            ix, iy = self._maybe_snap(ix, iy)
+            raw_ix, raw_iy = self.canvas_to_image(event.x, event.y)
+            ix, iy = self._maybe_snap(raw_ix, raw_iy, exclude=(pi, vi))
+            did_snap = (ix, iy) != (raw_ix, raw_iy)
             ix = max(0, min(self.img_width, ix))
             iy = max(0, min(self.img_height, iy))
             points, cls = self.polygons[pi]
             new_points = list(points)
             new_points[vi] = (ix, iy)
             self.polygons[pi] = (new_points, cls)
+            self._invalidate_poly_bboxes()
             self.display_image()
+            # Show snap indicator during drag (only on target vertex)
+            if self.snap_enabled:
+                if did_snap:
+                    sx, sy = self.image_to_canvas(ix, iy)
+                    snap_r = 12
+                    if self._snap_indicator_item:
+                        try:
+                            self.canvas.coords(
+                                self._snap_indicator_item,
+                                sx - snap_r, sy - snap_r, sx + snap_r, sy + snap_r)
+                        except tk.TclError:
+                            self._snap_indicator_item = None
+                    if not self._snap_indicator_item:
+                        self._snap_indicator_item = self.canvas.create_oval(
+                            sx - snap_r, sy - snap_r, sx + snap_r, sy + snap_r,
+                            outline="#FFE7B1", fill="#FFE7B1",
+                            width=2, stipple="gray50")
+                else:
+                    if self._snap_indicator_item:
+                        try:
+                            self.canvas.delete(self._snap_indicator_item)
+                        except tk.TclError:
+                            pass
+                        self._snap_indicator_item = None
 
     def _poly_release(self, event):
         if self._dragging_vertex is not None:
@@ -3092,6 +3225,7 @@ class YoloLabeler:
             clamped.append((cx, cy))
         self._push_undo()
         self.polygons.append((clamped, self.active_class))
+        self._invalidate_poly_bboxes()
         self._mark_image_annotated()
         self._record_annotation_added()
         self.current_polygon = []
@@ -3104,12 +3238,39 @@ class YoloLabeler:
             self.root.after(50, self._review_confirm_dialog)
 
     # ──────────────────────────────────────────────────────────────────────────
+    #  Polygon spatial index — precomputed bounding boxes
+    # ──────────────────────────────────────────────────────────────────────────
+    def _invalidate_poly_bboxes(self):
+        self._poly_bboxes_dirty = True
+
+    def _ensure_poly_bboxes(self):
+        if not self._poly_bboxes_dirty:
+            return
+        self._poly_bboxes = []
+        for points, _ in self.polygons:
+            if points:
+                xs = [p[0] for p in points]
+                ys = [p[1] for p in points]
+                self._poly_bboxes.append((min(xs), min(ys), max(xs), max(ys)))
+            else:
+                self._poly_bboxes.append((0, 0, 0, 0))
+        self._poly_bboxes_dirty = False
+
+    # ──────────────────────────────────────────────────────────────────────────
     #  Polygon geometry helpers
     # ──────────────────────────────────────────────────────────────────────────
     def _find_nearest_vertex(self, cx, cy, threshold=8):
+        self._ensure_poly_bboxes()
+        qix, qiy = self.canvas_to_image(cx, cy)
+        img_thr = threshold / self.scale if self.scale > 0 else 1e9
         best = None
         best_dist = threshold
         for pi, (points, _) in enumerate(self.polygons):
+            if pi < len(self._poly_bboxes):
+                bx1, by1, bx2, by2 = self._poly_bboxes[pi]
+                if (qix + img_thr < bx1 or qix - img_thr > bx2
+                        or qiy + img_thr < by1 or qiy - img_thr > by2):
+                    continue
             for vi, (px, py) in enumerate(points):
                 vcx, vcy = self.image_to_canvas(px, py)
                 dist = math.hypot(cx - vcx, cy - vcy)
@@ -3119,9 +3280,17 @@ class YoloLabeler:
         return best
 
     def _find_nearest_edge(self, cx, cy, threshold=6):
+        self._ensure_poly_bboxes()
+        qix, qiy = self.canvas_to_image(cx, cy)
+        img_thr = threshold / self.scale if self.scale > 0 else 1e9
         best = None
         best_dist = threshold
         for pi, (points, _) in enumerate(self.polygons):
+            if pi < len(self._poly_bboxes):
+                bx1, by1, bx2, by2 = self._poly_bboxes[pi]
+                if (qix + img_thr < bx1 or qix - img_thr > bx2
+                        or qiy + img_thr < by1 or qiy - img_thr > by2):
+                    continue
             n = len(points)
             for ei in range(n):
                 ax, ay = self.image_to_canvas(*points[ei])
@@ -3134,6 +3303,26 @@ class YoloLabeler:
                     iy = max(0, min(self.img_height, iy))
                     best = (pi, ei, (ix, iy))
         return best
+
+    def _find_nearest_edge_selected(self, cx, cy, threshold=6):
+        """Like _find_nearest_edge but only checks the selected polygon.
+
+        Returns the polygon index (int) if an edge is within threshold,
+        or None.  Used for hover detection so coincident edges on other
+        polygons don't steal the hover highlight.
+        """
+        pi = self._selected_polygon_idx
+        if pi is None or pi >= len(self.polygons):
+            return None
+        points = self.polygons[pi][0]
+        n = len(points)
+        for ei in range(n):
+            ax, ay = self.image_to_canvas(*points[ei])
+            bx, by = self.image_to_canvas(*points[(ei + 1) % n])
+            dist = _point_to_segment_dist(cx, cy, ax, ay, bx, by)
+            if dist < threshold:
+                return pi
+        return None
 
     _point_in_polygon = staticmethod(point_in_polygon)
 
@@ -3207,7 +3396,6 @@ class YoloLabeler:
         self._review_offset_y += dy
         self._review_pan_start_x = event.x
         self._review_pan_start_y = event.y
-        self._review_cached_scale = None
         self._display_review_image()
 
     def _review_zoom(self, event):
@@ -3227,7 +3415,6 @@ class YoloLabeler:
         else:
             delta = -event.delta // 3
         self._review_offset_y -= delta
-        self._review_cached_scale = None
         self._display_review_image()
 
     def _review_hscroll(self, event):
@@ -3236,17 +3423,14 @@ class YoloLabeler:
         else:
             delta = -event.delta // 3
         self._review_offset_x -= delta
-        self._review_cached_scale = None
         self._display_review_image()
 
     def _review_scroll_linux(self, event, direction):
         self._review_offset_y += direction * 40
-        self._review_cached_scale = None
         self._display_review_image()
 
     def _review_hscroll_linux(self, event, direction):
         self._review_offset_x += direction * 40
-        self._review_cached_scale = None
         self._display_review_image()
 
     def _review_zoom_linux(self, event, direction):
@@ -3393,13 +3577,43 @@ class YoloLabeler:
 
     # ── Review detection management ──────────────────────────────────────────
 
+    def _current_review_det(self):
+        """Return the currently focused detection dict, or None."""
+        if (self._review_detections
+                and 0 <= self._review_detection_idx
+                < len(self._review_detections)):
+            return self._review_detections[self._review_detection_idx]
+        return None
+
+    def _refind_detection(self, prev_det):
+        """Find the index of prev_det in the current detection list.
+
+        Matches by gt/pred type and index.  Returns 0 if not found.
+        """
+        if prev_det is None or not self._review_detections:
+            return 0
+        gt_t = prev_det.get('gt_type')
+        gt_i = prev_det.get('gt_idx')
+        pt_t = prev_det.get('pred_type')
+        pt_i = prev_det.get('pred_idx')
+        for i, d in enumerate(self._review_detections):
+            if (d.get('gt_type') == gt_t and d.get('gt_idx') == gt_i
+                    and d.get('pred_type') == pt_t
+                    and d.get('pred_idx') == pt_i):
+                return i
+        return 0
+
     def _on_review_filter_changed(self, value):
         """Handle review status filter dropdown change."""
+        prev_det = self._current_review_det()
         mapping = {"All": "all", "Reviewed": "reviewed", "Not Reviewed": "not_reviewed"}
         self._review_status_filter = mapping.get(value, "all")
         self._rebuild_review_detections()
-        self._review_detection_idx = 0
-        self._display_review_image()
+        self._review_detection_idx = self._refind_detection(prev_det)
+        if self._review_detections:
+            self._zoom_to_detection()
+        else:
+            self._display_review_image()
         self._update_review_labels()
 
     def _rebuild_review_detections(self):
@@ -3440,7 +3654,7 @@ class YoloLabeler:
             for gt_type, gt_idx, p_type, p_idx, iou, cid, conf in matches['tp']:
                 if not _class_ok(cid):
                     continue
-                bbox = self._match_bbox('tp', gt_type, gt_idx, p_type, p_idx)
+                bbox = self._match_bbox(gt_type, gt_idx, p_type, p_idx)
                 det = {
                     'det_type': 'tp', 'class_id': cid, 'conf': conf,
                     'iou': iou,
@@ -3456,7 +3670,7 @@ class YoloLabeler:
             for p_type, p_idx, cid, conf in matches['fp']:
                 if not _class_ok(cid):
                     continue
-                bbox = self._match_bbox('fp', None, None, p_type, p_idx)
+                bbox = self._match_bbox(None, None, p_type, p_idx)
                 det = {
                     'det_type': 'fp', 'class_id': cid, 'conf': conf,
                     'iou': None,
@@ -3472,7 +3686,7 @@ class YoloLabeler:
             for gt_type, gt_idx, cid in matches['fn']:
                 if not _class_ok(cid):
                     continue
-                bbox = self._match_bbox('fn', gt_type, gt_idx, None, None)
+                bbox = self._match_bbox(gt_type, gt_idx, None, None)
                 det = {
                     'det_type': 'fn', 'class_id': cid, 'conf': None,
                     'iou': None,
@@ -3485,25 +3699,25 @@ class YoloLabeler:
 
         self._review_detections = dets
 
-    def _match_bbox(self, det_type, gt_type, gt_idx, p_type, p_idx):
+    def _match_bbox(self, gt_type, gt_idx, p_type, p_idx):
         """Compute bounding box for a detection in image coordinates."""
         bboxes = []
         # GT bbox
         if gt_type and gt_idx is not None:
-            if gt_type == 'box':
+            if gt_type == 'box' and 0 <= gt_idx < len(self._review_gt_boxes):
                 b = self._review_gt_boxes[gt_idx]
                 bboxes.append((b[0], b[1], b[2], b[3]))
-            elif gt_type == 'polygon':
+            elif gt_type == 'polygon' and 0 <= gt_idx < len(self._review_gt_polygons):
                 pts = self._review_gt_polygons[gt_idx][0]
                 xs = [p[0] for p in pts]
                 ys = [p[1] for p in pts]
                 bboxes.append((min(xs), min(ys), max(xs), max(ys)))
         # Pred bbox
         if p_type and p_idx is not None:
-            if p_type == 'box':
+            if p_type == 'box' and 0 <= p_idx < len(self._review_pred_boxes):
                 b = self._review_pred_boxes[p_idx]
                 bboxes.append((b[0], b[1], b[2], b[3]))
-            elif p_type == 'polygon':
+            elif p_type == 'polygon' and 0 <= p_idx < len(self._review_pred_polygons):
                 pts = self._review_pred_polygons[p_idx][0]
                 xs = [p[0] for p in pts]
                 ys = [p[1] for p in pts]
@@ -3562,49 +3776,81 @@ class YoloLabeler:
         else:  # auto
             return pred_bbox or gt_bbox
 
-    def _find_reviewed_entry(self, det, img_name):
-        """Find a matching reviewed entry for a detection.
-
-        Matching strategy:
-        - For TP/FP (has prediction): match by pred_bbox_norm center (within 0.002)
-        - For FN (no prediction): match by gt_bbox_norm center (within 0.002)
-        This fixes the FP→TP bug because we match by prediction coords
-        regardless of whether the match_type changed.
-
-        Returns the reviewed entry dict or None.
-        """
+    def _build_reviewed_lookup(self, img_name):
+        """Build O(1) lookup dicts for reviewed entries on an image."""
         per_image = self._review_state.get("image", {})
         img_data = per_image.get(img_name)
         if not img_data:
-            return None
+            self._reviewed_lookup = (img_name, {}, {})
+            return
         reviewed_dets = img_data.get("detections", [])
-        if not reviewed_dets:
+        QUANT = 500  # 1 / TOLERANCE
+        pred_map = {}  # (qcx, qcy) -> [entries]
+        gt_map = {}    # (qcx, qcy) -> [entries]
+        for entry in reviewed_dets:
+            e_pred = entry.get("pred_bbox_norm")
+            if e_pred:
+                qk = (round(e_pred[0] * QUANT), round(e_pred[1] * QUANT))
+                pred_map.setdefault(qk, []).append(entry)
+            e_gt = entry.get("gt_bbox_norm")
+            if e_gt:
+                qk = (round(e_gt[0] * QUANT), round(e_gt[1] * QUANT))
+                gt_map.setdefault(qk, []).append(entry)
+        self._reviewed_lookup = (img_name, pred_map, gt_map)
+
+    def _invalidate_reviewed_lookup(self):
+        """Mark the reviewed-entry lookup as stale."""
+        self._reviewed_lookup = ("", {}, {})
+
+    def _find_reviewed_entry(self, det, img_name):
+        """Find a matching reviewed entry for a detection.
+
+        Uses a spatial hash for O(1) amortized lookup instead of linear scan.
+        Matching strategy:
+        - For TP/FP (has prediction): match by pred_bbox_norm center (within 0.002)
+        - For FN (no prediction): match by gt_bbox_norm center (within 0.002)
+
+        Returns the reviewed entry dict or None.
+        """
+        if not img_name:
             return None
 
+        # Rebuild lookup if needed (different image or invalidated)
+        if self._reviewed_lookup[0] != img_name:
+            self._build_reviewed_lookup(img_name)
+
+        _, pred_map, gt_map = self._reviewed_lookup
+
         TOLERANCE = 0.002
+        QUANT = 500
 
         det_type = det['det_type']
         if det_type in ('tp', 'fp'):
-            # Match by prediction coordinates
             pred_bbox = self._det_norm_bbox(det, 'pred')
             if not pred_bbox:
                 return None
             pcx, pcy = pred_bbox[0], pred_bbox[1]
-            for entry in reviewed_dets:
-                e_pred = entry.get("pred_bbox_norm")
-                if e_pred and abs(e_pred[0] - pcx) < TOLERANCE and abs(e_pred[1] - pcy) < TOLERANCE:
-                    return entry
+            qx, qy = round(pcx * QUANT), round(pcy * QUANT)
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for entry in pred_map.get((qx + dx, qy + dy), ()):
+                        e_pred = entry.get("pred_bbox_norm")
+                        if (e_pred and abs(e_pred[0] - pcx) < TOLERANCE
+                                and abs(e_pred[1] - pcy) < TOLERANCE):
+                            return entry
         else:  # fn
-            # Match by GT coordinates
             gt_bbox = self._det_norm_bbox(det, 'gt')
             if not gt_bbox:
                 return None
             gcx, gcy = gt_bbox[0], gt_bbox[1]
-            for entry in reviewed_dets:
-                # Only match entries that have GT but no pred (were originally FN)
-                e_gt = entry.get("gt_bbox_norm")
-                if e_gt and abs(e_gt[0] - gcx) < TOLERANCE and abs(e_gt[1] - gcy) < TOLERANCE:
-                    return entry
+            qx, qy = round(gcx * QUANT), round(gcy * QUANT)
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for entry in gt_map.get((qx + dx, qy + dy), ()):
+                        e_gt = entry.get("gt_bbox_norm")
+                        if (e_gt and abs(e_gt[0] - gcx) < TOLERANCE
+                                and abs(e_gt[1] - gcy) < TOLERANCE):
+                            return entry
         return None
 
     def _record_detection_action(self, det, action):
@@ -3642,6 +3888,9 @@ class YoloLabeler:
         else:
             img_data["detections"].append(entry)
 
+        # Invalidate lookup so next query rebuilds from updated data
+        self._invalidate_reviewed_lookup()
+
         # Ensure img_status is at least "started"
         if img_data.get("img_status") == "not_started":
             img_data["img_status"] = "started"
@@ -3675,6 +3924,11 @@ class YoloLabeler:
 
     def _zoom_to_detection(self):
         """Auto-zoom and center the review canvas on the current detection."""
+        # Reset GT/Pred checkboxes to checked on each detection focus
+        self._review_gt_var.set(True)
+        self._review_show_gt = True
+        self._review_pred_var.set(True)
+        self._review_show_pred = True
         if not self._review_detections:
             self._display_review_image()
             return
@@ -3803,14 +4057,15 @@ class YoloLabeler:
         disp_w = max(1, int(crop_w * s))
         disp_h = max(1, int(crop_h * s))
 
-        if (self._review_cached_scale != s
+        review_cache_key = (s, ix0, iy0, ix1, iy1)
+        if (self._review_cached_scale != review_cache_key
                 or self._review_cached_tk_image is None):
             region = self._review_original_image.crop(
                 (ix0, iy0, ix1, iy1))
             region = region.resize(
                 (disp_w, disp_h), Image.Resampling.BILINEAR)
             self._review_cached_tk_image = ImageTk.PhotoImage(region)
-            self._review_cached_scale = s
+            self._review_cached_scale = review_cache_key
 
         px = ox + ix0 * s
         py = oy + iy0 * s
@@ -3834,18 +4089,23 @@ class YoloLabeler:
                 focused_pred.add(
                     (focused_det['pred_type'], focused_det['pred_idx']))
 
-        # Build sets of visible GT/pred indices from filtered detection list
-        visible_gt = set()   # (type, idx)
-        visible_pred = set() # (type, idx)
+        # Build set of reviewed GT indices from ALL matches (unfiltered)
         reviewed_gt = set()  # (type, idx) — GT annotations already reviewed
         img_name = self.images[self._review_index] if self.images else ""
-        for det in self._review_detections:
-            if det.get('gt_type') is not None:
-                visible_gt.add((det['gt_type'], det['gt_idx']))
-                if img_name and self._find_reviewed_entry(det, img_name):
-                    reviewed_gt.add((det['gt_type'], det['gt_idx']))
-            if det.get('pred_type') is not None:
-                visible_pred.add((det['pred_type'], det['pred_idx']))
+        if img_name and self._review_matches:
+            for gt_type, gt_idx, p_type, p_idx, iou, cid, conf in \
+                    self._review_matches.get('tp', []):
+                det = {'det_type': 'tp', 'class_id': cid,
+                       'gt_type': gt_type, 'gt_idx': gt_idx,
+                       'pred_type': p_type, 'pred_idx': p_idx}
+                if self._find_reviewed_entry(det, img_name):
+                    reviewed_gt.add((gt_type, gt_idx))
+            for gt_type, gt_idx, cid in self._review_matches.get('fn', []):
+                det = {'det_type': 'fn', 'class_id': cid,
+                       'gt_type': gt_type, 'gt_idx': gt_idx,
+                       'pred_type': None, 'pred_idx': None}
+                if self._find_reviewed_entry(det, img_name):
+                    reviewed_gt.add((gt_type, gt_idx))
 
         # Constant line width (1.5pt ≈ 2px) regardless of zoom
         line_w = 2
@@ -3854,24 +4114,7 @@ class YoloLabeler:
         PRED_COLOR = "#00BFFF"  # highlighter blue for focused prediction
         FOCUSED_GT_COLOR = "#FFD700"  # gold for focused GT annotation
 
-        def _reviewed_fill(hex_color):
-            """Create a very transparent version of a color for reviewed fill.
-
-            Tkinter Canvas doesn't support alpha, so we blend with BG_COLOR.
-            """
-            try:
-                r = int(hex_color[1:3], 16)
-                g = int(hex_color[3:5], 16)
-                b = int(hex_color[5:7], 16)
-                # ~15% opacity blend with dark background (#1E1E1E)
-                bg_r, bg_g, bg_b = 0x1E, 0x1E, 0x1E
-                a = 0.15
-                r2 = int(r * a + bg_r * (1 - a))
-                g2 = int(g * a + bg_g * (1 - a))
-                b2 = int(b * a + bg_b * (1 - a))
-                return f"#{r2:02x}{g2:02x}{b2:02x}"
-            except (ValueError, IndexError):
-                return ""
+        REVIEWED_STIPPLE = "gray12"  # ~12% pixel density for transparent fill
 
         def _halo_text(x, y, text, fill, **kw):
             """Draw text with black outline halo for readability."""
@@ -3901,117 +4144,155 @@ class YoloLabeler:
 
         # ── Draw GT annotations (format matched to predictions) ──
         if self._review_show_gt:
+            # Focused GT is deferred to draw last (z-order: always on top)
+            _deferred_focused_gt = []
+
             # Draw GT boxes (or polygon GT converted to bboxes)
             if gt_draw_mode in ("box", "both"):
                 for i, (x1, y1, x2, y2, cid) in enumerate(
                         self._review_gt_boxes):
-                    if ('box', i) not in visible_gt:
+                    is_focused = ('box', i) in focused_gt
+                    if is_focused:
+                        _deferred_focused_gt.append(
+                            ('rect', x1, y1, x2, y2, cid))
+                        continue
+                    # Viewport culling
+                    if x2 < ix0 or x1 > ix1 or y2 < iy0 or y1 > iy1:
                         continue
                     color = self._get_class_color(cid)
-                    is_focused = ('box', i) in focused_gt
-                    draw_color = FOCUSED_GT_COLOR if is_focused else color
                     is_reviewed = ('box', i) in reviewed_gt
-                    fill_color = _reviewed_fill(color) if is_reviewed and not is_focused else ""
-                    lw = focused_line_w if is_focused else line_w
                     cx1, cy1 = self._review_image_to_canvas(x1, y1)
                     cx2, cy2 = self._review_image_to_canvas(x2, y2)
-                    c.create_rectangle(cx1, cy1, cx2, cy2,
-                                       outline=draw_color, fill=fill_color,
-                                       width=lw)
-                    if is_focused:
-                        name = self.class_names.get(cid, str(cid))
-                        _halo_text(cx1 + 2, cy1 - 2, anchor="sw",
-                                   text=f"GT {cid}: {name}",
-                                   fill=draw_color,
-                                   font=(self.font_family,
-                                         label_size, "bold"))
+                    if is_reviewed:
+                        c.create_rectangle(cx1, cy1, cx2, cy2,
+                                           outline=color, width=line_w,
+                                           fill=color, stipple=REVIEWED_STIPPLE)
+                    else:
+                        c.create_rectangle(cx1, cy1, cx2, cy2,
+                                           outline=color, width=line_w,
+                                           fill="")
                 # Also draw polygon GT as bounding boxes
                 if gt_draw_mode == "box":
                     for i, (pts, cid) in enumerate(
                             self._review_gt_polygons):
-                        if ('polygon', i) not in visible_gt:
-                            continue
-                        color = self._get_class_color(cid)
                         is_focused = ('polygon', i) in focused_gt
-                        draw_color = FOCUSED_GT_COLOR if is_focused else color
-                        is_reviewed = ('polygon', i) in reviewed_gt
-                        fill_color = _reviewed_fill(color) if is_reviewed and not is_focused else ""
+                        if is_focused:
+                            xs = [p[0] for p in pts]
+                            ys = [p[1] for p in pts]
+                            _deferred_focused_gt.append(
+                                ('rect', min(xs), min(ys),
+                                 max(xs), max(ys), cid))
+                            continue
+                        # Viewport culling
                         xs = [p[0] for p in pts]
                         ys = [p[1] for p in pts]
+                        if max(xs) < ix0 or min(xs) > ix1 or max(ys) < iy0 or min(ys) > iy1:
+                            continue
+                        color = self._get_class_color(cid)
+                        is_reviewed = ('polygon', i) in reviewed_gt
                         bx1, by1 = min(xs), min(ys)
                         bx2, by2 = max(xs), max(ys)
-                        lw = focused_line_w if is_focused else line_w
                         cx1, cy1 = self._review_image_to_canvas(bx1, by1)
                         cx2, cy2 = self._review_image_to_canvas(bx2, by2)
-                        c.create_rectangle(cx1, cy1, cx2, cy2,
-                                           outline=draw_color,
-                                           fill=fill_color, width=lw)
-                        if is_focused:
-                            name = self.class_names.get(cid, str(cid))
-                            _halo_text(cx1 + 2, cy1 - 2, anchor="sw",
-                                       text=f"GT {cid}: {name}",
-                                       fill=draw_color,
-                                       font=(self.font_family,
-                                             label_size, "bold"))
+                        if is_reviewed:
+                            c.create_rectangle(cx1, cy1, cx2, cy2,
+                                               outline=color, width=line_w,
+                                               fill=color, stipple=REVIEWED_STIPPLE)
+                        else:
+                            c.create_rectangle(cx1, cy1, cx2, cy2,
+                                               outline=color, width=line_w,
+                                               fill="")
 
             # Draw GT polygons (or box GT converted to rectangles as polygons)
             if gt_draw_mode in ("polygon", "both"):
                 for i, (pts, cid) in enumerate(self._review_gt_polygons):
-                    if ('polygon', i) not in visible_gt:
+                    is_focused = ('polygon', i) in focused_gt
+                    if is_focused:
+                        _deferred_focused_gt.append(('poly', pts, cid))
+                        continue
+                    # Viewport culling
+                    pxs = [p[0] for p in pts]
+                    pys = [p[1] for p in pts]
+                    if max(pxs) < ix0 or min(pxs) > ix1 or max(pys) < iy0 or min(pys) > iy1:
                         continue
                     color = self._get_class_color(cid)
-                    is_focused = ('polygon', i) in focused_gt
-                    draw_color = FOCUSED_GT_COLOR if is_focused else color
                     is_reviewed = ('polygon', i) in reviewed_gt
-                    fill_color = _reviewed_fill(color) if is_reviewed and not is_focused else ""
                     canvas_pts = []
                     for px_pt, py_pt in pts:
                         cx_p, cy_p = self._review_image_to_canvas(
                             px_pt, py_pt)
                         canvas_pts.extend([cx_p, cy_p])
                     if len(canvas_pts) >= 6:
-                        lw = focused_line_w if is_focused else line_w
-                        c.create_polygon(*canvas_pts, outline=draw_color,
-                                         fill=fill_color, width=lw)
-                    if is_focused and pts:
-                        lx, ly = self._review_image_to_canvas(*pts[0])
-                        name = self.class_names.get(cid, str(cid))
-                        _halo_text(lx + 2, ly - 2, anchor="sw",
-                                   text=f"GT {cid}: {name}",
-                                   fill=draw_color,
-                                   font=(self.font_family,
-                                         label_size, "bold"))
+                        if is_reviewed:
+                            c.create_polygon(*canvas_pts, outline=color,
+                                             width=line_w, fill=color,
+                                             stipple=REVIEWED_STIPPLE)
+                        else:
+                            c.create_polygon(*canvas_pts, outline=color,
+                                             width=line_w, fill="")
                 # Also draw box GT as polygons
                 if gt_draw_mode == "polygon":
                     for i, (x1, y1, x2, y2, cid) in enumerate(
                             self._review_gt_boxes):
-                        if ('box', i) not in visible_gt:
+                        is_focused = ('box', i) in focused_gt
+                        if is_focused:
+                            _deferred_focused_gt.append(
+                                ('poly', [(x1, y1), (x2, y1),
+                                          (x2, y2), (x1, y2)], cid))
+                            continue
+                        # Viewport culling
+                        if x2 < ix0 or x1 > ix1 or y2 < iy0 or y1 > iy1:
                             continue
                         color = self._get_class_color(cid)
-                        is_focused = ('box', i) in focused_gt
-                        draw_color = FOCUSED_GT_COLOR if is_focused else color
                         is_reviewed = ('box', i) in reviewed_gt
-                        fill_color = _reviewed_fill(color) if is_reviewed and not is_focused else ""
                         rect_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
                         canvas_pts = []
-                        corner_pts = []
                         for px_pt, py_pt in rect_pts:
                             cx_p, cy_p = self._review_image_to_canvas(
                                 px_pt, py_pt)
                             canvas_pts.extend([cx_p, cy_p])
-                            corner_pts.append((cx_p, cy_p))
-                        lw = focused_line_w if is_focused else line_w
-                        c.create_polygon(*canvas_pts, outline=draw_color,
-                                         fill=fill_color, width=lw)
-                        if is_focused:
-                            name = self.class_names.get(cid, str(cid))
-                            cx_p, cy_p = self._review_image_to_canvas(
-                                x1, y1)
-                            _halo_text(cx_p + 2, cy_p - 2, anchor="sw",
-                                       text=f"GT {cid}: {name}",
-                                       fill=draw_color,
-                                       font=(self.font_family,
-                                             label_size, "bold"))
+                        if is_reviewed:
+                            c.create_polygon(*canvas_pts, outline=color,
+                                             width=line_w, fill=color,
+                                             stipple=REVIEWED_STIPPLE)
+                        else:
+                            c.create_polygon(*canvas_pts, outline=color,
+                                             width=line_w, fill="")
+
+            # ── Draw focused GT last (always on top) ──
+            for _dfg in _deferred_focused_gt:
+                if _dfg[0] == 'rect':
+                    _, fx1, fy1, fx2, fy2, fcid = _dfg
+                    cx1, cy1 = self._review_image_to_canvas(fx1, fy1)
+                    cx2, cy2 = self._review_image_to_canvas(fx2, fy2)
+                    c.create_rectangle(cx1, cy1, cx2, cy2,
+                                       outline=FOCUSED_GT_COLOR,
+                                       fill="", width=focused_line_w)
+                    name = self.class_names.get(fcid, str(fcid))
+                    _halo_text(cx1 + 2, cy1 - 2, anchor="sw",
+                               text=f"GT {fcid}: {name}",
+                               fill=FOCUSED_GT_COLOR,
+                               font=(self.font_family,
+                                     label_size, "bold"))
+                elif _dfg[0] == 'poly':
+                    _, fpts, fcid = _dfg
+                    canvas_pts = []
+                    for px_pt, py_pt in fpts:
+                        cx_p, cy_p = self._review_image_to_canvas(
+                            px_pt, py_pt)
+                        canvas_pts.extend([cx_p, cy_p])
+                    if len(canvas_pts) >= 6:
+                        c.create_polygon(*canvas_pts,
+                                         outline=FOCUSED_GT_COLOR,
+                                         fill="", width=focused_line_w)
+                    if fpts:
+                        lx, ly = self._review_image_to_canvas(*fpts[0])
+                        name = self.class_names.get(fcid, str(fcid))
+                        _halo_text(lx + 2, ly - 2, anchor="sw",
+                                   text=f"GT {fcid}: {name}",
+                                   fill=FOCUSED_GT_COLOR,
+                                   font=(self.font_family,
+                                         label_size, "bold"))
 
         # ── Draw ONLY the focused prediction (blue) ──
         if self._review_show_pred and focused_det:
@@ -4126,9 +4407,17 @@ class YoloLabeler:
 
     # ── Review navigation ────────────────────────────────────────────────────
 
-    def _review_next_image(self):
+    def _review_next_image(self, reset_filters=True):
         if not self.images:
             return
+        if reset_filters:
+            # Reset filters to 'all' on manual image change
+            self._review_filter_type = "all"
+            self._review_type_var.set("All")
+            self._review_status_filter = "all"
+            self._review_filter_var.set("All")
+            self._review_filter_class = "all"
+            self._review_class_var.set("All")
         filt = self._review_filtered_images
         if filt:
             try:
@@ -4143,9 +4432,17 @@ class YoloLabeler:
         self._review_cached_tk_image = None
         self._review_load_image()
 
-    def _review_prev_image(self):
+    def _review_prev_image(self, reset_filters=True):
         if not self.images:
             return
+        if reset_filters:
+            # Reset filters to 'all' on manual image change
+            self._review_filter_type = "all"
+            self._review_type_var.set("All")
+            self._review_status_filter = "all"
+            self._review_filter_var.set("All")
+            self._review_filter_class = "all"
+            self._review_class_var.set("All")
         filt = self._review_filtered_images
         if filt:
             try:
@@ -4179,9 +4476,10 @@ class YoloLabeler:
     # ── Review filter callbacks ──────────────────────────────────────────────
 
     def _on_review_type_changed(self, choice):
+        prev_det = self._current_review_det()
         self._review_filter_type = choice.lower()
         self._rebuild_review_detections()
-        self._review_detection_idx = 0
+        self._review_detection_idx = self._refind_detection(prev_det)
         if self._review_detections:
             self._zoom_to_detection()
         else:
@@ -4189,6 +4487,7 @@ class YoloLabeler:
         self._update_review_labels()
 
     def _on_review_class_changed(self, choice):
+        prev_det = self._current_review_det()
         if choice == "All":
             self._review_filter_class = "all"
         else:
@@ -4197,7 +4496,7 @@ class YoloLabeler:
             except (ValueError, IndexError):
                 self._review_filter_class = "all"
         self._rebuild_review_detections()
-        self._review_detection_idx = 0
+        self._review_detection_idx = self._refind_detection(prev_det)
         if self._review_detections:
             self._zoom_to_detection()
         else:
@@ -4493,7 +4792,7 @@ class YoloLabeler:
             # Restore and advance
             self._review_filter_type = saved_type
             self._rebuild_review_detections()
-        self._review_next_image()
+        self._review_next_image(reset_filters=False)
 
     def _review_step_next(self, action="accepted"):
         """Record action and advance to the next unreviewed detection.
@@ -4526,9 +4825,6 @@ class YoloLabeler:
                 self._zoom_to_detection()
                 self._update_review_labels()
                 return
-        # All are reviewed
-        self._check_image_review_complete()
-        self._review_advance_or_switch_type()
 
     def _review_reload_gt_and_advance(self):
         """Reload GT from disk after annotate edit, recompute, and advance."""
@@ -4695,12 +4991,12 @@ class YoloLabeler:
         """Snapshot current annotation state before a mutation."""
         snapshot = (
             list(self.boxes),
-            copy.deepcopy(self.polygons),
+            list(self.polygons),
             self._selected_polygon_idx,
         )
         self._undo_stack.append(snapshot)
         self._redo_stack.clear()
-        if len(self._undo_stack) > 50:
+        if len(self._undo_stack) > 30:
             self._undo_stack.pop(0)
 
     def undo_last(self, event=None):
@@ -4708,15 +5004,23 @@ class YoloLabeler:
         if self.current_polygon:
             pt = self.current_polygon.pop()
             self._vertex_redo_stack.append(pt)
+            if self.current_polygon:
+                # Still has vertices — just redraw
+                self.display_image()
+                return
+            # Popped the last vertex (cancelled polygon start) — fall
+            # through to snapshot restore so the previous real action
+            # (e.g. a delete) is undone in the same keystroke.
             self.display_image()
-            return
+            if not self._undo_stack:
+                return
         # Otherwise restore from snapshot stack
         if not self._undo_stack:
             return
         # Push current state to redo
         redo_snapshot = (
             list(self.boxes),
-            copy.deepcopy(self.polygons),
+            list(self.polygons),
             self._selected_polygon_idx,
         )
         self._redo_stack.append(redo_snapshot)
@@ -4724,6 +5028,7 @@ class YoloLabeler:
         boxes, polygons, sel_idx = self._undo_stack.pop()
         self.boxes = boxes
         self.polygons = polygons
+        self._invalidate_poly_bboxes()
         self._selected_polygon_idx = sel_idx
         self._clear_drag_state()
         self.display_image()
@@ -4741,13 +5046,14 @@ class YoloLabeler:
             return
         undo_snapshot = (
             list(self.boxes),
-            copy.deepcopy(self.polygons),
+            list(self.polygons),
             self._selected_polygon_idx,
         )
         self._undo_stack.append(undo_snapshot)
         boxes, polygons, sel_idx = self._redo_stack.pop()
         self.boxes = boxes
         self.polygons = polygons
+        self._invalidate_poly_bboxes()
         self._selected_polygon_idx = sel_idx
         self._clear_drag_state()
         self.display_image()
