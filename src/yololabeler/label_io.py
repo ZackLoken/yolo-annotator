@@ -5,6 +5,7 @@ with explicit image dimensions for coordinate conversion.
 """
 
 import os
+import tempfile
 
 
 # ── Parsing ─────────────────────────────────────────────────────────────────
@@ -30,8 +31,11 @@ def parse_detect_labels(path, img_w, img_h):
             parts = line.strip().split()
             if len(parts) != 5:
                 continue
-            class_id = int(parts[0])
-            vals = [float(v) for v in parts[1:]]
+            try:
+                class_id = int(parts[0])
+                vals = [float(v) for v in parts[1:]]
+            except ValueError:
+                continue
             xc = vals[0] * img_w
             yc = vals[1] * img_h
             w = vals[2] * img_w
@@ -64,8 +68,11 @@ def parse_segment_labels(path, img_w, img_h):
             parts = line.strip().split()
             if len(parts) < 7 or len(parts) % 2 != 1:
                 continue
-            class_id = int(parts[0])
-            vals = [float(v) for v in parts[1:]]
+            try:
+                class_id = int(parts[0])
+                vals = [float(v) for v in parts[1:]]
+            except ValueError:
+                continue
             points = []
             for i in range(0, len(vals), 2):
                 px = vals[i] * img_w
@@ -96,9 +103,12 @@ def parse_detect_predictions(path, img_w, img_h):
             parts = line.strip().split()
             if len(parts) != 6:
                 continue
-            class_id = int(parts[0])
-            conf = float(parts[1])
-            vals = [float(v) for v in parts[2:]]
+            try:
+                class_id = int(parts[0])
+                conf = float(parts[1])
+                vals = [float(v) for v in parts[2:]]
+            except ValueError:
+                continue
             xc = vals[0] * img_w
             yc = vals[1] * img_h
             w = vals[2] * img_w
@@ -132,9 +142,12 @@ def parse_segment_predictions(path, img_w, img_h):
                 continue
             if (len(parts) - 2) % 2 != 0:
                 continue
-            class_id = int(parts[0])
-            conf = float(parts[1])
-            vals = [float(v) for v in parts[2:]]
+            try:
+                class_id = int(parts[0])
+                conf = float(parts[1])
+                vals = [float(v) for v in parts[2:]]
+            except ValueError:
+                continue
             points = []
             for i in range(0, len(vals), 2):
                 px = vals[i] * img_w
@@ -160,13 +173,23 @@ def write_detect_labels(path, boxes, img_w, img_h):
         Image dimensions for normalisation.
     """
     if boxes:
-        with open(path, "w", encoding="utf-8") as f:
-            for x1, y1, x2, y2, cls in boxes:
-                xc = ((x1 + x2) / 2) / img_w
-                yc = ((y1 + y2) / 2) / img_h
-                w = (x2 - x1) / img_w
-                h = (y2 - y1) / img_h
-                f.write(f"{cls} {xc:.6f} {yc:.6f} {w:.6f} {h:.6f}\n")
+        dir_name = os.path.dirname(path) or "."
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                for x1, y1, x2, y2, cls in boxes:
+                    xc = ((x1 + x2) / 2) / img_w
+                    yc = ((y1 + y2) / 2) / img_h
+                    w = (x2 - x1) / img_w
+                    h = (y2 - y1) / img_h
+                    f.write(f"{cls} {xc:.6f} {yc:.6f} {w:.6f} {h:.6f}\n")
+            os.replace(tmp_path, path)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     elif os.path.exists(path):
         os.remove(path)
 
@@ -185,11 +208,21 @@ def write_segment_labels(path, polygons, img_w, img_h):
         Image dimensions for normalisation.
     """
     if polygons:
-        with open(path, "w", encoding="utf-8") as f:
-            for points, cls in polygons:
-                coords = " ".join(
-                    f"{x / img_w:.6f} {y / img_h:.6f}"
-                    for x, y in points)
-                f.write(f"{cls} {coords}\n")
+        dir_name = os.path.dirname(path) or "."
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                for points, cls in polygons:
+                    coords = " ".join(
+                        f"{x / img_w:.6f} {y / img_h:.6f}"
+                        for x, y in points)
+                    f.write(f"{cls} {coords}\n")
+            os.replace(tmp_path, path)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     elif os.path.exists(path):
         os.remove(path)
