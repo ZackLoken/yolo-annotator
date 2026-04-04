@@ -30,3 +30,4 @@ src/yololabeler/annotator_v3_backup.py
 CSV_text_file_converter.ipynb
 AUDIT.md
 src/yololabeler/annotator_v4_backup.py
+/backups
