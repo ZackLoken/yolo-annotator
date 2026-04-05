@@ -28,14 +28,11 @@ Features:
 import os
 import sys
 import json
-import math
 import time
 import getpass
 import datetime
-import copy
 from collections import namedtuple
 import tkinter as tk
-import tkinter.font as tkFont
 from tkinter import filedialog, messagebox, colorchooser
 from PIL import Image, ImageTk
 
@@ -48,17 +45,14 @@ from yololabeler.annotation.tab import AnnotateTab
 from yololabeler.review.engine import ReviewEngine
 from yololabeler.review.tab import ReviewTab
 from yololabeler.label_io import (
-    parse_detect_labels, parse_segment_labels,
     parse_detect_predictions, parse_segment_predictions,
-    write_detect_labels, write_segment_labels,
 )
 from yololabeler.matching import (
-    point_to_segment_dist, point_in_polygon,
-    box_iou, polygon_iou, box_to_points, compute_matches,
+    compute_matches,
 )
 from yololabeler.utils import (
     suppress_tk_mac_warnings, _load_custom_fonts, _get_font_family,
-    auto_orient_image, ASSETS_DIR,
+    ASSETS_DIR,
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -116,10 +110,6 @@ DEFAULT_CLASS_COLORS = [
 
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
-
-
-# Backwards-compatible alias — callers use _point_to_segment_dist
-_point_to_segment_dist = point_to_segment_dist
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -620,7 +610,8 @@ class YoloLabeler:
         # Per-detection review status indicator (inside det nav group)
         self._review_det_status_label = ctk.CTkLabel(
             self._review_status_frame, text="",
-            font=(self.font_family, 11), text_color=FG_COLOR)
+            font=(self.font_family, 11), text_color=FG_COLOR,
+            width=100, anchor="w")
         self._review_det_status_label.pack(side="left", padx=(0, 4))
 
         self._review_prev_det_btn = ctk.CTkButton(
@@ -632,7 +623,8 @@ class YoloLabeler:
 
         self._review_det_label = ctk.CTkLabel(
             self._review_status_frame, text="0 / 0",
-            font=(self.font_family, 11), text_color=FG_COLOR)
+            font=(self.font_family, 11), text_color=FG_COLOR,
+            width=70, anchor="center")
         self._review_det_label.pack(side="left", padx=(2, 2))
 
         self._review_next_det_btn = ctk.CTkButton(
@@ -671,7 +663,7 @@ class YoloLabeler:
         self._review_action_sep.pack(side="left", padx=12, fill="y")
 
         self._review_accept_btn = ctk.CTkButton(
-            self._review_status_frame, text="Accept (A)", width=90,
+            self._review_status_frame, text="Accept (A)", width=110,
             fg_color=SI_GREEN, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11, "bold"),
             command=lambda: self._review_tab._review_accept())
@@ -685,7 +677,7 @@ class YoloLabeler:
         self._review_edit_btn.pack(side="left", padx=(0, 4))
 
         self._review_reject_btn = ctk.CTkButton(
-            self._review_status_frame, text="Reject (R)", width=90,
+            self._review_status_frame, text="Reject (R)", width=110,
             fg_color=SI_GREEN, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11, "bold"),
             command=lambda: self._review_tab._review_reject())
@@ -1844,6 +1836,51 @@ class YoloLabeler:
                 self.counter_entry.insert(0, str(filt_pos))
             else:
                 self.counter_entry.insert(0, str(self.index + 1))
+
+    # ──────────────────────────────────────────────────────────────────────────
+    #  Shared helpers (used by both Annotate and Review tabs)
+    # ──────────────────────────────────────────────────────────────────────────
+    def _load_predictions(self, image_name, img_w, img_h):
+        """Load model predictions for an image."""
+        pred_boxes = []
+        pred_polygons = []
+        if not self.pred_detect_dir or not self.pred_segment_dir:
+            return pred_boxes, pred_polygons
+        stem = os.path.splitext(image_name)[0]
+
+        detect_path = os.path.join(self.pred_detect_dir, f"{stem}.txt")
+        try:
+            pboxes, det_cids = parse_detect_predictions(
+                detect_path, img_w, img_h)
+            pred_boxes.extend(pboxes)
+            for cid in det_cids:
+                if cid not in self.class_names:
+                    self.class_names[cid] = f"class_{cid}"
+                    self._refresh_class_dropdown()
+                    self._save_classes_file()
+        except Exception as e:
+            print(f"Warning: Could not load detect predictions for {stem}: {e}")
+
+        segment_path = os.path.join(self.pred_segment_dir, f"{stem}.txt")
+        try:
+            ppolys, seg_cids = parse_segment_predictions(
+                segment_path, img_w, img_h)
+            pred_polygons.extend(ppolys)
+            for cid in seg_cids:
+                if cid not in self.class_names:
+                    self.class_names[cid] = f"class_{cid}"
+                    self._refresh_class_dropdown()
+                    self._save_classes_file()
+        except Exception as e:
+            print(f"Warning: Could not load segment predictions for {stem}: {e}")
+
+        return pred_boxes, pred_polygons
+
+    def _compute_matches(self, gt_boxes, gt_polygons, pred_boxes, pred_polygons,
+                         iou_threshold=0.5, conf_threshold=0.25):
+        """Match predictions to ground truth using IoU."""
+        return compute_matches(gt_boxes, gt_polygons, pred_boxes,
+                               pred_polygons, iou_threshold, conf_threshold)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
