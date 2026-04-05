@@ -326,6 +326,7 @@ class ReviewEngine:
             "match_type": det['det_type'].upper(),
             "det_status": "reviewed",
             "action": action,
+            "reviewed_by": s._current_user,
             "class_id": det['class_id'],
             "class_name": class_name,
             "gt_bbox_norm": self.det_norm_bbox(det, 'gt'),
