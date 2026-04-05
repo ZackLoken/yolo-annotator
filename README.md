@@ -187,33 +187,32 @@ next launch.
 ## Features
 
 ### Annotate tab
-- **Dark theme** — modern CustomTkinter UI
-- **Box + Polygon modes** — toggle with `m` key or toolbar button
-- **Vertex streaming** — continuous vertex placement while moving the mouse (`v` to toggle)
-- **Edge snapping** — snap to nearby polygon edges while streaming (`s` to toggle)
-- **Polygon selection** — click a polygon to select it for editing; Escape to deselect
-- **Full vertex editing** — drag, insert on edge, right-click delete (on selected polygon)
-- **Snapshot undo / redo** — `Ctrl+Z` / `Ctrl+Y` for any mutation
-- **Multi-class support** — dropdown selector + inline "Add" for new classes, per-class colors
-- **Completion tracking** — mark images as complete; filter by status
-- **Annotation stats** — per-image and per-session timing, annotation counts (`annotation_stats.json`)
-- **Separate label dirs** — `labels/detect/` and `labels/segment/` for clean Ultralytics training
-- **Dynamic symbology** — line widths, vertex sizes, and labels scale with zoom level
-- **Text halo** — annotation labels use dark outlines for readability on any background
-- **Fit-to-view** — auto-fits image on open and window resize
-- **EXIF orientation** — auto-corrects rotated phone photos
-- **Viewport cropping** — only renders the visible region, safe at any zoom level
-- **Save on navigate** — annotations are saved when you change images, quit, or close
+- **Box + Polygon modes:** toggle with `m` key or toolbar button
+- **Vertex streaming:** continuous vertex placement while moving the mouse (`v` to toggle)
+- **Edge snapping:** snap to nearby polygon edges while streaming (`s` to toggle)
+- **Polygon selection:** click a polygon to select it for editing; Escape to deselect
+- **Full vertex editing:** drag, insert on edge, right-click delete (on selected polygon)
+- **Snapshot undo / redo:** `Ctrl+Z` / `Ctrl+Y` for any mutation
+- **Multi-class support:** dropdown selector + inline "Add" for new classes, per-class colors
+- **Completion tracking:** mark images as complete; filter by status
+- **Annotation stats:** per-image and per-session timing, annotation counts (`annotation_stats.json`)
+- **Separate label dirs:** `labels/detect/` and `labels/segment/` for clean Ultralytics training
+- **Dynamic symbology:** line widths, vertex sizes, and labels scale with zoom level
+- **Text halo:** annotation labels use dark outlines for readability on any background
+- **Fit-to-view:** auto-fits image on open and window resize
+- **EXIF orientation:** auto-corrects rotated phone photos
+- **Viewport cropping:** only renders the visible region, safe at any zoom level
+- **Save on navigate:** annotations are saved when you change images, quit, or close
 
 ### Review tab
-- **IoU-based matching** — automatically matches predictions to ground truth (IoU ≥ 0.60)
-- **Detection cycling** — step through FP / FN / TP detections with auto-zoom
-- **Accept / Reject / Edit** — per-detection actions with type-specific behavior
-- **Prediction reference overlay** — dashed blue overlay shows prediction geometry while editing
-- **Viewport sync** — zoom and position carry over between Annotate and Review tabs
-- **Review state persistence** — progress saved to `review_stats.json`, survives across sessions
-- **Review timer** — tracks time spent reviewing per image
-- **Original label backup** — `.original/` copies made before first destructive edit
+- **IoU-based matching:** automatically matches predictions to ground truth (IoU ≥ 0.60)
+- **Detection cycling:** step through FP / FN / TP detections with auto-zoom
+- **Accept / Reject / Edit:** per-detection actions with type-specific behavior
+- **Prediction reference overlay:** dashed blue overlay shows prediction geometry while editing
+- **Viewport sync:** zoom and position carry over between Annotate and Review tabs
+- **Review state persistence:** progress saved to `review_stats.json`, survives across sessions
+- **Review timer:** tracks time spent reviewing per image
+- **Original label backup:** `.original/` copies made before first destructive edit
 
 ---
 
