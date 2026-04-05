@@ -44,6 +44,8 @@ class AnnotationEngine:
             list(s.boxes),
             list(s.polygons),
             s._selected_polygon_idx,
+            list(s.box_authors),
+            list(s.polygon_authors),
         )
         s._undo_stack.append(snapshot)
         s._redo_stack.clear()
@@ -62,13 +64,17 @@ class AnnotationEngine:
             list(s.boxes),
             list(s.polygons),
             s._selected_polygon_idx,
+            list(s.box_authors),
+            list(s.polygon_authors),
         )
         s._redo_stack.append(redo_snap)
-        boxes, polygons, sel_idx = s._undo_stack.pop()
-        s.boxes = boxes
-        s.polygons = polygons
+        snap = s._undo_stack.pop()
+        s.boxes = snap[0]
+        s.polygons = snap[1]
+        s._selected_polygon_idx = snap[2]
+        s.box_authors = snap[3] if len(snap) > 3 else [""] * len(s.boxes)
+        s.polygon_authors = snap[4] if len(snap) > 4 else [""] * len(s.polygons)
         self.invalidate_poly_bboxes()
-        s._selected_polygon_idx = sel_idx
         self.clear_drag_state()
         return True
 
@@ -84,13 +90,17 @@ class AnnotationEngine:
             list(s.boxes),
             list(s.polygons),
             s._selected_polygon_idx,
+            list(s.box_authors),
+            list(s.polygon_authors),
         )
         s._undo_stack.append(undo_snap)
-        boxes, polygons, sel_idx = s._redo_stack.pop()
-        s.boxes = boxes
-        s.polygons = polygons
+        snap = s._redo_stack.pop()
+        s.boxes = snap[0]
+        s.polygons = snap[1]
+        s._selected_polygon_idx = snap[2]
+        s.box_authors = snap[3] if len(snap) > 3 else [""] * len(s.boxes)
+        s.polygon_authors = snap[4] if len(snap) > 4 else [""] * len(s.polygons)
         self.invalidate_poly_bboxes()
-        s._selected_polygon_idx = sel_idx
         self.clear_drag_state()
         return True
 
@@ -122,6 +132,7 @@ class AnnotationEngine:
             ))
         self.push_undo()
         s.polygons.append((clamped, s.active_class))
+        s.polygon_authors.append(s._current_user)
         self.invalidate_poly_bboxes()
         s.current_polygon = []
         return True
