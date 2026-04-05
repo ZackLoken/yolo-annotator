@@ -28,6 +28,8 @@ class AppState:
         # ── Annotation data ──
         self.boxes = []              # [(class_id, x1, y1, x2, y2), ...]
         self.polygons = []           # [(class_id, [x1,y1, ...]), ...]
+        self.box_authors = []        # parallel to boxes: username per annotation
+        self.polygon_authors = []    # parallel to polygons: username per annotation
         self.current_polygon = []    # in-progress polygon vertices
         self.mode = "polygon"        # "box" | "polygon"
 
