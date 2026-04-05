@@ -1,5 +1,5 @@
 ﻿"""
-YoloLabeler v3 — Image Annotation & Review Tool for YOLO Training
+YoloLabeler v1 — Image Annotation & Review Tool for YOLO Training
 
 Features:
 - Draw bounding boxes (detection) or polygons (instance segmentation)
@@ -113,7 +113,7 @@ DEFAULT_CLASS_COLORS = [
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  YoloLabeler  (v3)
+#  YoloLabeler  (v1)
 # ══════════════════════════════════════════════════════════════════════════════
 
 class YoloLabeler:
