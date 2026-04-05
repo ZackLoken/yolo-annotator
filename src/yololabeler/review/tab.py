@@ -93,8 +93,7 @@ class ReviewTab:
             a._review_return_pending = False
         # Show review controls, hide annotate-only toolbar sections
         a._toolbar_center.pack_forget()
-        a._toolbar_annotate_right.pack_forget()
-        a._review_status_frame.pack(side="left")
+        a._review_status_frame.pack(side="left", fill="x", expand=True)
         # Show counts in the right-side status area
         a._review_counts_sep.pack(side="right", padx=6, fill="y")
         a._review_counts_label.pack(side="right", padx=(6, 6))
@@ -704,7 +703,7 @@ class ReviewTab:
         # Constant line width (1.5pt ~ 2px) regardless of zoom
         line_w = 2
         focused_line_w = 3
-        label_size = 12
+        label_size = max(7, min(int(9 * (0.6 + s * 0.4)), 18))
         PRED_COLOR = "#00BFFF"
         FOCUSED_GT_COLOR = "#FFD700"
 
@@ -1269,8 +1268,8 @@ class ReviewTab:
             if a.mode != 'polygon':
                 a.mode = 'polygon'
                 a.mode_btn.configure(text="Mode: Polygon \u2b21")
-                a.stream_btn.pack(side="left", padx=(0, 4))
-                a.snap_btn.pack(side="left", padx=(0, 4))
+                a.stream_btn.configure(state="normal")
+                a.snap_btn.configure(state="normal")
             if gt_idx is not None and 0 <= gt_idx < len(a.polygons):
                 a._selected_polygon_idx = gt_idx
         elif target_mode == 'box':
@@ -1279,8 +1278,8 @@ class ReviewTab:
                 a.mode_btn.configure(text="Mode: Box \u25ad")
                 a.current_polygon = []
                 a._selected_polygon_idx = None
-                a.stream_btn.pack_forget()
-                a.snap_btn.pack_forget()
+                a.stream_btn.configure(state="disabled")
+                a.snap_btn.configure(state="disabled")
 
         # Switch tab and display with correct zoom
         a.tabview.set("Annotate")
