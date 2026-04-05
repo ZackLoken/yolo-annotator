@@ -1,7 +1,4 @@
 """AppState — Single source of truth for all annotation data.
-
-This class is GUI-free and can be instantiated headlessly for
-programmatic access (AI agents, training pipelines, CLI tools).
 """
 
 
