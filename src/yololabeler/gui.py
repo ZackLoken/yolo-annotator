@@ -382,70 +382,7 @@ class YoloLabeler:
             command=self._open_folder)
         self.open_btn.pack(side="left", padx=(8, 8))
 
-        # ── CENTER: Visible | Class Dropdown | Mode | Stream | Snap ──
-        self._toolbar_center = ctk.CTkFrame(inner, fg_color="transparent")
-        self._toolbar_center.pack(side="left", padx=(8, 0))
-
-        self._visible_var = tk.BooleanVar(value=True)
-        self._visible_cb = ctk.CTkCheckBox(
-            self._toolbar_center, text="Visible",
-            variable=self._visible_var,
-            font=(self.font_family, 11), text_color=FG_COLOR,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            border_color=BORDER_COLOR,
-            command=self._on_visible_toggled)
-        self._visible_cb.pack(side="left", padx=(0, 4))
-
-        self._toolbar_sep(self._toolbar_center)
-
-        self.class_var = tk.StringVar()
-        self.class_dropdown = ctk.CTkComboBox(
-            self._toolbar_center, variable=self.class_var, width=180,
-            font=(self.font_family, 11),
-            dropdown_font=(self.font_family, 11),
-            fg_color=ENTRY_BG, border_color=BORDER_COLOR,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, dropdown_fg_color=BG_COLOR,
-            dropdown_text_color=FG_COLOR,
-            dropdown_hover_color=ACCENT,
-            state="readonly",
-            command=self._on_class_selected)
-        self.class_dropdown.pack(side="left", padx=(0, 4))
-        self._refresh_class_dropdown()
-
-        self.color_btn = tk.Button(
-            self._toolbar_center, text="  ", width=2, relief="flat",
-            borderwidth=1, command=self._pick_class_color,
-            bg=self._get_class_color(self.active_class),
-            activebackground=self._get_class_color(self.active_class))
-        self.color_btn.pack(side="left", padx=(2, 4))
-
-        self._toolbar_sep(self._toolbar_center)
-
-        self.mode_btn = ctk.CTkButton(
-            self._toolbar_center, text="Mode: Polygon \u2b21", width=120,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11),
-            command=self._toggle_mode)
-        self.mode_btn.pack(side="left", padx=(0, 4))
-
-        self._toolbar_sep(self._toolbar_center)
-
-        self.stream_btn = ctk.CTkButton(
-            self._toolbar_center, text="Stream: Off", width=95,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11),
-            command=self._toggle_stream)
-        self.stream_btn.pack(side="left", padx=(0, 4))
-
-        self.snap_btn = ctk.CTkButton(
-            self._toolbar_center, text="Snap: Off", width=80,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11),
-            command=self._toggle_snap)
-        self.snap_btn.pack(side="left", padx=(0, 4))
-
-        # ── RIGHT: always visible nav + annotate-only filter/complete ──
+        # ── RIGHT: always-visible nav (pack first so it stays rightmost) ──
         self._toolbar_right = ctk.CTkFrame(inner, fg_color="transparent")
         self._toolbar_right.pack(side="right")
 
@@ -481,28 +418,92 @@ class YoloLabeler:
             text_color="#AAAAAA")
         self.image_name_label.pack(side="right", padx=(4, 2))
 
-        # ── Annotate-only right widgets (hidden on Review tab) ──
-        self._toolbar_annotate_right = ctk.CTkFrame(
-            self._toolbar_right, fg_color="transparent")
-        self._toolbar_annotate_right.pack(side="right")
+        # ── CENTER: Three annotate-only groups (hidden on Review tab) ──
+        self._toolbar_center = ctk.CTkFrame(inner, fg_color="transparent")
+        self._toolbar_center.pack(side="left", fill="x", expand=True)
 
-        self._toolbar_sep_r(self._toolbar_annotate_right)
+        _tb_g1 = ctk.CTkFrame(self._toolbar_center, fg_color="transparent")
+        _tb_g1.pack(side="left", expand=True, fill="x")
 
+        _tb_g2 = ctk.CTkFrame(self._toolbar_center, fg_color="transparent")
+        _tb_g2.pack(side="left", expand=True, fill="x")
+
+        _tb_g3 = ctk.CTkFrame(self._toolbar_center, fg_color="transparent")
+        _tb_g3.pack(side="left", expand=True, fill="x")
+
+        # ── Group 1: Color Picker | Class DD | Visible ──
+        self.color_btn = tk.Button(
+            _tb_g1, text="  ", width=2, relief="flat",
+            borderwidth=1, command=self._pick_class_color,
+            bg=self._get_class_color(self.active_class),
+            activebackground=self._get_class_color(self.active_class))
+        self.color_btn.pack(side="left", padx=(2, 4))
+
+        self.class_var = tk.StringVar()
+        self.class_dropdown = ctk.CTkComboBox(
+            _tb_g1, variable=self.class_var, width=180,
+            font=(self.font_family, 11),
+            dropdown_font=(self.font_family, 11),
+            fg_color=ENTRY_BG, border_color=BORDER_COLOR,
+            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR, dropdown_fg_color=BG_COLOR,
+            dropdown_text_color=FG_COLOR,
+            dropdown_hover_color=ACCENT,
+            state="readonly",
+            command=self._on_class_selected)
+        self.class_dropdown.pack(side="left", padx=(0, 4))
+        self._refresh_class_dropdown()
+
+        self._visible_var = tk.BooleanVar(value=True)
+        self._visible_cb = ctk.CTkCheckBox(
+            _tb_g1, text="Visible",
+            variable=self._visible_var,
+            font=(self.font_family, 11), text_color=FG_COLOR,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            border_color=BORDER_COLOR,
+            command=self._on_visible_toggled)
+        self._visible_cb.pack(side="left", padx=(0, 4))
+
+        # ── Group 2: Mode | Stream | Snap ──
+        self.mode_btn = ctk.CTkButton(
+            _tb_g2, text="Mode: Polygon \u2b21", width=120,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR, font=(self.font_family, 11),
+            command=self._toggle_mode)
+        self.mode_btn.pack(side="left", padx=(0, 4))
+
+        self.stream_btn = ctk.CTkButton(
+            _tb_g2, text="Stream: Off", width=95,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR, font=(self.font_family, 11),
+            command=self._toggle_stream)
+        self.stream_btn.pack(side="left", padx=(0, 4))
+
+        self.snap_btn = ctk.CTkButton(
+            _tb_g2, text="Snap: Off", width=80,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR, font=(self.font_family, 11),
+            command=self._toggle_snap)
+        self.snap_btn.pack(side="left", padx=(0, 4))
+
+        # ── Group 3: Complete | Status DD ──
         self._complete_var = tk.BooleanVar(value=False)
         self.complete_cb = ctk.CTkCheckBox(
-            self._toolbar_annotate_right, text="Complete",
+            _tb_g3, text="Complete",
             variable=self._complete_var,
             font=(self.font_family, 11), text_color=FG_COLOR,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             border_color=BORDER_COLOR,
             command=self._on_complete_toggled)
-        self.complete_cb.pack(side="right", padx=(4, 4))
+        self.complete_cb.pack(side="left", padx=(0, 4))
 
-        self._toolbar_sep_r(self._toolbar_annotate_right)
+        ctk.CTkLabel(_tb_g3, text="Status:",
+                     font=(self.font_family, 11),
+                     text_color=FG_COLOR).pack(side="left", padx=(4, 2))
 
         self.filter_var = tk.StringVar(value="All")
         self.filter_dropdown = ctk.CTkComboBox(
-            self._toolbar_annotate_right, variable=self.filter_var, width=130,
+            _tb_g3, variable=self.filter_var, width=130,
             values=["All", "Complete", "Partial", "Unannotated"],
             font=(self.font_family, 11),
             dropdown_font=(self.font_family, 11),
@@ -513,21 +514,12 @@ class YoloLabeler:
             dropdown_hover_color=ACCENT,
             state="readonly",
             command=self._on_filter_changed)
-        self.filter_dropdown.pack(side="right", padx=(0, 4))
-
-        ctk.CTkLabel(self._toolbar_annotate_right, text="Status:",
-                     font=(self.font_family, 11),
-                     text_color=FG_COLOR).pack(side="right", padx=(4, 2))
+        self.filter_dropdown.pack(side="left", padx=(0, 4))
 
     def _toolbar_sep(self, parent):
         sep = ctk.CTkFrame(parent, width=1, height=28,
                            fg_color=BORDER_COLOR)
         sep.pack(side="left", padx=6, fill="y")
-
-    def _toolbar_sep_r(self, parent):
-        sep = ctk.CTkFrame(parent, width=1, height=28,
-                           fg_color=BORDER_COLOR)
-        sep.pack(side="right", padx=6, fill="y")
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Status bar (bottom)
@@ -545,13 +537,26 @@ class YoloLabeler:
         self._review_status_frame = ctk.CTkFrame(si, fg_color="transparent")
         # Not packed initially — shown when Review tab is active
 
-        # LEFT group: Class | Type | Filter | DetLeft | Det# | DetRight
-        ctk.CTkLabel(self._review_status_frame, text="Class:",
+        # Three sub-frames for equal spacing across full toolbar width
+        _rev_left = ctk.CTkFrame(self._review_status_frame,
+                                 fg_color="transparent")
+        _rev_left.pack(side="left", expand=True, fill="x")
+
+        _rev_center = ctk.CTkFrame(self._review_status_frame,
+                                   fg_color="transparent")
+        _rev_center.pack(side="left", expand=True, fill="x")
+
+        _rev_right = ctk.CTkFrame(self._review_status_frame,
+                                  fg_color="transparent")
+        _rev_right.pack(side="left", expand=True, fill="x")
+
+        # ── LEFT group: Class | Type | Status | GT | Pred ──
+        ctk.CTkLabel(_rev_left, text="Class:",
                      font=(self.font_family, 11),
                      text_color=FG_COLOR).pack(side="left", padx=(0, 2))
         self._review_class_var = tk.StringVar(value="All")
         self._review_class_dd = ctk.CTkComboBox(
-            self._review_status_frame, variable=self._review_class_var,
+            _rev_left, variable=self._review_class_var,
             width=90,
             values=["All"],
             font=(self.font_family, 11),
@@ -564,14 +569,14 @@ class YoloLabeler:
             command=lambda c: self._review_tab._on_review_class_changed(c))
         self._review_class_dd.pack(side="left", padx=(0, 4))
 
-        self._status_sep(self._review_status_frame)
+        self._status_sep(_rev_left)
 
-        ctk.CTkLabel(self._review_status_frame, text="Type:",
+        ctk.CTkLabel(_rev_left, text="Type:",
                      font=(self.font_family, 11),
                      text_color=FG_COLOR).pack(side="left", padx=(0, 2))
         self._review_type_var = tk.StringVar(value="All")
         self._review_type_dd = ctk.CTkComboBox(
-            self._review_status_frame, variable=self._review_type_var,
+            _rev_left, variable=self._review_type_var,
             width=80,
             values=["All", "FP", "FN", "TP"],
             font=(self.font_family, 11),
@@ -584,15 +589,15 @@ class YoloLabeler:
             command=lambda c: self._review_tab._on_review_type_changed(c))
         self._review_type_dd.pack(side="left", padx=(0, 4))
 
-        self._status_sep(self._review_status_frame)
+        self._status_sep(_rev_left)
 
         ctk.CTkLabel(
-            self._review_status_frame, text="Status:",
+            _rev_left, text="Status:",
             font=(self.font_family, 11), text_color=FG_COLOR
         ).pack(side="left", padx=(0, 2))
         self._review_filter_var = tk.StringVar(value="All")
         self._review_filter_combo = ctk.CTkComboBox(
-            self._review_status_frame, width=110,
+            _rev_left, width=110,
             values=["All", "Not Reviewed", "Reviewed"],
             variable=self._review_filter_var,
             command=lambda c: self._review_tab._on_review_filter_changed(c),
@@ -605,51 +610,19 @@ class YoloLabeler:
             state="readonly")
         self._review_filter_combo.pack(side="left", padx=(0, 4))
 
-        self._status_sep(self._review_status_frame)
-
-        # Per-detection review status indicator (inside det nav group)
-        self._review_det_status_label = ctk.CTkLabel(
-            self._review_status_frame, text="",
-            font=(self.font_family, 11), text_color=FG_COLOR,
-            width=100, anchor="w")
-        self._review_det_status_label.pack(side="left", padx=(0, 4))
-
-        self._review_prev_det_btn = ctk.CTkButton(
-            self._review_status_frame, text="\u25c0", width=30,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11),
-            command=lambda: self._review_tab._review_prev_detection())
-        self._review_prev_det_btn.pack(side="left", padx=(0, 2))
-
-        self._review_det_label = ctk.CTkLabel(
-            self._review_status_frame, text="0 / 0",
-            font=(self.font_family, 11), text_color=FG_COLOR,
-            width=70, anchor="center")
-        self._review_det_label.pack(side="left", padx=(2, 2))
-
-        self._review_next_det_btn = ctk.CTkButton(
-            self._review_status_frame, text="\u25b6", width=30,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11),
-            command=lambda: self._review_tab._review_next_detection())
-        self._review_next_det_btn.pack(side="left", padx=(2, 4))
-
-        self._status_sep(self._review_status_frame)
-
-        # CENTER group: GT | Pred | Accept | Edit | Reject
         self._review_gt_var = tk.BooleanVar(value=True)
         self._review_gt_cb = ctk.CTkCheckBox(
-            self._review_status_frame, text="GT",
+            _rev_left, text="GT",
             variable=self._review_gt_var,
             font=(self.font_family, 11), text_color=FG_COLOR,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             border_color=BORDER_COLOR, width=40,
             command=lambda: self._review_tab._on_review_gt_toggled())
-        self._review_gt_cb.pack(side="left", padx=(0, 2))
+        self._review_gt_cb.pack(side="left", padx=(4, 2))
 
         self._review_pred_var = tk.BooleanVar(value=True)
         self._review_pred_cb = ctk.CTkCheckBox(
-            self._review_status_frame, text="Pred",
+            _rev_left, text="Pred",
             variable=self._review_pred_var,
             font=(self.font_family, 11), text_color=FG_COLOR,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
@@ -657,31 +630,54 @@ class YoloLabeler:
             command=lambda: self._review_tab._on_review_pred_toggled())
         self._review_pred_cb.pack(side="left", padx=(0, 4))
 
-        self._review_action_sep = ctk.CTkFrame(
-            self._review_status_frame, width=1, height=20,
-            fg_color=BORDER_COLOR)
-        self._review_action_sep.pack(side="left", padx=12, fill="y")
-
+        # ── CENTER group: Accept | Edit | Reject ──
         self._review_accept_btn = ctk.CTkButton(
-            self._review_status_frame, text="Accept (A)", width=110,
+            _rev_center, text="Accept (A)", width=110,
             fg_color=SI_GREEN, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11, "bold"),
             command=lambda: self._review_tab._review_accept())
         self._review_accept_btn.pack(side="left", padx=(0, 4))
 
         self._review_edit_btn = ctk.CTkButton(
-            self._review_status_frame, text="Edit (E)", width=75,
+            _rev_center, text="Edit (E)", width=75,
             fg_color=SI_GREEN, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11, "bold"),
             command=lambda: self._review_tab._review_edit())
         self._review_edit_btn.pack(side="left", padx=(0, 4))
 
         self._review_reject_btn = ctk.CTkButton(
-            self._review_status_frame, text="Reject (R)", width=110,
+            _rev_center, text="Reject (R)", width=110,
             fg_color=SI_GREEN, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11, "bold"),
             command=lambda: self._review_tab._review_reject())
         self._review_reject_btn.pack(side="left", padx=(0, 4))
+
+        # ── RIGHT group: DetStatus | ◀ | 0/0 | ▶ ──
+        self._review_det_status_label = ctk.CTkLabel(
+            _rev_right, text="",
+            font=(self.font_family, 11), text_color=FG_COLOR,
+            width=100, anchor="center")
+        self._review_det_status_label.pack(side="left", padx=(0, 4))
+
+        self._review_prev_det_btn = ctk.CTkButton(
+            _rev_right, text="\u25c0", width=30,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR, font=(self.font_family, 11),
+            command=lambda: self._review_tab._review_prev_detection())
+        self._review_prev_det_btn.pack(side="left", padx=(0, 2))
+
+        self._review_det_label = ctk.CTkLabel(
+            _rev_right, text="0 / 0",
+            font=(self.font_family, 11), text_color=FG_COLOR,
+            width=70, anchor="center")
+        self._review_det_label.pack(side="left", padx=(2, 2))
+
+        self._review_next_det_btn = ctk.CTkButton(
+            _rev_right, text="\u25b6", width=30,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR, font=(self.font_family, 11),
+            command=lambda: self._review_tab._review_next_detection())
+        self._review_next_det_btn.pack(side="left", padx=(2, 4))
 
         # ── Right side: Counts | Zoom | Time | User ──
         # Counts label lives in shared right area, shown only on Review tab
@@ -742,8 +738,7 @@ class YoloLabeler:
             self._review_status_frame.pack_forget()
             self._review_counts_label.pack_forget()
             self._review_counts_sep.pack_forget()
-            self._toolbar_center.pack(side="left", padx=(8, 0))
-            self._toolbar_annotate_right.pack(side="right")
+            self._toolbar_center.pack(side="left", fill="x", expand=True)
             # Sync viewport from review → annotate
             at = self._annotate_tab
             if self._review_original_image is not None and self.images:
@@ -763,8 +758,8 @@ class YoloLabeler:
             if self.mode != "polygon" and self.polygons:
                 self.mode = "polygon"
                 self.mode_btn.configure(text="Mode: Polygon \u2b21")
-                self.stream_btn.pack(side="left", padx=(0, 4))
-                self.snap_btn.pack(side="left", padx=(0, 4))
+                self.stream_btn.configure(state="normal")
+                self.snap_btn.configure(state="normal")
             if self.original_image is not None:
                 at.display_image()
             self.update_title()
@@ -938,8 +933,8 @@ class YoloLabeler:
         if self.mode == "box":
             self.mode = "polygon"
             self.mode_btn.configure(text="Mode: Polygon \u2b21")
-            self.stream_btn.pack(side="left", padx=(0, 4))
-            self.snap_btn.pack(side="left", padx=(0, 4))
+            self.stream_btn.configure(state="normal")
+            self.snap_btn.configure(state="normal")
         else:
             self.mode = "box"
             self.mode_btn.configure(text="Mode: Box \u25ad")
@@ -950,8 +945,8 @@ class YoloLabeler:
             self._stream_mode = False
             self._stream_active = False
             self.stream_btn.configure(text="Stream: Off")
-            self.stream_btn.pack_forget()
-            self.snap_btn.pack_forget()
+            self.stream_btn.configure(state="disabled")
+            self.snap_btn.configure(state="disabled")
         self._annotate_tab.display_image()
         self.update_title()
         self._update_status()
@@ -1048,8 +1043,8 @@ class YoloLabeler:
             if has_det:
                 self.mode = "box"
                 self.mode_btn.configure(text="Mode: Box \u25ad")
-                self.stream_btn.pack_forget()
-                self.snap_btn.pack_forget()
+                self.stream_btn.configure(state="disabled")
+                self.snap_btn.configure(state="disabled")
 
         # Persist classes (merges pre-open + JSON + ensures file exists)
         self._save_classes_file()
