@@ -17,7 +17,6 @@ from PIL import Image, ImageTk
 
 from yololabeler.label_io import (
     parse_detect_labels, parse_segment_labels,
-    parse_detect_predictions, parse_segment_predictions,
 )
 from yololabeler.matching import point_to_segment_dist, point_in_polygon
 from yololabeler.rendering import halo_text
@@ -37,7 +36,7 @@ class AnnotateTab:
     def __init__(self, app):
         self.app = app
         self.engine = app._engine
-        self.canvas = None
+        self.canvas: tk.Canvas = None  # type: ignore[assignment]  # set in build()
 
         # View transform
         self.scale = 1.0
@@ -79,6 +78,7 @@ class AnnotateTab:
 
     def _setup_bindings(self):
         """Bind canvas-level mouse/scroll events."""
+        assert self.canvas is not None
         c = self.canvas
         c.bind("<Configure>", self._on_canvas_configure)
         c.bind("<ButtonPress-1>", self.on_button_press)
@@ -137,6 +137,8 @@ class AnnotateTab:
 
         a.boxes = []
         a.polygons = []
+        a.box_authors = []
+        a.polygon_authors = []
         self._invalidate_poly_bboxes()
         a.current_polygon = []
         a._undo_stack = []
@@ -245,6 +247,9 @@ class AnnotateTab:
             boxes, det_cids = parse_detect_labels(
                 detect_path, a.img_width, a.img_height)
             a.boxes.extend(boxes)
+            a.box_authors.extend(
+                self._load_authors(len(a.boxes) - len(boxes), len(boxes),
+                                   "boxes"))
             for cid in det_cids:
                 if cid not in a.class_names:
                     a.class_names[cid] = f"class_{cid}"
@@ -258,6 +263,9 @@ class AnnotateTab:
             polygons, seg_cids = parse_segment_labels(
                 segment_path, a.img_width, a.img_height)
             a.polygons.extend(polygons)
+            a.polygon_authors.extend(
+                self._load_authors(len(a.polygons) - len(polygons),
+                                   len(polygons), "polygons"))
             self._invalidate_poly_bboxes()
             for cid in seg_cids:
                 if cid not in a.class_names:
@@ -268,41 +276,8 @@ class AnnotateTab:
             print(f"Warning: Could not load segment labels for {stem}: {e}")
 
     def _load_predictions(self, image_name, img_w, img_h):
-        """Load model predictions for an image."""
-        a = self.app
-        pred_boxes = []
-        pred_polygons = []
-        if not a.pred_detect_dir or not a.pred_segment_dir:
-            return pred_boxes, pred_polygons
-        stem = os.path.splitext(image_name)[0]
-
-        detect_path = os.path.join(a.pred_detect_dir, f"{stem}.txt")
-        try:
-            pboxes, det_cids = parse_detect_predictions(
-                detect_path, img_w, img_h)
-            pred_boxes.extend(pboxes)
-            for cid in det_cids:
-                if cid not in a.class_names:
-                    a.class_names[cid] = f"class_{cid}"
-                    a._refresh_class_dropdown()
-                    a._save_classes_file()
-        except Exception as e:
-            print(f"Warning: Could not load detect predictions for {stem}: {e}")
-
-        segment_path = os.path.join(a.pred_segment_dir, f"{stem}.txt")
-        try:
-            ppolys, seg_cids = parse_segment_predictions(
-                segment_path, img_w, img_h)
-            pred_polygons.extend(ppolys)
-            for cid in seg_cids:
-                if cid not in a.class_names:
-                    a.class_names[cid] = f"class_{cid}"
-                    a._refresh_class_dropdown()
-                    a._save_classes_file()
-        except Exception as e:
-            print(f"Warning: Could not load segment predictions for {stem}: {e}")
-
-        return pred_boxes, pred_polygons
+        """Delegate to app-level shared helper."""
+        return self.app._load_predictions(image_name, img_w, img_h)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Canvas resize debounce
@@ -673,6 +648,7 @@ class AnnotateTab:
                     self._push_undo()
                     if len(points) <= 3:
                         a.polygons.pop(pi)
+                        a.polygon_authors.pop(pi)
                         a._selected_polygon_idx = None
                     else:
                         new_pts = list(points)
@@ -688,6 +664,7 @@ class AnnotateTab:
                                           a.polygons[pi][0]):
                     self._push_undo()
                     a.polygons.pop(pi)
+                    a.polygon_authors.pop(pi)
                     self._invalidate_poly_bboxes()
                     a._selected_polygon_idx = None
                     self._clear_drag_state()
@@ -705,6 +682,7 @@ class AnnotateTab:
             if x1 <= click_ix <= x2 and y1 <= click_iy <= y2:
                 self._push_undo()
                 a.boxes.pop(i)
+                a.box_authors.pop(i)
                 a._mark_image_annotated()
                 self.display_image()
                 a.update_title()
@@ -715,6 +693,7 @@ class AnnotateTab:
                 self._push_undo()
                 self._clear_drag_state()
                 a.polygons.pop(i)
+                a.polygon_authors.pop(i)
                 self._invalidate_poly_bboxes()
                 a._selected_polygon_idx = None
                 a._mark_image_annotated()
@@ -761,6 +740,7 @@ class AnnotateTab:
 
         self._push_undo()
         a.boxes.append((x1, y1, x2, y2, a.active_class))
+        a.box_authors.append(a._current_user)
         a._mark_image_annotated()
         a._record_annotation_added()
         a.rect = None
