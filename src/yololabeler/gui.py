@@ -1273,15 +1273,22 @@ class YoloLabeler:
             print(f"Warning: Could not save stats: {e}")
 
     def _save_annotation_authors(self):
-        """Persist per-annotation author lists to annotation_stats.json."""
+        """Persist per-annotation author lists to annotation_stats.json.
+
+        Only writes an entry when at least one author is known.
+        """
         if not self.images:
             return
         img_name = self.images[self.index]
         authors = self._stats.setdefault("annotation_authors", {})
-        authors[img_name] = {
-            "boxes": list(self.box_authors),
-            "polygons": list(self.polygon_authors),
-        }
+        has_known = any(self.box_authors) or any(self.polygon_authors)
+        if has_known:
+            authors[img_name] = {
+                "boxes": list(self.box_authors),
+                "polygons": list(self.polygon_authors),
+            }
+        else:
+            authors.pop(img_name, None)
         self._save_stats()
 
     def _load_annotation_authors(self):
