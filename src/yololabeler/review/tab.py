@@ -709,6 +709,7 @@ class ReviewTab:
         FOCUSED_GT_COLOR = "#FFD700"
 
         REVIEWED_STIPPLE = "gray12"
+        PRED_STIPPLE = "gray12"  # fill for FP predictions (no matching GT)
 
         def _halo_text(x, y, text, fill, **kw):
             halo_text(c, x, y, text, fill, **kw)
@@ -893,9 +894,13 @@ class ReviewTab:
                         a._review_pred_boxes[p_idx]
                     cx1, cy1 = self._review_image_to_canvas(bx1, by1)
                     cx2, cy2 = self._review_image_to_canvas(bx2, by2)
+                    # FP predictions get a translucent blue fill
+                    pred_fill = PRED_COLOR if focused_det.get('det_type') == 'fp' else ""
+                    pred_stipple = PRED_STIPPLE if focused_det.get('det_type') == 'fp' else ""
                     c.create_rectangle(
                         cx1, cy1, cx2, cy2,
-                        outline=PRED_COLOR, width=line_w)
+                        outline=PRED_COLOR, fill=pred_fill,
+                        stipple=pred_stipple, width=line_w)
                     name = a.class_names.get(cid, str(cid))
                     _halo_text(
                         cx1 + 2, cy2 + 2, anchor="nw",
@@ -918,9 +923,12 @@ class ReviewTab:
                         elif cy_p == max_cy and cx_p < min_cx:
                             min_cx = cx_p
                     if len(canvas_pts) >= 6:
+                        pred_fill = PRED_COLOR if focused_det.get('det_type') == 'fp' else ""
+                        pred_stipple = PRED_STIPPLE if focused_det.get('det_type') == 'fp' else ""
                         c.create_polygon(
                             *canvas_pts, outline=PRED_COLOR,
-                            fill="", width=line_w)
+                            fill=pred_fill, stipple=pred_stipple,
+                            width=line_w)
                     if pts:
                         name = a.class_names.get(cid, str(cid))
                         _halo_text(
@@ -1229,15 +1237,16 @@ class ReviewTab:
         # Navigate annotate tab to same image (defer display to avoid flash)
         a._defer_display = True
         a.index = a._review_index
-        a.load_image()
+        a._annotate_tab.load_image()
         a._defer_display = False
 
         # Sync zoom/position from review to annotate
-        a.scale = rev_scale
-        a.offset_x = rev_ox
-        a.offset_y = rev_oy
-        a.zoom_index = a._nearest_zoom_index(rev_scale)
-        a._cached_scale = None
+        at = a._annotate_tab
+        at.scale = rev_scale
+        at.offset_x = rev_ox
+        at.offset_y = rev_oy
+        at.zoom_index = at._nearest_zoom_index(rev_scale)
+        at._cached_scale = None
 
         # Determine appropriate mode: prefer polygon if polygon labels exist
         gt_type = det.get('gt_type')
@@ -1319,7 +1328,7 @@ class ReviewTab:
         def on_redo():
             dialog.destroy()
             # Undo the last annotation so user can redraw
-            a.undo_last()
+            a._annotate_tab.undo_last()
 
         ctk.CTkButton(
             btn_frame, text="\u2713 Accept", width=120,
@@ -1338,7 +1347,7 @@ class ReviewTab:
     def _save_and_return_to_review(self):
         """Save current annotations and return to Review tab."""
         a = self.app
-        a.save_annotations()
+        a._annotate_tab.save_annotations()
         # Record the action for the detection that was being edited
         if hasattr(a, '_review_editing_det') and a._review_editing_det:
             self.engine.record_detection_action(
