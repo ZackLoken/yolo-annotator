@@ -1245,6 +1245,8 @@ class YoloLabeler:
                     self._stats["sessions"] = []
                 if "image_status" not in self._stats:
                     self._stats["image_status"] = {}
+                if "annotation_authors" not in self._stats:
+                    self._stats["annotation_authors"] = {}
                 # Migrate old format: extract completion from top-level "images"
                 if "images" in self._stats:
                     for iname, ientry in self._stats["images"].items():
@@ -1253,9 +1255,11 @@ class YoloLabeler:
                                 iname, "complete")
                     del self._stats["images"]
             except Exception:
-                self._stats = {"sessions": [], "image_status": {}}
+                self._stats = {"sessions": [], "image_status": {},
+                               "annotation_authors": {}}
         else:
-            self._stats = {"sessions": [], "image_status": {}}
+            self._stats = {"sessions": [], "image_status": {},
+                           "annotation_authors": {}}
 
     def _save_stats(self):
         path = self._stats_path()
@@ -1267,6 +1271,30 @@ class YoloLabeler:
                 json.dump(self._stats, f, indent=2)
         except Exception as e:
             print(f"Warning: Could not save stats: {e}")
+
+    def _save_annotation_authors(self):
+        """Persist per-annotation author lists to annotation_stats.json."""
+        if not self.images:
+            return
+        img_name = self.images[self.index]
+        authors = self._stats.setdefault("annotation_authors", {})
+        authors[img_name] = {
+            "boxes": list(self.box_authors),
+            "polygons": list(self.polygon_authors),
+        }
+        self._save_stats()
+
+    def _load_annotation_authors(self):
+        """Load per-annotation author lists from annotation_stats.json."""
+        if not self.images:
+            return
+        img_name = self.images[self.index]
+        authors = self._stats.get("annotation_authors", {}).get(img_name, {})
+        ba = authors.get("boxes", [])
+        pa = authors.get("polygons", [])
+        # Pad/truncate to match current annotation counts
+        self.box_authors = (ba + [""] * len(self.boxes))[:len(self.boxes)]
+        self.polygon_authors = (pa + [""] * len(self.polygons))[:len(self.polygons)]
 
     # ── Review state persistence ─────────────────────────────────────────────
 
