@@ -247,9 +247,6 @@ class AnnotateTab:
             boxes, det_cids = parse_detect_labels(
                 detect_path, a.img_width, a.img_height)
             a.boxes.extend(boxes)
-            a.box_authors.extend(
-                self._load_authors(len(a.boxes) - len(boxes), len(boxes),
-                                   "boxes"))
             for cid in det_cids:
                 if cid not in a.class_names:
                     a.class_names[cid] = f"class_{cid}"
@@ -263,9 +260,6 @@ class AnnotateTab:
             polygons, seg_cids = parse_segment_labels(
                 segment_path, a.img_width, a.img_height)
             a.polygons.extend(polygons)
-            a.polygon_authors.extend(
-                self._load_authors(len(a.polygons) - len(polygons),
-                                   len(polygons), "polygons"))
             self._invalidate_poly_bboxes()
             for cid in seg_cids:
                 if cid not in a.class_names:
@@ -274,6 +268,9 @@ class AnnotateTab:
                     a._save_classes_file()
         except Exception as e:
             print(f"Warning: Could not load segment labels for {stem}: {e}")
+
+        # Load per-annotation author metadata from annotation_stats.json
+        a._load_annotation_authors()
 
     def _load_predictions(self, image_name, img_w, img_h):
         """Delegate to app-level shared helper."""
@@ -1097,6 +1094,7 @@ class AnnotateTab:
             print(f"[YoloLabeler] Saving annotations for {a.images[a.index]} "
                   f"({len(a.boxes)} boxes, {len(a.polygons)} polygons)")
         self.engine.save()
+        a._save_annotation_authors()
 
     # ══════════════════════════════════════════════════════════════════════════
     #  Rendering (absorbed from AnnotateRenderer)
