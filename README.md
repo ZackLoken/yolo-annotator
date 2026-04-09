@@ -3,7 +3,7 @@
 ![YoloLabeler GUI](GUI.png)
 
 Desktop tool for drawing and reviewing YOLO bounding-box and instance-segmentation
-annotations, and for reviewing model predictions against ground truth.
+annotations, and for visualizing model predictions against ground truth.
 Built with Python + CustomTkinter; no GPU, no server, no browser required.
 
 ![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)
