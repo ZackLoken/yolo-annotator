@@ -645,7 +645,8 @@ class AnnotateTab:
                     self._push_undo()
                     if len(points) <= 3:
                         a.polygons.pop(pi)
-                        a.polygon_authors.pop(pi)
+                        if pi < len(a.polygon_authors):
+                            a.polygon_authors.pop(pi)
                         a._selected_polygon_idx = None
                     else:
                         new_pts = list(points)
@@ -661,7 +662,8 @@ class AnnotateTab:
                                           a.polygons[pi][0]):
                     self._push_undo()
                     a.polygons.pop(pi)
-                    a.polygon_authors.pop(pi)
+                    if pi < len(a.polygon_authors):
+                        a.polygon_authors.pop(pi)
                     self._invalidate_poly_bboxes()
                     a._selected_polygon_idx = None
                     self._clear_drag_state()
@@ -679,7 +681,8 @@ class AnnotateTab:
             if x1 <= click_ix <= x2 and y1 <= click_iy <= y2:
                 self._push_undo()
                 a.boxes.pop(i)
-                a.box_authors.pop(i)
+                if i < len(a.box_authors):
+                    a.box_authors.pop(i)
                 a._mark_image_annotated()
                 self.display_image()
                 a.update_title()
@@ -690,7 +693,8 @@ class AnnotateTab:
                 self._push_undo()
                 self._clear_drag_state()
                 a.polygons.pop(i)
-                a.polygon_authors.pop(i)
+                if i < len(a.polygon_authors):
+                    a.polygon_authors.pop(i)
                 self._invalidate_poly_bboxes()
                 a._selected_polygon_idx = None
                 a._mark_image_annotated()
