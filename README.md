@@ -1,6 +1,10 @@
 # YoloLabeler
 
-![YoloLabeler GUI](GUI.png)
+### Annotate Tab
+![Annotate Tab](GUI_annotate.png)
+
+### Review Tab
+![Review Tab](GUI_review.png)
 
 Desktop tool for drawing and reviewing YOLO bounding-box and instance-segmentation
 annotations, and for visualizing model predictions against ground truth.
