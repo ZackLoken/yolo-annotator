@@ -1,11 +1,5 @@
 # YoloLabeler
 
-### Annotate Tab
-![Annotate Tab](GUI_annotate.png)
-
-### Review Tab
-![Review Tab](GUI_review.png)
-
 Desktop tool for drawing and reviewing YOLO bounding-box and instance-segmentation
 annotations, and for visualizing model predictions against ground truth.
 Built with Python + CustomTkinter; no GPU, no server, no browser required.
@@ -191,6 +185,8 @@ next launch.
 ## Features
 
 ### Annotate tab
+
+![Annotate Tab](GUI_annotate.png)
 - **Box + Polygon modes:** toggle with `m` key or toolbar button
 - **Vertex streaming:** continuous vertex placement while moving the mouse (`v` to toggle)
 - **Edge snapping:** snap to nearby polygon edges while streaming (`s` to toggle)
@@ -209,6 +205,9 @@ next launch.
 - **Save on navigate:** annotations are saved when you change images, quit, or close
 
 ### Review tab
+
+![Review Tab](GUI_review.png)
+
 - **IoU-based matching:** automatically matches predictions to ground truth (IoU ≥ 0.60)
 - **Detection cycling:** step through FP / FN / TP detections with auto-zoom
 - **Accept / Reject / Edit:** per-detection actions with type-specific behavior
@@ -220,9 +219,84 @@ next launch.
 
 ---
 
+## Review Mode
+
+The Review tab compares model predictions against ground-truth annotations and steps you through each mismatch so you can confirm, correct, or dismiss it.
+
+### Entering Review mode
+
+Click the **Review** tab at the top of the window. On first switch the tool finds the first image that has a prediction file, runs IoU matching, and auto-zooms the canvas to the first unreviewed detection. Switching back to the Annotate tab preserves the zoom level and image position.
+
+### Prediction files
+
+Place model output files in the `predictions/` subdirectory of your image folder, named identically to the corresponding image (same stem, `.txt` extension):
+
+```
+predictions/
+├── detect/
+│   └── img001.txt    # one prediction per line
+└── segment/
+    └── img001.txt    # one prediction per line
+```
+
+The expected line formats are documented in [Output Formats](#output-formats) above. Any image that has no prediction file in either directory is excluded from the Review image list. Class IDs present in prediction files but absent from `classes.json` are added to the class list automatically.
+
+### IoU-based matching
+
+When an image is loaded for review, every prediction above the confidence threshold (default **0.50**) is matched against ground-truth annotations of the same class. All candidate GT-prediction pairs are scored by IoU and assigned greedily, highest-IoU first, so each GT and each prediction participates in at most one match.
+
+| Classification | Condition |
+|----------------|-----------|
+| **TP** (true positive) | Prediction matched to a GT annotation (IoU ≥ **0.60**, same class) |
+| **FP** (false positive) | Prediction not matched to any GT annotation |
+| **FN** (false negative) | GT annotation not matched by any prediction |
+
+TP/FP/FN counts for the current image are shown in the toolbar. The focused GT annotation is drawn in gold; other GT annotations appear in their class color; the focused prediction is drawn in blue. Detections that have already been reviewed are rendered with a translucent stipple fill.
+
+### Accept / Reject / Edit actions
+
+The three actions behave differently depending on detection type:
+
+| Action | TP | FP | FN |
+|--------|----|----|----|
+| **Accept** (`a`) | **Confirm** — record accepted, advance to next detection (GT unchanged) | **Add to GT** — switch to Annotate tab with prediction shown as dashed blue reference so you can draw a new GT annotation | **Keep GT** — record accepted, advance to next detection (GT unchanged) |
+| **Reject** (`r`) | **Delete GT** — remove the matched GT annotation from the label file, recompute matches | **Dismiss** — record rejected, advance to next detection (no disk change) | **Delete GT** — remove the GT annotation from the label file, recompute matches |
+| **Edit** (`e`) | Switch to Annotate tab with prediction shown as dashed blue reference for editing the existing GT annotation | Switch to Annotate tab with prediction shown as dashed blue reference | Switch to Annotate tab with prediction shown as dashed blue reference |
+
+When an Edit or FP Accept switches you to the Annotate tab, draw or adjust the annotation normally. Pressing `Escape` to deselect the polygon triggers a confirmation dialog — click **Accept** to save the changes and return to the Review tab, or **Redo** to undo the last edit and try again.
+
+### Stepping through detections
+
+| Action | Input |
+|--------|-------|
+| Next / Previous detection | `→` / `←` |
+| Next / Previous image | `↑` / `↓` |
+
+The canvas auto-zooms so the focused detection occupies roughly one-third of the viewport. After each action the tool advances automatically to the next unreviewed detection. When all detections on an image have been reviewed the tool moves to the next image in the review list.
+
+Use the status-bar dropdowns to narrow what is shown:
+
+| Dropdown | Options |
+|----------|---------|
+| **Class** | All · per-class filter |
+| **Type** | All · FP · FN · TP |
+| **Status** | All · Not Reviewed · Reviewed |
+
+The **GT** and **Pred** checkboxes toggle visibility of ground-truth and prediction overlays independently.
+
+### Output
+
+| File / Location | Content |
+|-----------------|---------|
+| `state/review_stats.json` | Per-detection records: match type, action, class, normalized bbox, IoU, confidence, and reviewer name |
+| `labels/detect/` and `labels/segment/` | Updated in-place when a GT annotation is deleted (Reject on TP or FN) or a new annotation is accepted (Accept on FP via the Annotate tab) |
+| `labels/detect/.original/` and `labels/segment/.original/` | One-time backup of all label files, created automatically before the first destructive edit in a review session |
+
+---
+
 ## Authors
 
-Nathan Miller · Zack Loken
+Zack Loken
 
 ---
 
