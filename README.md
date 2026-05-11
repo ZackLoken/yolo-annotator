@@ -72,10 +72,10 @@ python -m yololabeler /path/to/images
 | Toggle help overlay          | `h`                      |
 | Cancel / Deselect polygon    | `Escape`                 |
 | Next / Previous image        | `→` / `←`                |
-| **Box mode**                 |                          |
+| <div align="center">**Box mode**</div> | |
 | Draw a box                   | Left-click + drag        |
 | Delete a box                 | Right-click on box       |
-| **Polygon mode**             |                          |
+| <div align="center">**Polygon mode**</div> | |
 | Place vertex                 | Left-click               |
 | Select polygon               | Left-click on polygon    |
 | Close polygon                | Double-click             |
@@ -83,7 +83,7 @@ python -m yololabeler /path/to/images
 | Insert vertex on edge        | Click edge (selected)    |
 | Delete vertex                | Right-click vertex       |
 | Delete polygon               | Right-click in polygon   |
-| **Navigation & view**        |                          |
+| <div align="center">**Navigation & view**</div> | |
 | Pan up / down                | Scroll                   |
 | Pan left / right             | Shift + Scroll           |
 | Zoom at cursor               | Ctrl + Scroll            |
