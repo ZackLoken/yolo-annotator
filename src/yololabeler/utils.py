@@ -48,20 +48,37 @@ def _load_custom_fonts():
             import ctypes
             import ctypes.util
             ct_path = ctypes.util.find_library("CoreText")
-            if ct_path:
-                ct = ctypes.cdll.LoadLibrary(ct_path)
-                cf_path = ctypes.util.find_library("CoreFoundation")
-                cf = ctypes.cdll.LoadLibrary(cf_path)
-                for name in ("Archivo-Regular.ttf", "Archivo-Bold.ttf",
-                             "Archivo-Medium.ttf", "Archivo-SemiBold.ttf"):
-                    path = os.path.join(ASSETS_DIR, name)
-                    if os.path.exists(path):
-                        url_ref = cf.CFURLCreateFromFileSystemRepresentation(
-                            None, path.encode("utf-8"), len(path.encode("utf-8")), False)
-                        if url_ref:
-                            ct.CTFontManagerRegisterFontsForURL(url_ref, 1, None)
-                _CUSTOM_FONT_LOADED = True
-                return True
+            cf_path = ctypes.util.find_library("CoreFoundation")
+            if not (ct_path and cf_path):
+                return False
+            ct = ctypes.cdll.LoadLibrary(ct_path)
+            cf = ctypes.cdll.LoadLibrary(cf_path)
+            # Declare the C signatures. Without these, ctypes assumes int (32-bit)
+            # args/returns, so the 64-bit CFURL pointer is truncated on arm64 and
+            # CTFontManagerRegisterFontsForURL dereferences garbage -> segfault
+            # (not catchable by `except`). See faulthandler crash at this call.
+            cf.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
+            cf.CFURLCreateFromFileSystemRepresentation.argtypes = [
+                ctypes.c_void_p, ctypes.c_char_p, ctypes.c_ssize_t, ctypes.c_bool]
+            cf.CFRelease.restype = None
+            cf.CFRelease.argtypes = [ctypes.c_void_p]
+            ct.CTFontManagerRegisterFontsForURL.restype = ctypes.c_bool
+            ct.CTFontManagerRegisterFontsForURL.argtypes = [
+                ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p]
+            kCTFontManagerScopeProcess = 1
+            for name in ("Archivo-Regular.ttf", "Archivo-Bold.ttf",
+                         "Archivo-Medium.ttf", "Archivo-SemiBold.ttf"):
+                path = os.path.join(ASSETS_DIR, name)
+                if os.path.exists(path):
+                    enc = path.encode("utf-8")
+                    url_ref = cf.CFURLCreateFromFileSystemRepresentation(
+                        None, enc, len(enc), False)
+                    if url_ref:
+                        ct.CTFontManagerRegisterFontsForURL(
+                            url_ref, kCTFontManagerScopeProcess, None)
+                        cf.CFRelease(url_ref)
+            _CUSTOM_FONT_LOADED = True
+            return True
         except Exception:
             return False
     return False
