@@ -42,13 +42,18 @@ def folder(tmp_path):
     return tmp_path
 
 
+def new_root():
+    """A fresh Tk root, skipping the calling test when there is no display."""
+    try:
+        return ctk.CTk()
+    except tk.TclError as e:
+        pytest.skip(f"no Tk display: {e}")
+
+
 @pytest.fixture
 def app(folder):
     """A live YoloLabeler on that folder; skipped when Tk has no display."""
-    try:
-        root = ctk.CTk()
-    except tk.TclError as e:
-        pytest.skip(f"no Tk display: {e}")
+    root = new_root()
     root.geometry("900x600")
     app = YoloLabeler(root)
     root.update()
@@ -340,7 +345,7 @@ class TestLoadFailures:
 
 class TestAcceptance:
     def test_delete_quit_reopen_stays_deleted(self, folder):
-        root = ctk.CTk()
+        root = new_root()
         app = YoloLabeler(root)
         root.update()
         app._init_folder(str(folder))
@@ -348,7 +353,7 @@ class TestAcceptance:
         app._engine.push_undo()
         app._engine.delete_annotation(app.document.annotations[0].id)
         app._quit()
-        root = ctk.CTk()
+        root = new_root()
         app = YoloLabeler(root)
         root.update()
         app._init_folder(str(folder))
@@ -374,7 +379,7 @@ class TestAcceptance:
     def test_folder_without_predictions_lists_every_image(self, folder):
         import shutil
         shutil.rmtree(folder / "predictions")
-        root = ctk.CTk()
+        root = new_root()
         app = YoloLabeler(root)
         root.update()
         app._init_folder(str(folder))
