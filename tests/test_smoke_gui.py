@@ -273,6 +273,15 @@ class TestStateFiles:
         assert moved[0].read_text(encoding="utf-8") == "{not json"
         assert "classes.json could not be read" in app.banner_text
 
+    def test_delete_backs_up_the_original_labels(self, app, folder):
+        original = (folder / "labels" / "detect" / "a.txt").read_text(encoding="utf-8")
+        app._engine.push_undo()
+        app._engine.delete_annotation(app.document.annotations[0].id)
+        assert app.save_current() is None
+        backup = folder / "labels" / "detect" / ".original" / "a.txt"
+        assert backup.read_text(encoding="utf-8") == original
+        assert not (folder / "labels" / "detect" / "a.txt").exists()
+
     def test_construction_writes_no_classes_json_to_the_cwd(self, folder, monkeypatch):
         cwd = folder / "cwd"
         cwd.mkdir()

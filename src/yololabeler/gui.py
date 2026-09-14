@@ -518,7 +518,6 @@ class YoloLabeler:
         item = self._review_panel.current_item()
         if item is None or self.predictions_blind:
             return
-        self._review.backup_original_labels()
         self._engine.push_undo()
         action, _ = apply(item)
         # Labels first, so a crash cannot leave a verdict for an unwritten change.
@@ -551,6 +550,7 @@ class YoloLabeler:
             # A read-only image still records its status and timing.
             self._save_stats()
             return None
+        self._review.backup_original_labels()
         error = self._annotate_tab.save_annotations()
         if error:
             message = f"{error}. Fix it and press Ctrl+S."

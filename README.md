@@ -146,9 +146,10 @@ images/
 lines stay the geometry of record, and the sidecar carries id, author, creation
 time and provenance (`drawn`, `accepted`, or `unknown` for a hand-edited line with
 no matching record) per annotation, joined to its label line by the line's exact
-formatted text. `predictions/manifest.json` and `labels/*/.original/` are written
-the first time Import predictions and a destructive review edit happen,
-respectively; neither exists until then.
+formatted text and its position among identical lines.
+`predictions/manifest.json` and `labels/*/.original/` are written the first time
+Import predictions runs and the first time a label file is saved, respectively;
+neither exists until then.
 
 ---
 

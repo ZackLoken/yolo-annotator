@@ -225,7 +225,7 @@ class ReviewEngine:
     # ── Label backup ──────────────────────────────────────────────────────
 
     def backup_original_labels(self):
-        """Copy label files to .original/ on first review session."""
+        """Copy label files to .original/ before the first label write; idempotent."""
         s = self.state
         if s._review_state.get("labels_backed_up"):
             return
