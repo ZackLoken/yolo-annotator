@@ -4,7 +4,7 @@ import io
 
 from PIL import Image
 
-from yololabeler.utils import auto_orient_image
+from yololabeler.utils import auto_orient_image, oriented_size
 
 
 RED = (255, 0, 0)
@@ -126,3 +126,19 @@ class TestAutoOrientTransposed:
         img = make_image(6)
         result = auto_orient_image(img)
         assert result is not img
+
+
+# ── oriented_size ───────────────────────────────────────────────────────────
+
+class TestOrientedSize:
+    def test_no_exif(self, tmp_path):
+        p = tmp_path / "a.jpg"
+        Image.new("RGB", (40, 20)).save(p)
+        assert oriented_size(p) == (40, 20, 1)
+
+    def test_rotated_swaps_dimensions(self, tmp_path):
+        p = tmp_path / "a.jpg"
+        exif = Image.Exif()
+        exif[274] = 6
+        Image.new("RGB", (40, 20)).save(p, exif=exif)
+        assert oriented_size(p) == (20, 40, 6)

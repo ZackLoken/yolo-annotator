@@ -107,6 +107,19 @@ _ORIENTATION_TRANSPOSE = {
 }
 
 
+def oriented_size(path):
+    """(width, height, orientation) of an image file after EXIF rotation, without decoding."""
+    with Image.open(path) as img:
+        width, height = img.size
+        try:
+            orientation = int(img.getexif().get(_EXIF_ORIENTATION_TAG, 1))
+        except Exception:
+            orientation = 1
+    if orientation in (5, 6, 7, 8):
+        width, height = height, width
+    return width, height, orientation
+
+
 def auto_orient_image(img):
     """Return *img* rotated/flipped upright per its EXIF Orientation tag.
 
