@@ -114,10 +114,16 @@ def apply_reject(document, item):
 
 
 class ReviewEngine:
-    """Review operations that operate on AppState without any GUI dependency."""
+    """Review operations that operate on AppState without any GUI dependency.
 
-    def __init__(self, state: AppState):
+    on_error is an optional callback taking one message, used to report a
+    failed write to whatever feedback channel the caller has; headless
+    callers that pass nothing get silence.
+    """
+
+    def __init__(self, state: AppState, on_error=None):
         self.state = state
+        self.on_error = on_error or (lambda message: None)
 
     # ── Review state persistence ──────────────────────────────────────────
 
@@ -145,7 +151,7 @@ class ReviewEngine:
         try:
             write_json_atomic(path, self.state._review_state)
         except OSError as e:
-            print(f"Warning: Could not save review state: {e}")
+            self.on_error(f"Could not save review_stats.json: {e.strerror or e}")
 
     # ── Verdicts (document-based queue) ────────────────────────────────────
 

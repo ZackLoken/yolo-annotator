@@ -251,6 +251,15 @@ class TestOpenFolder:
         finally:
             os.rmdir(broken)
 
+    def test_folder_without_images_reports_on_the_canvas(self, app, folder, monkeypatch):
+        empty = folder / "empty"
+        empty.mkdir()
+        monkeypatch.setattr(guimod.filedialog, "askdirectory", lambda **kw: str(empty))
+        app._open_folder()
+        assert app.images == [] and app.original_image is None
+        assert any("No images found" in app.canvas.itemcget(i, "text")
+                   for i in app.canvas.find_all() if app.canvas.type(i) == "text")
+
 
 # ── completion and blind ────────────────────────────────────────────────────
 
@@ -320,6 +329,14 @@ class TestLoadFailures:
         app._engine.add_box(1, 1, 20, 20)
         assert app.save_current() is None
         assert p.read_text(encoding="utf-8").splitlines() == ["0 0.5 0.5 0.2 0.2", "nope"]
+
+    def test_unreadable_image_is_skipped_and_reported(self, app, folder):
+        (folder / "aa_bad.jpg").write_bytes(b"not an image")
+        app._init_folder(str(folder))
+        app.index = app.images.index("aa_bad.jpg")
+        app._annotate_tab.load_image()
+        assert app.images[app.index] == "b.jpg"
+        assert "could not be opened" in app.banner_text
 
     def test_bad_prediction_line_is_reported_not_fatal(self, app, folder):
         p = folder / "predictions" / "detect" / "a.txt"

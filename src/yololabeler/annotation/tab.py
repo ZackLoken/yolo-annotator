@@ -11,7 +11,6 @@ import sys
 import time
 import tkinter as tk
 import tkinter.font as tkFont
-from tkinter import messagebox
 
 from PIL import Image, ImageTk
 
@@ -163,6 +162,7 @@ class AnnotateTab:
         a._image_start_time = None
 
         # Try loading the image; skip corrupt files
+        skipped = []
         attempts = 0
         while attempts < len(a.images):
             img_path = os.path.join(a.image_folder, a.images[a.index])
@@ -172,17 +172,13 @@ class AnnotateTab:
                 a.original_image = auto_orient_image(a.original_image)
                 break
             except Exception as e:
-                messagebox.showwarning(
-                    "Image Error",
-                    f"Could not load:\n{img_path}\n\n{e}")
+                skipped.append(f"{a.images[a.index]} ({e})")
                 a.index += 1
                 if a.index >= len(a.images):
                     a.index = 0
                 attempts += 1
         else:
-            messagebox.showerror(
-                "No Valid Images",
-                "No loadable images found in this folder.")
+            a.show_canvas_message("No loadable images found in this folder.")
             return
 
         a.img_width, a.img_height = a.original_image.size
@@ -191,6 +187,9 @@ class AnnotateTab:
         rejected = self.load_document_for_current_image()
         a.load_errors = rejected
         messages = []
+        if skipped:
+            messages.append(f"{len(skipped)} images could not be opened and were "
+                            f"skipped ({'; '.join(skipped)}).")
         if rejected:
             messages.append(f"{len(rejected)} label lines could not be read "
                             f"({'; '.join(rejected)}). This image will not be saved until they are fixed.")

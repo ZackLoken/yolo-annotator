@@ -13,7 +13,7 @@ import getpass
 import datetime
 from collections import namedtuple
 import tkinter as tk
-from tkinter import filedialog, messagebox, colorchooser
+from tkinter import filedialog, colorchooser
 from PIL import Image, ImageTk
 
 import customtkinter as ctk
@@ -140,7 +140,8 @@ class YoloLabeler:
         # that differ from those defaults are set here.
         object.__setattr__(self, '_state', AppState())
         object.__setattr__(self, '_engine', AnnotationEngine(self._state))
-        object.__setattr__(self, '_review', ReviewEngine(self._state))
+        object.__setattr__(self, '_review',
+                           ReviewEngine(self._state, on_error=self.show_banner))
         self.image_folder = image_folder or ""
         self._constructor_class_names = dict(class_names) if class_names else {}
         self.class_names = dict(self._constructor_class_names)
@@ -741,14 +742,20 @@ class YoloLabeler:
 
     def _show_welcome(self):
         """Show the open-folder prompt on the canvas until a folder is loaded."""
+        self.show_canvas_message('Click "Open Folder" to load images')
+
+    def show_canvas_message(self, text):
+        """Centre one message on an empty canvas, for failures with no image to draw on."""
         self.root.title("YoloLabeler")
+        self.original_image = None
         canvas = self.canvas
         canvas.delete("all")
+        self._annotate_tab._cached_scale = None
+        self._annotate_tab._cached_tk_image = None
         cw = canvas.winfo_width() or 1200
         ch = canvas.winfo_height() or 800
         canvas.create_text(
-            cw // 2, ch // 2,
-            text='Click "Open Folder" to load images',
+            cw // 2, ch // 2, text=text,
             fill=FG_COLOR, font=(self.font_family, 16),
             tags="welcome")
         # add="+" keeps the canvas's own <Configure> resize handler bound.
@@ -783,8 +790,7 @@ class YoloLabeler:
         self._init_folder(new_folder)
 
         if not self.images:
-            messagebox.showinfo("No images",
-                                "No images found in the folder!")
+            self.show_canvas_message(f"No images found in {new_folder}")
             return
 
         self._session_start = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
@@ -967,7 +973,7 @@ class YoloLabeler:
         try:
             self._stats_store.save(path)
         except OSError as e:
-            print(f"Warning: Could not save stats: {e}")
+            self.show_banner(f"Could not save annotation_stats.json: {e.strerror or e}")
 
     # ── Review state persistence ─────────────────────────────────────────────
 
@@ -1270,7 +1276,7 @@ class YoloLabeler:
             with open(classes_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except OSError as e:
-            print(f"Warning: Could not save classes.json: {e}")
+            self.show_banner(f"Could not save classes.json: {e.strerror or e}")
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Class colors
