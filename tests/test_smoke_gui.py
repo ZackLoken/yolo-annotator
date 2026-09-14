@@ -86,3 +86,28 @@ class TestAnnotate:
         app.class_names[1] = "other"
         app._select_class_by_id(1)
         assert app._annotate_tab.visible_annotations() == []
+
+
+# ── review panel ────────────────────────────────────────────────────────────
+
+class TestReviewPanel:
+    def test_queue_over_image_with_predictions(self, app):
+        assert [q.kind for q in app.queue] == ["fp", "tp"]
+
+    def test_step_sets_class_and_zooms(self, app):
+        panel = app._review_panel
+        panel.focus_item(0)
+        assert app.active_class == app.queue[0].class_id
+        assert app._annotate_tab.scale != 1.0
+        panel.step(1)
+        assert app.queue_index == 1
+
+    def test_threshold_filters_queue(self, app):
+        app._review_panel.set_threshold(0.85)
+        assert [q.kind for q in app.queue] == ["tp"]
+        assert app._review.conf_threshold == 0.85
+
+    def test_image_without_predictions_is_a_stop(self, app):
+        app._annotate_tab.next_image()
+        assert app.images[app.index] == "b.jpg"
+        assert app.queue == [] and app.predictions == []

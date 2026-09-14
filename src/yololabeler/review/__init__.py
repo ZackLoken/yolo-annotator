@@ -1,6 +1,6 @@
-"""review — Review domain package."""
+"""Review domain package."""
 
 from .engine import ReviewEngine
-from .tab import ReviewTab
+from .panel import ReviewPanel
 
-__all__ = ["ReviewEngine", "ReviewTab"]
+__all__ = ["ReviewEngine", "ReviewPanel"]

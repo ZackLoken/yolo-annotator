@@ -1,7 +1,7 @@
 ﻿"""YoloLabeler main application window.
 
 Composes one AppState, one AnnotationEngine, one ReviewEngine, one
-AnnotateTab and one ReviewTab, and owns the widgets shared by both tabs:
+AnnotateTab and one ReviewPanel over a single canvas, and owns the
 toolbar, status bar, class registry, folder loading and session stats.
 """
 
@@ -22,11 +22,9 @@ import shutil
 from yololabeler.state import AppState
 from yololabeler.annotation.engine import AnnotationEngine
 from yololabeler.annotation.tab import AnnotateTab
+from yololabeler.keybindings import KEY_BINDINGS
 from yololabeler.review.engine import ReviewEngine
-from yololabeler.review.tab import ReviewTab
-from yololabeler.label_io import (
-    parse_detect_predictions, parse_segment_predictions,
-)
+from yololabeler.review.panel import ReviewPanel
 from yololabeler.utils import (
     suppress_tk_mac_warnings, _load_custom_fonts, _get_font_family,
     ASSETS_DIR,
@@ -72,6 +70,14 @@ DEFAULT_CLASS_COLORS = [
 ]
 
 
+class _BlindShim:
+    """Stand-in for the stats store until Task 14 builds it; no image is blind yet."""
+
+    def is_blind(self, img_name):
+        """Report every image as not part of the blind cohort."""
+        return False
+
+
 class YoloLabeler:
 
     # Attributes transparently forwarded to self._state (AppState).
@@ -104,26 +110,13 @@ class YoloLabeler:
         'queue', 'queue_index',
         'predictions', 'predictions_rejected', 'predictions_blind',
         'matches', 'conf_threshold',
-        '_review_index', '_review_detection_idx', '_review_detections',
-        '_review_matches',
-        '_review_gt_boxes', '_review_gt_polygons',
-        '_review_pred_boxes', '_review_pred_polygons',
-        '_review_original_image', '_review_img_w', '_review_img_h',
-        '_review_scale', '_review_offset_x', '_review_offset_y',
-        '_review_cached_scale',
-        '_review_filter_type', '_review_filter_class',
-        '_review_pan_start_x', '_review_pan_start_y',
-        '_review_state', '_reviewed_lookup',
-        '_review_show_gt', '_review_show_pred',
-        '_review_filtered_images', '_review_status_filter',
-        '_review_needs_first_zoom', '_review_show_help',
+        '_review_filter_type', '_review_filter_class', '_review_status_filter',
+        '_review_show_gt', '_review_show_pred', '_review_state',
         '_annotation_visible',
-        '_annotate_pred_reference', '_review_return_pending',
-        '_review_editing_det', '_review_recompute_on_return',
         # Stats & session
         '_stats',
         '_current_user', '_session_start',
-        '_image_start_time', '_review_image_start_time',
+        '_image_start_time',
         '_session_annotated_images', '_session_images',
         '_session_loaded_counts', '_session_add_counts', '_session_total_adds',
         # Misc state
@@ -154,45 +147,29 @@ class YoloLabeler:
         object.__setattr__(self, '_engine', AnnotationEngine(self._state))
         object.__setattr__(self, '_review', ReviewEngine(self._state))
         self.image_folder = image_folder or ""
-        self.class_names = dict(class_names) if class_names else {}
+        self._constructor_class_names = dict(class_names) if class_names else {}
+        self.class_names = dict(self._constructor_class_names)
         self._current_user = getpass.getuser()
         self._session_start = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
 
         # GUI-only handles (not part of AppState)
-        self._review_cached_tk_image = None
-        self._review_resize_after_id = None
         self._timer_after_id = None
         self._logo_image = None  # keep a reference so Tk does not drop the image
+        self._stats_store = _BlindShim()
 
         # ── Build GUI ──
         _load_custom_fonts()
         self.font_family = _get_font_family()
         self._build_toolbar()
+        object.__setattr__(self, '_review_panel', ReviewPanel(self))
         self._build_status_bar()
 
-        # ── Tab view ──
-        self.tabview = ctk.CTkTabview(
-            self.root, fg_color=BG_COLOR, corner_radius=0,
-            segmented_button_fg_color=BG_COLOR,
-            segmented_button_selected_color=ACCENT,
-            segmented_button_selected_hover_color=ACCENT_HOVER,
-            segmented_button_unselected_color=ENTRY_BG,
-            segmented_button_unselected_hover_color=BORDER_COLOR,
-            text_color=FG_COLOR,
-            command=self._on_tab_changed)
-        self.tabview.pack(fill="both", expand=True)
-        self.tabview.add("Annotate")
-        self.tabview.add("Review")
-
-        # ── Annotate tab ──
+        # ── Canvas ──
+        self._canvas_frame = ctk.CTkFrame(self.root, fg_color=BG_COLOR)
+        self._canvas_frame.pack(fill="both", expand=True)
         object.__setattr__(self, '_annotate_tab', AnnotateTab(self))
-        self._annotate_tab.build(self.tabview.tab("Annotate"))
-        self.canvas = self._annotate_tab.canvas  # backward compat
-
-        # ── Review tab ──
-        self._review_frame = self.tabview.tab("Review")
-        object.__setattr__(self, '_review_tab', ReviewTab(self))
-        self._review_tab.build()
+        self._annotate_tab.build(self._canvas_frame)
+        self.canvas = self._annotate_tab.canvas
 
         self._setup_bindings()
 
@@ -235,7 +212,7 @@ class YoloLabeler:
             self._toolbar_right, text="Next \u25b6", width=70,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 12, "bold"),
-            command=self._nav_next)
+            command=lambda: self._annotate_tab.next_image())
         self.next_btn.pack(side="right", padx=(2, 4))
 
         self.total_label = ctk.CTkLabel(
@@ -255,7 +232,7 @@ class YoloLabeler:
             self._toolbar_right, text="\u25c0 Prev", width=70,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 12, "bold"),
-            command=self._nav_prev)
+            command=lambda: self._annotate_tab.prev_image())
         self.prev_btn.pack(side="right", padx=(4, 2))
 
         self.image_name_label = ctk.CTkLabel(
@@ -263,7 +240,7 @@ class YoloLabeler:
             text_color="#AAAAAA")
         self.image_name_label.pack(side="right", padx=(4, 2))
 
-        # ── CENTER: Three annotate-only groups (hidden on Review tab) ──
+        # ── CENTER: Three annotation groups ──
         self._toolbar_center = ctk.CTkFrame(inner, fg_color="transparent")
         self._toolbar_center.pack(side="left", fill="x", expand=True)
 
@@ -378,162 +355,8 @@ class YoloLabeler:
         si = ctk.CTkFrame(self.status_bar, fg_color="transparent")
         si.pack(fill="x", padx=8, pady=2)
 
-        # ── Review-only controls ──
-        self._review_status_frame = ctk.CTkFrame(si, fg_color="transparent")
-        # Not packed initially — shown when Review tab is active
-
-        # Three sub-frames for equal spacing across full toolbar width
-        _rev_left = ctk.CTkFrame(self._review_status_frame,
-                                 fg_color="transparent")
-        _rev_left.pack(side="left", expand=True, fill="x")
-
-        _rev_center = ctk.CTkFrame(self._review_status_frame,
-                                   fg_color="transparent")
-        _rev_center.pack(side="left", expand=True, fill="x")
-
-        _rev_right = ctk.CTkFrame(self._review_status_frame,
-                                  fg_color="transparent")
-        _rev_right.pack(side="left", expand=True, fill="x")
-
-        # ── LEFT group: Class | Type | Status | GT | Pred ──
-        ctk.CTkLabel(_rev_left, text="Class:",
-                     font=(self.font_family, 11),
-                     text_color=FG_COLOR).pack(side="left", padx=(0, 2))
-        self._review_class_var = tk.StringVar(value="All")
-        self._review_class_dd = ctk.CTkComboBox(
-            _rev_left, variable=self._review_class_var,
-            width=90,
-            values=["All"],
-            font=(self.font_family, 11),
-            dropdown_font=(self.font_family, 11),
-            fg_color=ENTRY_BG, border_color=BORDER_COLOR,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, dropdown_fg_color=BG_COLOR,
-            dropdown_text_color=FG_COLOR, dropdown_hover_color=ACCENT,
-            state="readonly",
-            command=lambda c: self._review_tab._on_review_class_changed(c))
-        self._review_class_dd.pack(side="left", padx=(0, 4))
-
-        self._status_sep(_rev_left)
-
-        ctk.CTkLabel(_rev_left, text="Type:",
-                     font=(self.font_family, 11),
-                     text_color=FG_COLOR).pack(side="left", padx=(0, 2))
-        self._review_type_var = tk.StringVar(value="All")
-        self._review_type_dd = ctk.CTkComboBox(
-            _rev_left, variable=self._review_type_var,
-            width=80,
-            values=["All", "FP", "FN", "TP"],
-            font=(self.font_family, 11),
-            dropdown_font=(self.font_family, 11),
-            fg_color=ENTRY_BG, border_color=BORDER_COLOR,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, dropdown_fg_color=BG_COLOR,
-            dropdown_text_color=FG_COLOR, dropdown_hover_color=ACCENT,
-            state="readonly",
-            command=lambda c: self._review_tab._on_review_type_changed(c))
-        self._review_type_dd.pack(side="left", padx=(0, 4))
-
-        self._status_sep(_rev_left)
-
-        ctk.CTkLabel(
-            _rev_left, text="Status:",
-            font=(self.font_family, 11), text_color=FG_COLOR
-        ).pack(side="left", padx=(0, 2))
-        self._review_filter_var = tk.StringVar(value="All")
-        self._review_filter_combo = ctk.CTkComboBox(
-            _rev_left, width=110,
-            values=["All", "Not Reviewed", "Reviewed"],
-            variable=self._review_filter_var,
-            command=lambda c: self._review_tab._on_review_filter_changed(c),
-            font=(self.font_family, 11),
-            dropdown_font=(self.font_family, 11),
-            fg_color=ENTRY_BG, border_color=BORDER_COLOR,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, dropdown_fg_color=BG_COLOR,
-            dropdown_text_color=FG_COLOR, dropdown_hover_color=ACCENT,
-            state="readonly")
-        self._review_filter_combo.pack(side="left", padx=(0, 4))
-
-        self._review_gt_var = tk.BooleanVar(value=True)
-        self._review_gt_cb = ctk.CTkCheckBox(
-            _rev_left, text="GT",
-            variable=self._review_gt_var,
-            font=(self.font_family, 11), text_color=FG_COLOR,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            border_color=BORDER_COLOR, width=40,
-            command=lambda: self._review_tab._on_review_gt_toggled())
-        self._review_gt_cb.pack(side="left", padx=(4, 2))
-
-        self._review_pred_var = tk.BooleanVar(value=True)
-        self._review_pred_cb = ctk.CTkCheckBox(
-            _rev_left, text="Pred",
-            variable=self._review_pred_var,
-            font=(self.font_family, 11), text_color=FG_COLOR,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            border_color=BORDER_COLOR, width=45,
-            command=lambda: self._review_tab._on_review_pred_toggled())
-        self._review_pred_cb.pack(side="left", padx=(0, 4))
-
-        # ── CENTER group: Accept | Edit | Reject ──
-        self._review_accept_btn = ctk.CTkButton(
-            _rev_center, text="Accept (A)", width=110,
-            fg_color=SI_GREEN, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11, "bold"),
-            command=lambda: self._review_tab._review_accept())
-        self._review_accept_btn.pack(side="left", padx=(0, 4))
-
-        self._review_edit_btn = ctk.CTkButton(
-            _rev_center, text="Edit (E)", width=75,
-            fg_color=SI_GREEN, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11, "bold"),
-            command=lambda: self._review_tab._review_edit())
-        self._review_edit_btn.pack(side="left", padx=(0, 4))
-
-        self._review_reject_btn = ctk.CTkButton(
-            _rev_center, text="Reject (R)", width=110,
-            fg_color=SI_GREEN, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11, "bold"),
-            command=lambda: self._review_tab._review_reject())
-        self._review_reject_btn.pack(side="left", padx=(0, 4))
-
-        # ── RIGHT group: DetStatus | ◀ | 0/0 | ▶ ──
-        self._review_det_status_label = ctk.CTkLabel(
-            _rev_right, text="",
-            font=(self.font_family, 11), text_color=FG_COLOR,
-            width=100, anchor="center")
-        self._review_det_status_label.pack(side="left", padx=(0, 4))
-
-        self._review_prev_det_btn = ctk.CTkButton(
-            _rev_right, text="\u25c0", width=30,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11),
-            command=lambda: self._review_tab._review_prev_detection())
-        self._review_prev_det_btn.pack(side="left", padx=(0, 2))
-
-        self._review_det_label = ctk.CTkLabel(
-            _rev_right, text="0 / 0",
-            font=(self.font_family, 11), text_color=FG_COLOR,
-            width=70, anchor="center")
-        self._review_det_label.pack(side="left", padx=(2, 2))
-
-        self._review_next_det_btn = ctk.CTkButton(
-            _rev_right, text="\u25b6", width=30,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 11),
-            command=lambda: self._review_tab._review_next_detection())
-        self._review_next_det_btn.pack(side="left", padx=(2, 4))
-
-        # ── Right side: Counts | Zoom | Time | User ──
-        # Counts label lives in shared right area, shown only on Review tab
-        self._review_counts_label = ctk.CTkLabel(
-            si, text="TP: 0 | FP: 0 | FN: 0",
-            font=(self.font_family, 11), text_color=FG_COLOR)
-        # Not packed initially — managed in _on_tab_changed
-        self._review_counts_sep = ctk.CTkFrame(
-            si, width=1, height=20, fg_color=BORDER_COLOR)
-        # Not packed initially — managed in _on_tab_changed
-
+        # ── Right side: Zoom | Time | User ──
+        # Packed before the strip so a narrow window squeezes the strip, not these.
         self.status_user = ctk.CTkLabel(
             si, text=f"User: {self._current_user}",
             font=(self.font_family, 11), text_color=FG_COLOR)
@@ -553,10 +376,7 @@ class YoloLabeler:
             text_color=FG_COLOR)
         self.status_zoom.pack(side="right", padx=(6, 6))
 
-    def _status_sep(self, parent):
-        sep = ctk.CTkFrame(parent, width=1, height=20,
-                           fg_color=BORDER_COLOR)
-        sep.pack(side="left", padx=6, fill="y")
+        self._review_panel.build(si)
 
     def _status_sep_right(self, parent):
         sep = ctk.CTkFrame(parent, width=1, height=20,
@@ -564,75 +384,14 @@ class YoloLabeler:
         sep.pack(side="right", padx=6, fill="y")
 
     def _update_status(self):
-        if self.tabview.get() == "Review":
-            pct = int(self._review_scale * 100)
-        else:
-            pct = int(self._annotate_tab.scale * 100)
+        pct = int(self._annotate_tab.scale * 100)
         self.status_zoom.configure(text=f"Zoom: {pct}%")
 
-    def _on_tab_changed(self):
-        """Handle tab switching between Annotate and Review."""
-        if self.tabview.get() == "Review":
-            self._review_tab.activate()
-        elif self.tabview.get() == "Annotate":
-            # Record review time, restart annotate timer
-            self._record_review_time()
-            if self.images:
-                self._image_start_time = time.time()
-            # Show annotate toolbar sections, hide review controls
-            self._review_status_frame.pack_forget()
-            self._review_counts_label.pack_forget()
-            self._review_counts_sep.pack_forget()
-            self._toolbar_center.pack(side="left", fill="x", expand=True)
-            # Sync viewport from review → annotate
-            at = self._annotate_tab
-            if self._review_original_image is not None and self.images:
-                # Navigate to same image as review
-                if self.index != self._review_index:
-                    self._defer_display = True
-                    self.index = self._review_index
-                    at.load_image()
-                    self._defer_display = False
-                # Copy review zoom/offset to annotate
-                at.scale = self._review_scale
-                at.offset_x = self._review_offset_x
-                at.offset_y = self._review_offset_y
-                at.zoom_index = at._nearest_zoom_index(self._review_scale)
-                at._cached_scale = None
-            # Default to polygon mode if polygon labels exist
-            if self.mode != "polygon" and self.document and self.document.polygons():
-                self.mode = "polygon"
-                self.mode_btn.configure(text="Mode: Polygon \u2b21")
-                self.stream_btn.configure(state="normal")
-                self.snap_btn.configure(state="normal")
-            if self.original_image is not None:
-                at.display_image()
-            self.update_title()
-            self._update_status()
-
-    def _nav_prev(self):
-        """Context-aware previous: image in Annotate, image in Review."""
-        if self.tabview.get() == "Review":
-            self._review_tab._review_prev_image()
-        else:
-            self._annotate_tab.prev_image()
-
-    def _nav_next(self):
-        """Context-aware next: image in Annotate, image in Review."""
-        if self.tabview.get() == "Review":
-            self._review_tab._review_next_image()
-        else:
-            self._annotate_tab.next_image()
-
     def _on_visible_toggled(self):
-        """Toggle annotation visibility in Annotate tab."""
+        """Toggle annotation visibility on the canvas."""
         self._annotation_visible = self._visible_var.get()
         if self.original_image is not None:
             self._annotate_tab.display_image()
-
-    def _rebuild_review_image_list(self):
-        """Build filtered list of image indices for Review tab."""
-        self._review_tab._rebuild_review_image_list()
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Logo
@@ -662,38 +421,41 @@ class YoloLabeler:
     # ──────────────────────────────────────────────────────────────────────────
     #  Bindings
     # ──────────────────────────────────────────────────────────────────────────
+    @property
+    def ACTIONS(self):
+        """Every Binding.action in KEY_BINDINGS mapped to the method that runs it."""
+        tab, panel = self._annotate_tab, self._review_panel
+        actions = {
+            "prev_image": tab.prev_image, "next_image": tab.next_image,
+            "prev_item": lambda: panel.step(-1), "next_item": lambda: panel.step(1),
+            "accept": self.accept_item, "reject": self.reject_item,
+            "edit_pair": self.edit_pair, "fit": tab.fit_to_window,
+            "zoom_item": lambda: panel.focus_item(self.queue_index),
+            "toggle_mode": self._toggle_mode, "toggle_snap": self._toggle_snap_key,
+            "toggle_stream": self._toggle_stream_key,
+            "undo": self.undo, "redo": self.redo, "save": self.save_now,
+            "click": self._click_at_cursor, "escape": self._on_escape,
+            "help": tab.toggle_help,
+        }
+        for n in range(10):
+            actions[f"class_{n}"] = lambda n=n: self._select_class_by_id(n)
+        return actions
+
+    def _bind_keys(self):
+        """Bind every action in KEY_BINDINGS to its method; the table is the only source."""
+        actions = self.ACTIONS
+        for binding in KEY_BINDINGS:
+            method = actions[binding.action]
+            for seq in binding.sequences:
+                if seq.startswith("<Command-") and sys.platform != "darwin":
+                    continue
+                self.root.bind(seq, lambda e, m=method: self._key_action(m))
+
     def _setup_bindings(self):
-        """Bind keyboard shortcuts (canvas bindings are in AnnotateTab/ReviewTab)."""
+        """Bind the key table and the window protocol; canvas bindings live in AnnotateTab."""
+        self._bind_keys()
+        self.root.protocol("WM_DELETE_WINDOW", self._quit)
         c = self.canvas
-
-        r = self.root
-        r.bind("<Right>", self._on_right_key)
-        r.bind("<Left>", self._on_left_key)
-        r.bind("<Up>", self._on_up_key)
-        r.bind("<Down>", self._on_down_key)
-        r.bind("<Escape>", self._on_escape)
-        r.bind("<Control-z>", self._annotate_tab.undo_last)
-        r.bind("<Control-y>", self._annotate_tab.redo_last)
-        if sys.platform == "darwin":
-            r.bind("<Command-z>", self._annotate_tab.undo_last)
-            r.bind("<Command-y>", self._annotate_tab.redo_last)
-
-        r.bind("h", lambda e: self._help_key())
-        r.bind("m", lambda e: self._key_action(self._toggle_mode))
-        r.bind("s", lambda e: self._annotate_key(self._toggle_snap))
-        r.bind("v", lambda e: self._annotate_key(self._toggle_stream))
-
-        r.bind("a", lambda e: self._review_key(self._review_tab._review_accept))
-        r.bind("r", lambda e: self._review_key(self._review_tab._review_reject))
-        r.bind("e", lambda e: self._review_key(self._review_tab._review_edit))
-        r.bind("<space>", self._on_space_key)
-
-        for key_num in range(10):
-            r.bind(str(key_num),
-                   lambda e, cid=key_num: self._key_action(
-                       lambda: self._select_class_by_id(cid)))
-
-        r.protocol("WM_DELETE_WINDOW", self._quit)
         c.focus_set()
         c.bind("<Enter>", lambda e: c.focus_set())
 
@@ -705,64 +467,51 @@ class YoloLabeler:
         return focused is not None and isinstance(focused.master, ctk.CTkComboBox)
 
     def _key_action(self, action):
+        """Run a bound action unless the user is typing into a widget."""
         if not self._text_widget_focused():
             action()
 
-    def _annotate_key(self, action):
-        if self.tabview.get() != "Annotate":
-            return
-        self._key_action(action)
+    def _toggle_snap_key(self):
+        """Toggle snapping, which only applies in polygon mode."""
+        if self.mode == "polygon":
+            self._toggle_snap()
 
-    def _review_key(self, action):
-        if self.tabview.get() != "Review":
-            return
-        self._key_action(action)
+    def _toggle_stream_key(self):
+        """Toggle vertex streaming, which only applies in polygon mode."""
+        if self.mode == "polygon":
+            self._toggle_stream()
 
-    def _on_right_key(self, event=None):
-        if self._text_widget_focused():
-            return
-        if self.tabview.get() == "Review":
-            self._review_tab._review_next_detection()
-        else:
-            self._annotate_tab.next_image()
-
-    def _on_left_key(self, event=None):
-        if self._text_widget_focused():
-            return
-        if self.tabview.get() == "Review":
-            self._review_tab._review_prev_detection()
-        else:
-            self._annotate_tab.prev_image()
-
-    def _on_up_key(self, event=None):
-        if self._text_widget_focused():
-            return
-        if self.tabview.get() == "Review":
-            self._review_tab._review_next_image()
-
-    def _on_down_key(self, event=None):
-        if self._text_widget_focused():
-            return
-        if self.tabview.get() == "Review":
-            self._review_tab._review_prev_image()
-
-    def _help_key(self):
-        """Toggle the help overlay of whichever tab is active."""
-        if self.tabview.get() == "Review":
-            self._key_action(self._review_tab.toggle_help)
-        else:
-            self._key_action(self._annotate_tab.toggle_help)
-
-    def _on_space_key(self, event):
-        """Spacebar = left click at current cursor position (annotate only)."""
-        if self.tabview.get() != "Annotate" or self._text_widget_focused():
-            return
-        # Get cursor position relative to the canvas
+    def _click_at_cursor(self):
+        """Left click at the current pointer position, so the spacebar places a vertex."""
         cx = self.canvas.winfo_pointerx() - self.canvas.winfo_rootx()
         cy = self.canvas.winfo_pointery() - self.canvas.winfo_rooty()
-        # Create a synthetic event
-        fake = _SynthEvent(cx, cy)
-        self._annotate_tab.on_button_press(fake)
+        self._annotate_tab.on_button_press(_SynthEvent(cx, cy))
+
+    def undo(self):
+        """Undo the last annotation change and rebuild the queue around it."""
+        self._annotate_tab.undo_last()
+        self._review_panel.refresh()
+
+    def redo(self):
+        """Redo the last undone annotation change and rebuild the queue around it."""
+        self._annotate_tab.redo_last()
+        self._review_panel.refresh()
+
+    def accept_item(self):
+        """Accept the focused queue item; Task 12 implements it."""
+
+    def reject_item(self):
+        """Reject the focused queue item; Task 12 implements it."""
+
+    def edit_pair(self):
+        """Select the focused item's annotation for editing; Task 12 implements it."""
+
+    def save_now(self):
+        """Save the current image; Task 13 implements it."""
+
+    def show_banner(self, text):
+        """Report one message to the user; Task 13 replaces this with the canvas banner."""
+        print(f"[YoloLabeler] {text}")
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Mode toggle
@@ -839,28 +588,25 @@ class YoloLabeler:
         os.makedirs(self.state_dir, exist_ok=True)
         self._migrate_state_files()
 
-        # Prediction directories (for review tab)
+        # Prediction directories
         self.pred_detect_dir = os.path.join(folder, "predictions", "detect")
         self.pred_segment_dir = os.path.join(folder, "predictions", "segment")
         os.makedirs(self.pred_detect_dir, exist_ok=True)
         os.makedirs(self.pred_segment_dir, exist_ok=True)
 
-        # Preserve classes added before folder was opened, then load JSON
-        pre_open_names = dict(self.class_names)
-        pre_open_colors = dict(self.class_colors)
+        # Reset the registry, load this folder's classes, then merge the constructor's
+        self.class_names = {}
+        self.class_colors = {}
         self._load_classes_json()
-        # Merge: keep pre-open classes that weren't in the JSON
-        for cid, name in pre_open_names.items():
-            if cid not in self.class_names:
-                self.class_names[cid] = name
-        for cid, color in pre_open_colors.items():
-            if cid not in self.class_colors:
-                self.class_colors[cid] = color
+        for cid, name in self._constructor_class_names.items():
+            self.class_names.setdefault(cid, name)
         self._refresh_class_dropdown()
 
         self._load_stats()
         self._load_completed_from_stats()
         self._load_review_state()
+        self.conf_threshold = self._review.conf_threshold
+        self._review_panel._show_threshold()
         # Prepopulate image_status for every image in the folder
         for img_name in self.images:
             if img_name not in self._stats["image_status"]:
@@ -886,11 +632,8 @@ class YoloLabeler:
             if has_det:
                 self._set_mode("box")
 
-        # Persist classes (merges pre-open + JSON + ensures file exists)
+        # Persist classes (JSON plus the constructor's list, ensures the file exists)
         self._save_classes_file()
-
-        # Pre-cache the review filtered image list so switching tabs is fast
-        self._rebuild_review_image_list()
 
     def _migrate_state_files(self):
         """Move legacy JSON files from image folder root into state/."""
@@ -926,19 +669,19 @@ class YoloLabeler:
         return False
 
     def _show_welcome(self):
-        """Show the open-folder prompt on both canvases until a folder is loaded."""
+        """Show the open-folder prompt on the canvas until a folder is loaded."""
         self.root.title("YoloLabeler")
-        for canvas in (self.canvas, self._review_canvas):
-            canvas.delete("all")
-            cw = canvas.winfo_width() or 1200
-            ch = canvas.winfo_height() or 800
-            canvas.create_text(
-                cw // 2, ch // 2,
-                text='Click "Open Folder" to load images',
-                fill=FG_COLOR, font=(self.font_family, 16),
-                tags="welcome")
-            # add="+" keeps each tab's own <Configure> resize handler bound.
-            canvas.bind("<Configure>", self._reposition_welcome, add="+")
+        canvas = self.canvas
+        canvas.delete("all")
+        cw = canvas.winfo_width() or 1200
+        ch = canvas.winfo_height() or 800
+        canvas.create_text(
+            cw // 2, ch // 2,
+            text='Click "Open Folder" to load images',
+            fill=FG_COLOR, font=(self.font_family, 16),
+            tags="welcome")
+        # add="+" keeps the canvas's own <Configure> resize handler bound.
+        canvas.bind("<Configure>", self._reposition_welcome, add="+")
 
     @staticmethod
     def _reposition_welcome(event):
@@ -983,16 +726,6 @@ class YoloLabeler:
         self._session_total_adds = 0
         self._annotate_tab.load_image()
 
-        # Reset and pre-load review for the new folder
-        self._review_original_image = None
-        self._review_index = 0
-        self._review_detection_idx = 0
-        self._review_needs_first_zoom = False
-        if self._review_filtered_images:
-            self._review_index = self._review_filtered_images[0]
-            self._review_tab._review_load_image()
-            self._review_needs_first_zoom = True
-
     # ──────────────────────────────────────────────────────────────────────────
     #  Quit
     # ──────────────────────────────────────────────────────────────────────────
@@ -1001,7 +734,6 @@ class YoloLabeler:
             print("[YoloLabeler] Saving and closing...")
             try:
                 self._record_image_time()
-                self._record_review_time()
                 self._annotate_tab.save_annotations()
                 self._end_session()
                 self._save_stats()
@@ -1012,8 +744,6 @@ class YoloLabeler:
             self.root.after_cancel(self._timer_after_id)
         if self._annotate_tab._resize_after_id:
             self.root.after_cancel(self._annotate_tab._resize_after_id)
-        if self._review_resize_after_id:
-            self.root.after_cancel(self._review_resize_after_id)
         self.root.destroy()
 
     def _on_escape(self, event=None):
@@ -1162,29 +892,13 @@ class YoloLabeler:
         self._update_timer_display()
 
     def _update_timer_display(self):
-        if self.tabview.get() == "Review":
-            if self._review_image_start_time:
-                elapsed = time.time() - self._review_image_start_time
-                mins, secs = divmod(int(elapsed), 60)
-                self.status_time.configure(
-                    text=f"Review time: {mins}:{secs:02d}")
-        else:
-            if self._image_start_time and self.images:
-                elapsed = time.time() - self._image_start_time
-                mins, secs = divmod(int(elapsed), 60)
-                self.status_time.configure(
-                    text=f"Image time: {mins}:{secs:02d}")
+        if self._image_start_time and self.images:
+            elapsed = time.time() - self._image_start_time
+            mins, secs = divmod(int(elapsed), 60)
+            self.status_time.configure(
+                text=f"Image time: {mins}:{secs:02d}")
         self._timer_after_id = self.root.after(
             1000, self._update_timer_display)
-
-    def _record_review_time(self):
-        """Record elapsed review time and reset the review timer."""
-        if self._review_image_start_time is None:
-            return
-        elapsed = time.time() - self._review_image_start_time
-        self._review_image_start_time = None
-        if self.images:
-            self._review.add_review_time(self.images[self._review_index], elapsed)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Image status & filtering
@@ -1517,11 +1231,8 @@ class YoloLabeler:
             self.class_colors[self.active_class] = self._picker_result
             self._update_color_btn()
             self._save_classes_file()
-            if self.tabview.get() == "Review":
-                self._review_tab._display_review_image()
-            elif self.original_image is not None:
-                self._annotate_tab.display_image()
-                self.canvas.update_idletasks()
+            self._annotate_tab.display_image()
+            self.canvas.update_idletasks()
 
     def _load_classes_json(self):
         """Load classes and colors from classes.json."""
@@ -1619,7 +1330,7 @@ class YoloLabeler:
                 self.counter_entry.insert(0, str(self.index + 1))
 
     # ──────────────────────────────────────────────────────────────────────────
-    #  Shared helpers (used by both Annotate and Review tabs)
+    #  Shared helpers
     # ──────────────────────────────────────────────────────────────────────────
     def _register_class_ids(self, class_ids):
         """Add placeholder names for class ids seen in files but not in classes.json."""
@@ -1629,33 +1340,8 @@ class YoloLabeler:
         for cid in unknown:
             self.class_names[cid] = f"class_{cid}"
         self._refresh_class_dropdown()
+        self._review_panel.refresh_class_filter()
         self._save_classes_file()
-
-    def _load_predictions(self, image_name, img_w, img_h):
-        """Load model predictions for an image."""
-        pred_boxes = []
-        pred_polygons = []
-        if not self.pred_detect_dir or not self.pred_segment_dir:
-            return pred_boxes, pred_polygons
-        stem = os.path.splitext(image_name)[0]
-
-        detect_path = os.path.join(self.pred_detect_dir, f"{stem}.txt")
-        try:
-            pred_boxes, det_cids = parse_detect_predictions(
-                detect_path, img_w, img_h)
-            self._register_class_ids(det_cids)
-        except Exception as e:
-            print(f"Warning: Could not load detect predictions for {stem}: {e}")
-
-        segment_path = os.path.join(self.pred_segment_dir, f"{stem}.txt")
-        try:
-            pred_polygons, seg_cids = parse_segment_predictions(
-                segment_path, img_w, img_h)
-            self._register_class_ids(seg_cids)
-        except Exception as e:
-            print(f"Warning: Could not load segment predictions for {stem}: {e}")
-
-        return pred_boxes, pred_polygons
 
 
 # ══════════════════════════════════════════════════════════════════════════════

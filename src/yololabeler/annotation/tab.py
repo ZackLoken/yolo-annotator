@@ -150,7 +150,6 @@ class AnnotateTab:
         a._last_stream_pos = None
         a._selected_annotation_id = None
         a._hovered_annotation_id = None
-        a._annotate_pred_reference = None
         a.start_x = None
         a.start_y = None
         a.rect = None
@@ -187,13 +186,19 @@ class AnnotateTab:
 
         a.img_width, a.img_height = a.original_image.size
 
-        self._initial_fit()
+        self.fit_to_window()
         rejected = self.load_document_for_current_image()
         for message in rejected:
             print(f"Warning: could not read {message}")
         img_name = a.images[a.index]
         if img_name not in a._session_loaded_counts:
             a._session_loaded_counts[img_name] = len(a.document.annotations)
+        a.verdicts = a._review.verdicts(img_name)
+        a._review_panel.load_predictions_for_current_image()
+        a._review_panel.refresh_class_filter()
+        a._review_panel.refresh(keep_focus=False)
+        a.queue_index = a._review_panel.first_unreviewed()
+        a._review_panel.update_labels()
         if not a._defer_display:
             self.display_image()
         a.update_title()
