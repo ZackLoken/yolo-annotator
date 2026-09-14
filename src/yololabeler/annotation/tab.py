@@ -15,6 +15,7 @@ from tkinter import messagebox
 
 from PIL import Image, ImageTk
 
+from yololabeler import keybindings
 from yololabeler.annotation.document import load_document
 from yololabeler.matching import point_to_segment_dist, point_in_polygon
 from yololabeler.rendering import halo_text
@@ -1242,53 +1243,8 @@ class AnnotateTab:
         if not a.show_help:
             return
 
-        if a.mode == "box":
-            help_lines = [
-                "\u2500\u2500 Keyboard \u2500\u2500",
-                "  h              Toggle this help",
-                "  m              Toggle Box / Polygon mode",
-                "  0-9            Select class by ID",
-                "  Ctrl+Y         Redo",
-                "  Ctrl+Z         Undo",
-                "  \u2190 / \u2192          Previous / Next image",
-                "",
-                "\u2500\u2500 Mouse \u2500\u2500",
-                "  Ctrl+Scroll          Zoom at cursor",
-                "  Left-click + drag    Draw bounding box",
-                "  Middle-click         Pan (drag)",
-                "  Right-click          Delete annotation",
-                "  Scroll               Pan up / down",
-                "  Shift+Scroll         Pan left / right",
-            ]
-        else:
-            help_lines = [
-                "\u2500\u2500 Keyboard \u2500\u2500",
-                "  h              Toggle this help",
-                "  m              Toggle Box / Polygon mode",
-                "  s              Toggle vertex snapping",
-                "  v              Toggle vertex streaming",
-                "  0-9            Select class by ID",
-                "  Ctrl+Y         Redo",
-                "  Ctrl+Z         Undo",
-                "  Escape         Cancel / Deselect polygon",
-                "  \u2190 / \u2192          Previous / Next image",
-                "",
-                "\u2500\u2500 Mouse \u2500\u2500",
-                "  Click edge           Insert vertex (selected polygon)",
-                "  Ctrl+Scroll          Zoom at cursor",
-                "  Double-click         Close polygon",
-                "  Drag vertex          Move vertex (selected polygon)",
-                "  Left-click           Place vertex / Select polygon",
-                "  Middle-click         Pan (drag)",
-                "  Right-click          Delete annotation / vertex",
-                "  Scroll               Pan up / down",
-                "  Shift+Scroll         Pan left / right",
-                "",
-                "\u2500\u2500 Streaming \u2500\u2500",
-                "  Press 'v' to enable stream mode, then:",
-                "  Click to start streaming vertices,",
-                "  move mouse to trace, click to pause,",
-                "  double-click or Escape to finish.",
-            ]
+        item = a._review_panel.current_item()
+        help_lines = keybindings.help_lines(
+            a.mode, has_queue=bool(a.queue), has_pair=bool(item and item.annotation))
 
         self._draw_block(help_lines, y0)

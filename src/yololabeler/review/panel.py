@@ -135,7 +135,7 @@ class ReviewPanel:
     def refresh(self, keep_focus=True):
         """Rerun matching and rebuild the queue; called after every document change."""
         a = self.app
-        if a.document is None or a.predictions_blind:
+        if a.document is None or a.predictions_blind or not a.predictions:
             a.queue, a.matches = [], {}
             self.update_labels()
             return

@@ -268,3 +268,59 @@ class TestLoadFailures:
         assert app.load_errors[0] in app.banner_text
         assert app.predictions_rejected[0] in app.banner_text
         assert app.save_current() is None
+
+
+# ── acceptance scenarios ────────────────────────────────────────────────────
+
+class TestAcceptance:
+    def test_delete_quit_reopen_stays_deleted(self, folder):
+        root = ctk.CTk()
+        app = YoloLabeler(root)
+        root.update()
+        app._init_folder(str(folder))
+        app._annotate_tab.load_image()
+        app._engine.push_undo()
+        app._engine.delete_annotation(app.document.annotations[0].id)
+        app._quit()
+        root = ctk.CTk()
+        app = YoloLabeler(root)
+        root.update()
+        app._init_folder(str(folder))
+        app._annotate_tab.load_image()
+        assert app.document.annotations == []
+        app._quit()
+
+    def test_draw_step_navigate_return(self, app):
+        tab = app._annotate_tab
+        tab.on_button_press(click_at(tab, 100, 100))
+        tab.on_button_release(click_at(tab, 160, 160))
+        app._review_panel.step(1)
+        assert app.go_to_image(1) and app.go_to_image(0)
+        assert len(app.document.annotations) == 2
+
+    def test_resize_refits(self, app):
+        before = app._annotate_tab.scale
+        app.root.geometry("700x500")
+        app.root.update()
+        app._annotate_tab._finalize_resize()
+        assert app._annotate_tab.scale != before or app._annotate_tab.offset_x != 0
+
+    def test_folder_without_predictions_lists_every_image(self, folder):
+        import shutil
+        shutil.rmtree(folder / "predictions")
+        root = ctk.CTk()
+        app = YoloLabeler(root)
+        root.update()
+        app._init_folder(str(folder))
+        app._annotate_tab.load_image()
+        assert app._filtered_indices == [0, 1] and app.queue == []
+        app._quit()
+
+    def test_help_matches_binding_table(self, app):
+        from yololabeler.keybindings import KEY_BINDINGS
+        app._annotate_tab.toggle_help()
+        texts = " ".join(app.canvas.itemcget(i, "text") for i in app.canvas.find_all()
+                         if app.canvas.type(i) == "text")
+        for b in KEY_BINDINGS:
+            if b.when == "always":
+                assert b.label in texts
