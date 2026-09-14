@@ -51,6 +51,12 @@ class TestAnnotationStats:
         assert rec["by"] == "ren" and rec["blind"] and rec["annotation_count"] == 4
         assert rec["model"] is None and rec["at"]
 
+    def test_set_blind_off(self, tmp_path):
+        stats, _ = AnnotationStats.load(tmp_path / "s.json")
+        stats.set_blind("a.jpg", True)
+        stats.set_blind("a.jpg", False)
+        assert not stats.is_blind("a.jpg")
+
     def test_clear_completion(self, tmp_path):
         stats, _ = AnnotationStats.load(tmp_path / "s.json")
         stats.set_completion("a.jpg", "ren", False, 1, "nathan_v15")

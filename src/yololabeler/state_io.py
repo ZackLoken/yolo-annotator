@@ -21,7 +21,7 @@ def read_json_or_quarantine(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f), None
-    except (ValueError, OSError):
+    except ValueError:
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         moved = f"{path}.corrupt-{stamp}"
         os.replace(path, moved)
@@ -45,26 +45,33 @@ class AnnotationStats:
 
     @classmethod
     def load(cls, path):
+        """Read stats from path, quarantining a corrupt file, and return (instance, moved_path)."""
         data, moved = read_json_or_quarantine(path)
         return cls(data), moved
 
     def save(self, path):
+        """Write the current stats to path atomically."""
         write_json_atomic(path, self.data)
 
     @property
     def sessions(self):
+        """Return the list of recorded session entries."""
         return self.data["sessions"]
 
     def image_status(self, name):
+        """Return the recorded status for name, defaulting to 'unannotated'."""
         return self.data["image_status"].get(name, "unannotated")
 
     def set_image_status(self, name, status):
+        """Set the recorded status for name."""
         self.data["image_status"][name] = status
 
     def is_blind(self, name):
+        """Return whether name is flagged for blind review."""
         return name in self.data["blind"]
 
     def set_blind(self, name, flag):
+        """Set or clear the blind-review flag for name."""
         blind = self.data["blind"]
         if flag and name not in blind:
             blind.append(name)
@@ -72,15 +79,18 @@ class AnnotationStats:
             blind.remove(name)
 
     def completion(self, name):
+        """Return the completion record for name, or None if not completed."""
         return self.data["completion"].get(name)
 
     def set_completion(self, name, by, blind, annotation_count, model):
+        """Record a completion entry for name with author, timestamp, blind flag, count and model."""
         self.data["completion"][name] = {
             "by": by, "at": datetime.datetime.now().isoformat(timespec="seconds"),
             "blind": bool(blind), "annotation_count": int(annotation_count),
             "model": model}
 
     def clear_completion(self, name):
+        """Remove the completion record for name, if any."""
         self.data["completion"].pop(name, None)
 
     def pop_legacy_authors(self, name):
