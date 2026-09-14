@@ -1,7 +1,9 @@
 Single workspace rewrite, progress as of 2026-09-14
 ====================================================
 
-Branch: single-workspace (local only, not pushed). Plan:
+Branch: single-workspace, fast-forward merged into main (no merge commit,
+no divergence) and both pushed to origin by Zack. origin/main and
+origin/single-workspace point at the same commit, c36aa3c. Plan:
 docs/2026-09-14-single-workspace-plan.md (20 tasks). Spec:
 docs/2026-09-14-single-workspace-design.md. Full working ledger, with every
 review outcome and ruling in detail: .superpowers/sdd/2026-09-14-single-workspace-plan/progress.md
@@ -116,8 +118,10 @@ Rulings made on your behalf
 The plan's own process (subagent-driven development) requires deciding
 conflicts and ambiguities rather than stopping to ask, and recording every
 decision. In order:
-- Work happened on branch single-workspace off main, never on main
-  directly, and was never pushed.
+- Work happened on branch single-workspace, not directly on main, and
+  was not pushed during the implementation session itself. Later that
+  same night, at your explicit direction, main was fast-forwarded to
+  single-workspace's tip and you pushed both branches yourself.
 - Two tasks (10 and 18/19's lane split) had planning contradictions in
   the plan's own text; resolved in favor of the stricter/safer reading
   in both cases (see the ledger's preflight scan for detail).
@@ -146,6 +150,8 @@ Next steps
    acceptance checklist and record it in docs/2026-09-14-acceptance.md.
 2. Update this file with the checklist's results and anything it finds.
 3. When Step 3 is done and any findings from it are resolved, delete the
-   SDD workspace (.superpowers/sdd/2026-09-14-single-workspace-plan/) and
-   decide how to integrate this branch (merge, PR, or keep as-is) rather
-   than leaving it unmerged indefinitely.
+   SDD workspace (.superpowers/sdd/2026-09-14-single-workspace-plan/).
+   Branch integration is already decided and done (main is merged and
+   pushed, see above); nothing left to decide there beyond whether to
+   delete the now-redundant single-workspace branch, which is your call
+   and not part of this plan.
