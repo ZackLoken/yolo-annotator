@@ -1,5 +1,7 @@
 """Headed smoke test: build the real window and drive the canvas; skipped without a display."""
 
+import tkinter as tk
+
 import pytest
 from PIL import Image
 
@@ -34,7 +36,7 @@ def app(folder):
     """A live YoloLabeler on that folder; skipped when Tk has no display."""
     try:
         root = ctk.CTk()
-    except Exception as e:
+    except tk.TclError as e:
         pytest.skip(f"no Tk display: {e}")
     root.geometry("900x600")
     app = YoloLabeler(root)
