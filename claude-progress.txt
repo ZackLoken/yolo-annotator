@@ -1,0 +1,151 @@
+Single workspace rewrite, progress as of 2026-09-14
+====================================================
+
+Branch: single-workspace (local only, not pushed). Plan:
+docs/2026-09-14-single-workspace-plan.md (20 tasks). Spec:
+docs/2026-09-14-single-workspace-design.md. Full working ledger, with every
+review outcome and ruling in detail: .superpowers/sdd/2026-09-14-single-workspace-plan/progress.md
+
+What shipped
+------------
+
+All 20 tasks of the plan are implemented and review-clean. The two-tab
+Annotate/Review design is gone. There is now one canvas: predictions draw
+as a layer on it, accept/reject promotes or deletes annotations in place,
+a queue steps through every prediction/annotation pairing, and a single
+canvas banner is the only feedback channel outside the one quit-without-
+saving modal. Import predictions is a form on the toolbar. Completion and
+blind review are wired through AnnotationStats. Packaging (PyInstaller
+windowed one-directory build) and documentation (README.md, CLAUDE.md)
+are updated.
+
+Test suite: pytest -q, 208 passed, run at HEAD (commit eeb3c0f). This
+count has been stable across multiple runs today; a headed smoke test can
+occasionally show as skipped locally due to pre-existing Tk/Tcl init
+flakiness in this conda environment (documented since Task 9), not a
+project defect. CI runs headless on ubuntu-latest and should show that
+smoke test skip consistently rather than fail, after this session's Task
+20 fixes (see below).
+
+Task 20, the plan's final adversarial review and hand-off, is done through
+its first two steps:
+
+Step 1, a whole-branch review on the most capable model, found two
+Critical bugs invisible to any single task's own review:
+- _open_folder bypassed the save gate entirely, silently discarding an
+  unparseable label line's content the moment a different folder was
+  opened, with a failed save's error swallowed by a print.
+- undo() and redo() rolled back verdicts in memory but never persisted
+  review_stats.json, so an undo did not roll back what is recorded as
+  ground truth for the blind-vs-assisted recall comparison the whole
+  redesign exists to produce, and this survived a restart.
+Plus eight Important findings: accept/reject not saving the document
+immediately; two headed smoke tests that would fail rather than skip on
+real CI; three remaining messagebox pop-ups violating the single-feedback
+rule; five print() calls invisible in the packaged (console=False) build;
+classes.json being the one state file not protected by quarantine, so a
+corrupt one got silently overwritten; a pre-existing bug (found and
+ledgered back in Task 11) where launching the app wrote an empty
+classes.json into the working directory instead of the opened folder;
+duplicate label lines silently collapsing to one sidecar record; and the
+.original/ label backup only firing on accept/reject, narrower than what
+the documentation promised.
+
+Step 2, fixing those findings, is complete: 9 commits
+(8942482, 76e2394, e470faa, f71c8cb, 099b4c1, 71f7788, 12285fa, cfbe907,
+eeb3c0f), all ten Critical/Important findings fixed with regression tests
+that assert real on-disk file content, not just in-memory state (that
+distinction is exactly what let the two Critical bugs through every
+earlier review). A scoped re-review independently verified every finding
+against the actual code and traced the trickiest fixes (the duplicate-
+label occurrence-index key, the classes.json construction-order guard)
+through their read and write paths rather than trusting the fix report.
+Two low-severity items surfaced in the fix diff itself and were parked
+rather than fixed: classes.json can now raise on a genuine OS-level read
+failure instead of degrading gracefully (matches the other two state
+files, which already had this same gap); and a cosmetic handler-rebinding
+issue in the new canvas-message helper with no observable effect.
+
+What is still open
+-------------------
+
+Task 20 Step 3, the manual acceptance checklist (spec 12) on Windows with
+Ren's chestnut burr imagery and Nathan's bur_detect_json inference output,
+has not run. docs/next-session.md left the imagery location "to be
+supplied by Zack" and it was never supplied during this session. As of
+2026-09-14, Zack is assembling the imagery and running inference
+overnight on the full image set, expected ready 2026-09-15. Once that
+data exists, run the spec 12 checklist and record results in
+docs/2026-09-14-acceptance.md (gitignored). Note that a meaningful part
+of that checklist needs real hands-on interaction (mouse-driven editing,
+DPI scaling, the packaged exe itself) that a non-interactive session
+cannot perform; Task 19 also could not verify an actual PyInstaller build
+in this environment since PyInstaller is not installed here.
+
+Task 20 Step 4 (this file) is written now, ahead of Step 3, since the
+session paused for that data to be prepared. Update this file once the
+checklist actually runs.
+
+Known minor issues, deliberately left open (all low priority, most
+inherited from a task's own brief rather than implementer error, none
+block hand-off):
+- classes.json now raises rather than degrading gracefully on a genuine
+  OS-level read failure (see Step 2 above; matches the other two state
+  files' existing behavior).
+- The canvas message helper rebinds a Configure handler on every call
+  rather than once per session; inert, no observable effect.
+- migrate_centre_entries's banner can be overwritten by the same load's
+  rejected-lines banner if both apply; a single-slot banner design
+  question (spec 7.1), not a bug.
+- No tests/test_review_panel.py exists; review/panel.py's only coverage
+  is the headed smoke test, which skips on CI.
+- Several small items with no user-visible effect: a quarantine
+  timestamp with second resolution could theoretically collide twice in
+  the same second; the quit-confirmation modal reports total annotation
+  count rather than the unsaved delta; poly-bbox cache invalidates
+  unconditionally on a box edit (a minor performance cost, not a
+  correctness issue); a couple of docstrings and README sentences are
+  slightly incomplete (do not account for every edge case they touch).
+Full detail and file:line locations for every one of these are in the
+SDD ledger referenced above, which will be deleted once Step 3 and this
+file's final update are done; if that matters later, read it before then.
+
+Rulings made on your behalf
+----------------------------
+
+The plan's own process (subagent-driven development) requires deciding
+conflicts and ambiguities rather than stopping to ask, and recording every
+decision. In order:
+- Work happened on branch single-workspace off main, never on main
+  directly, and was never pushed.
+- Two tasks (10 and 18/19's lane split) had planning contradictions in
+  the plan's own text; resolved in favor of the stricter/safer reading
+  in both cases (see the ledger's preflight scan for detail).
+- Several tasks' own briefs mandated missing docstrings or a plan-vs-spec
+  conflict (Tasks 1, 2, 4, 9, 11); each was fixed to match the binding
+  global constraint or the spec rather than the brief's literal text,
+  since the spec is the stated authority when the two disagree.
+- Task 11 found ReviewEngine.backup_original_labels() had lost its only
+  caller with no later task's brief restoring it; ledgered as a hard
+  requirement and carried into Task 12's dispatch so the spec's data-
+  safety guarantee did not ship broken.
+- Five commits picked up unwanted Claude-Session trailers partway
+  through the branch; confirmed with you directly, then rewrote that
+  portion of history to strip them, verified the rewrite changed no code
+  (diff between old and new tip is empty).
+- Task 20's final review findings were fixed in one wave (interrupted
+  partway by a machine restart, resumed and completed) followed by
+  exactly one scoped re-review, per the process's cap on fix rounds. Two
+  low-severity items that surfaced in that re-review were parked rather
+  than triggering a second fix wave (see Known minor issues above).
+
+Next steps
+----------
+
+1. Once Ren's imagery and Nathan's predictions are ready, run the spec 12
+   acceptance checklist and record it in docs/2026-09-14-acceptance.md.
+2. Update this file with the checklist's results and anything it finds.
+3. When Step 3 is done and any findings from it are resolved, delete the
+   SDD workspace (.superpowers/sdd/2026-09-14-single-workspace-plan/) and
+   decide how to integrate this branch (merge, PR, or keep as-is) rather
+   than leaving it unmerged indefinitely.
