@@ -2,7 +2,8 @@
 
 Label files stay the geometry of record. A sidecar JSON next to them carries id,
 author, creation time and provenance per annotation, joined to label lines by
-the exact formatted line text (spec section 6.2).
+the exact formatted line text plus its position among identical lines, so two
+annotations with the same geometry keep separate records (spec section 6.2).
 """
 
 from __future__ import annotations
@@ -139,11 +140,18 @@ def save_document(doc, detect_path, segment_path, sidecar_path):
 
 
 def _read_sidecar(sidecar_path):
+    """Records keyed by (kind, line, occurrence), so identical lines stay distinct."""
     if not os.path.exists(sidecar_path):
         return {}
     with open(sidecar_path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    return {(r["kind"], r["line"]): r for r in data.get("annotations", [])}
+    records, seen = {}, {}
+    for r in data.get("annotations", []):
+        pair = (r["kind"], r["line"])
+        occurrence = seen.get(pair, 0)
+        seen[pair] = occurrence + 1
+        records[(*pair, occurrence)] = r
+    return records
 
 
 def _from_row(kind, row, record, author):
@@ -179,12 +187,15 @@ def load_document(image_name, width, height, detect_path, segment_path,
     box_authors, poly_authors = legacy_authors or ([], [])
     doc = Document(image_name, width, height)
     rejected: List[str] = []
+    seen = {}
     for kind, path, authors in (("box", detect_path, box_authors),
                                 ("polygon", segment_path, poly_authors)):
         parsed = parse_label_file(path, kind, width, height)
         rejected.extend(f"{path}: line {n}" for n in parsed.rejected)
         for pos, row in enumerate(parsed.rows):
-            key = (kind, _canonical(row, kind, width, height))
+            pair = (kind, _canonical(row, kind, width, height))
+            occurrence = seen.get(pair, 0)
+            seen[pair] = occurrence + 1
             author = authors[pos] if pos < len(authors) else ""
-            doc.add(_from_row(kind, row, records.get(key), author))
+            doc.add(_from_row(kind, row, records.get((*pair, occurrence)), author))
     return doc, rejected

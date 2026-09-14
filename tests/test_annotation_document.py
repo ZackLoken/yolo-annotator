@@ -123,6 +123,22 @@ class TestRoundTrip:
         assert len(loaded.annotations) == 1
         assert rejected == [f"{d}: line 2"]
 
+    def test_identical_lines_keep_separate_records(self, tmp_path):
+        d, s, side = paths(tmp_path)
+        doc = Document("a.jpg", 100, 200)
+        first = new_annotation("box", BOX, 2, "zack")
+        second = new_annotation("box", BOX, 2, "nathan", source="accepted",
+                                prediction_id="abc:0", confidence=0.7)
+        doc.add(first)
+        doc.add(second)
+        save_document(doc, d, s, side)
+        assert len(d.read_text(encoding="utf-8").splitlines()) == 2
+        loaded, _ = load_document("a.jpg", 100, 200, d, s, side)
+        assert [a.id for a in loaded.annotations] == [first.id, second.id]
+        assert [a.author for a in loaded.annotations] == ["zack", "nathan"]
+        assert loaded.remove(first.id).author == "zack"
+        assert loaded.get(second.id).prediction_id == "abc:0"
+
     def test_legacy_authors_by_position(self, tmp_path):
         d, s, side = paths(tmp_path)
         d.write_text("0 0.5 0.5 0.2 0.2\n1 0.5 0.5 0.2 0.2\n", encoding="utf-8")
