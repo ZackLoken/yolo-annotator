@@ -23,7 +23,7 @@ from yololabeler.state import AppState
 from yololabeler.annotation.engine import AnnotationEngine
 from yololabeler.annotation.tab import AnnotateTab
 from yololabeler.keybindings import KEY_BINDINGS
-from yololabeler.review.engine import ReviewEngine
+from yololabeler.review.engine import ReviewEngine, apply_accept, apply_reject
 from yololabeler.review.panel import ReviewPanel
 from yololabeler.utils import (
     suppress_tk_mac_warnings, _load_custom_fonts, _get_font_family,
@@ -497,14 +497,33 @@ class YoloLabeler:
         self._annotate_tab.redo_last()
         self._review_panel.refresh()
 
+    def _act_on_item(self, apply):
+        """Shared body of accept and reject: undo point, mutate, record, refresh."""
+        item = self._review_panel.current_item()
+        if item is None or self.predictions_blind:
+            return
+        self._review.backup_original_labels()
+        self._engine.push_undo()
+        action, _ = apply(item)
+        self._review.record_verdict(self.images[self.index], item, action, self._current_user)
+        self._mark_image_annotated()
+        self._review_panel.refresh(keep_focus=False)
+        self._review_panel.focus_item(self._review_panel.first_unreviewed())
+
     def accept_item(self):
-        """Accept the focused queue item; Task 12 implements it."""
+        """Accept the focused queue item, promoting an fp prediction into an annotation."""
+        self._act_on_item(lambda item: apply_accept(self.document, item, self._current_user))
 
     def reject_item(self):
-        """Reject the focused queue item; Task 12 implements it."""
+        """Reject the focused queue item, removing its annotation if it has one."""
+        self._act_on_item(lambda item: apply_reject(self.document, item))
 
     def edit_pair(self):
-        """Select the focused item's annotation for editing; Task 12 implements it."""
+        """Select the focused item's annotation so its vertices can be edited (spec 5.3)."""
+        item = self._review_panel.current_item()
+        if item is None or item.annotation is None:
+            return
+        self._annotate_tab.select_annotation(item.annotation.id)
 
     def save_now(self):
         """Save the current image; Task 13 implements it."""

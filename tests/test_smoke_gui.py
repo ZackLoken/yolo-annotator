@@ -111,3 +111,33 @@ class TestReviewPanel:
         app._annotate_tab.next_image()
         assert app.images[app.index] == "b.jpg"
         assert app.queue == [] and app.predictions == []
+
+
+# ── actions ─────────────────────────────────────────────────────────────────
+
+class TestActions:
+    def test_accept_fp_promotes_and_records(self, app):
+        app._review_panel.focus_item(0)
+        assert app.queue[0].kind == "fp"
+        app.accept_item()
+        assert len(app.document.annotations) == 2
+        added = app.document.annotations[-1]
+        assert added.source == "accepted" and added.class_id == 1
+        assert app.verdicts[added.prediction_id]["action"] == "accepted"
+        assert [q.kind for q in app.queue] == ["tp", "tp"]
+
+    def test_reject_tp_deletes_and_undo_restores_both(self, app):
+        panel = app._review_panel
+        panel.focus_item(len(app.queue) - 1)
+        assert app.queue[app.queue_index].kind == "tp"
+        key = app.queue[app.queue_index].key
+        app.reject_item()
+        assert app.document.annotations == [] and app.verdicts[key]["action"] == "rejected"
+        app.undo()
+        assert len(app.document.annotations) == 1 and key not in app.verdicts
+
+    def test_edit_pair_selects_annotation(self, app):
+        panel = app._review_panel
+        panel.focus_item(len(app.queue) - 1)
+        app.edit_pair()
+        assert app._selected_annotation_id == app.queue[app.queue_index].annotation.id
