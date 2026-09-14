@@ -43,6 +43,28 @@ class TestBurDetectJson:
         assert manifest["imported_by"] == "zack"
         assert manifest["class_id_default"] == 0
 
+    def test_unpaired_boxes_are_rejected_not_truncated(self, tmp_path, folder):
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.json").write_text(json.dumps(
+            {"boxes": [[10, 20, 30, 60], [0, 0, 10, 10]], "scores": [0.875]}),
+            encoding="utf-8")
+        result = import_predictions(src, folder, "bur_detect_json", "m", 0, "z")
+        assert result.lines_rejected == 1
+        assert len(read(folder / "predictions" / "detect" / "a.txt")) == 1
+
+    def test_removed_existing_predictions_are_reported(self, tmp_path, folder):
+        existing = folder / "predictions" / "segment"
+        existing.mkdir(parents=True)
+        (existing / "a.txt").write_text("0 0.9 0 0 0.5 0 0.5 0.5\n", encoding="utf-8")
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.json").write_text(json.dumps(
+            {"boxes": [[10, 20, 30, 60]], "scores": [0.875]}), encoding="utf-8")
+        result = import_predictions(src, folder, "bur_detect_json", "m", 0, "z")
+        assert result.files_removed == 1 and not (existing / "a.txt").exists()
+        assert "1 existing prediction files removed" in result.summary()
+
     def test_requires_class_id(self, tmp_path, folder):
         with pytest.raises(ValueError, match="class id"):
             import_predictions(tmp_path, folder, "bur_detect_json", "m", None, "z")

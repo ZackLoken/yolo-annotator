@@ -25,6 +25,7 @@ class ImportResult:
     files_skipped: List[str] = field(default_factory=list)
     lines_rejected: int = 0
     rotated_images: int = 0
+    files_removed: int = 0
 
     def summary(self):
         """One-line human-readable summary of the import, for the status banner."""
@@ -33,6 +34,9 @@ class ImportResult:
             parts.append(f"{len(self.files_skipped)} files skipped (no matching image)")
         if self.lines_rejected:
             parts.append(f"{self.lines_rejected} lines rejected")
+        if self.files_removed:
+            parts.append(f"{self.files_removed} existing prediction files removed "
+                         "(this import had nothing for them)")
         if self.rotated_images:
             noun = "image has" if self.rotated_images == 1 else "images have"
             parts.append(f"{self.rotated_images} {noun} an EXIF rotation; "
@@ -62,13 +66,18 @@ def _segment_line(class_id, conf, points, w, h):
 
 
 def _convert_bur_json(path, class_id, w, h):
-    """Convert one bur_detect_json file's pixel boxes into canonical detect lines."""
+    """Convert one bur_detect_json file's pixel boxes into canonical detect lines.
+
+    A file whose boxes and scores lists differ in length converts the pairs it
+    has and reports the unpaired remainder as rejected rather than truncating
+    silently.
+    """
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    lines = []
-    for (x1, y1, x2, y2), score in zip(data.get("boxes", []), data.get("scores", [])):
-        lines.append(_detect_line(class_id, float(score), x1, y1, x2, y2, w, h))
-    return lines, [], 0
+    boxes, scores = data.get("boxes", []), data.get("scores", [])
+    lines = [_detect_line(class_id, float(score), x1, y1, x2, y2, w, h)
+             for (x1, y1, x2, y2), score in zip(boxes, scores)]
+    return lines, [], abs(len(boxes) - len(scores))
 
 
 def _convert_ultralytics(path, w, h):
@@ -161,8 +170,11 @@ def import_predictions(source_dir, image_folder, fmt, model_name, class_id, user
     os.makedirs(detect_dir, exist_ok=True)
     os.makedirs(segment_dir, exist_ok=True)
     for stem, (detect, segment) in converted.items():
-        _write_label_lines(os.path.join(detect_dir, f"{stem}.txt"), [l + "\n" for l in detect])
-        _write_label_lines(os.path.join(segment_dir, f"{stem}.txt"), [l + "\n" for l in segment])
+        for folder, lines in ((detect_dir, detect), (segment_dir, segment)):
+            path = os.path.join(folder, f"{stem}.txt")
+            if not lines and os.path.exists(path):
+                result.files_removed += 1
+            _write_label_lines(path, [l + "\n" for l in lines])
         if detect or segment:
             result.files_written += 1
     write_manifest(os.path.join(image_folder, "predictions"), {
