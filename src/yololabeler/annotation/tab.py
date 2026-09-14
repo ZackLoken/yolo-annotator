@@ -18,6 +18,7 @@ from PIL import Image, ImageTk
 from yololabeler.annotation.document import load_document
 from yololabeler.matching import point_to_segment_dist, point_in_polygon
 from yololabeler.rendering import halo_text
+from yololabeler.review.layer import draw_prediction_layer
 from yololabeler.utils import auto_orient_image
 
 # Interaction constants, carried over from the original implementation
@@ -1205,45 +1206,9 @@ class AnnotateTab:
                 fill=color, width=max(1, line_w * 0.5),
                 dash=(dash_a // 2 or 1, dash_b))
 
-        # Prediction reference overlay
-        if a._annotate_pred_reference:
-            ref = a._annotate_pred_reference
-            PRED_REF_COLOR = "#00BFFF"
-            ref_dash = (6, 4)
-            ref_lw = max(1, min(2 + s * 0.5, 5))
-            ref_label_size = max(8, min(int(10 * (0.6 + s * 0.4)), 16))
-            cid = ref.get('class_id', 0)
-            conf = ref.get('conf', 0)
-            name = a.class_names.get(cid, str(cid))
-
-            if ref['type'] == 'box':
-                x1, y1, x2, y2 = ref['coords']
-                cx1, cy1 = self.image_to_canvas(x1, y1)
-                cx2, cy2 = self.image_to_canvas(x2, y2)
-                canvas.create_rectangle(
-                    cx1, cy1, cx2, cy2,
-                    outline=PRED_REF_COLOR, width=ref_lw,
-                    dash=ref_dash)
-                _halo(cx1 + 2, cy1 - 2, anchor="sw",
-                      text=f"Pred {cid}: {name} ({conf:.2f})",
-                      fill=PRED_REF_COLOR,
-                      font=(a.font_family, ref_label_size, "bold"))
-            elif ref['type'] == 'polygon':
-                pts = ref['coords']
-                canvas_pts = []
-                for px_pt, py_pt in pts:
-                    cx_p, cy_p = self.image_to_canvas(px_pt, py_pt)
-                    canvas_pts.extend([cx_p, cy_p])
-                if len(canvas_pts) >= 6:
-                    canvas.create_polygon(
-                        *canvas_pts, outline=PRED_REF_COLOR,
-                        fill="", width=ref_lw, dash=ref_dash)
-                if pts:
-                    lx, ly = self.image_to_canvas(*pts[0])
-                    _halo(lx + 2, ly - 2, anchor="sw",
-                          text=f"Pred {cid}: {name} ({conf:.2f})",
-                          fill=PRED_REF_COLOR,
-                          font=(a.font_family, ref_label_size, "bold"))
+        draw_prediction_layer(
+            self.canvas, self.image_to_canvas, a, a.class_names, a.font_family,
+            label_size, show_gt=a._review_show_gt, show_pred=a._review_show_pred)
 
         self.render_help()
 

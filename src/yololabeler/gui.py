@@ -102,6 +102,8 @@ class YoloLabeler:
         '_stream_mode', '_stream_active', '_last_stream_pos',
         # Review data
         'queue', 'queue_index',
+        'predictions', 'predictions_rejected', 'predictions_blind',
+        'matches', 'conf_threshold',
         '_review_index', '_review_detection_idx', '_review_detections',
         '_review_matches',
         '_review_gt_boxes', '_review_gt_polygons',

@@ -67,6 +67,11 @@ class AppState:
         # ── Review data ──
         self.queue = []              # QueueItem list for the current image
         self.queue_index = 0
+        self.predictions = []          # list[Prediction] for the current image
+        self.predictions_rejected = [] # "path: line n" messages from loading
+        self.predictions_blind = False # True when the image is blind and preds were not read
+        self.matches = {}              # compute_matches output for the current image
+        self.conf_threshold = 0.50     # mirrored from ReviewEngine.conf_threshold
         self._review_index = 0
         self._review_detection_idx = 0
         self._review_detections = []
