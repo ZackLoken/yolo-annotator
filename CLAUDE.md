@@ -50,12 +50,12 @@ path, called by navigation, completion, accept, reject, `Ctrl+S`, and quit.
 `KEY_BINDINGS` in `keybindings.py` is the only place a key is bound; adding a
 binding there is the only way to add one, and it drives the help overlay and the
 README Controls tables. `banner_text`, shown and cleared through
-`show_banner`/`clear_banner` in `gui.py`, is the only user feedback channel; there
-are no pop-ups for routine feedback (import results, save failures, rejected lines
-go through the banner). A few genuine error conditions (no images in the chosen
-folder, a corrupt or entirely unreadable image set) still use a blocking
-messagebox, and the quit-without-saving confirmation is the one deliberate modal
-in the normal workflow.
+`show_banner`/`clear_banner` in `gui.py`, is the feedback channel while an image
+is loaded (import results, save failures, rejected lines all go through it);
+`show_canvas_message` covers the same kind of failure when there is no image yet
+to draw a banner on (no images in the chosen folder, no loadable images at all).
+There are no pop-ups anywhere in the app, and the quit-without-saving
+confirmation is the one deliberate modal in the normal workflow.
 Verdicts are keyed by prediction id, except a model miss (an annotation with no
 matching prediction), which is keyed by the annotation's id instead.
 

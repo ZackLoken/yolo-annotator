@@ -277,8 +277,8 @@ viewport or leave unsaved work behind.
 - Viewport cropping: only renders the visible region, safe at any zoom level
 - Save on navigate: `go_to_image` saves the current image before loading the
   next; a failed save on quit prompts once, with a count of what would be lost
-- Original label backup: `.original/` copies made before the first destructive
-  edit
+- Original label backup: `.original/` copies made the first time a label file
+  is saved
 - Packaged build: a PyInstaller windowed build for Windows needs no Python
   install, see [Running the packaged build](#running-the-packaged-build)
 
