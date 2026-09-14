@@ -61,50 +61,46 @@ python -m yololabeler /path/to/images
 
 ## Controls
 
-### Annotate tab
+One workspace: annotate and review on the same canvas. Press `h` in the app
+for the same list, filtered to the current mode.
 
-| Action                       | Input                    |
-|------------------------------|--------------------------|
-| Toggle Box / Polygon mode    | `m`                      |
-| Toggle vertex streaming      | `v`                      |
-| Toggle vertex snapping       | `s`                      |
-| Select class by id           | `0`–`9`                  |
-| Undo                         | `Ctrl+Z`                 |
-| Redo                         | `Ctrl+Y`                 |
-| Toggle help overlay          | `h`                      |
-| Cancel / Deselect polygon    | `Escape`                 |
-| Next / Previous image        | `→` / `←`                |
-| <div align="center">**Box mode**</div> | |
-| Draw a box                   | Left-click + drag        |
-| Delete a box                 | Right-click on box       |
-| <div align="center">**Polygon mode**</div> | |
-| Place vertex                 | Left-click               |
-| Select polygon               | Left-click on polygon    |
-| Close polygon                | Double-click             |
-| Move vertex                  | Drag vertex (selected)   |
-| Insert vertex on edge        | Click edge (selected)    |
-| Delete vertex                | Right-click vertex       |
-| Delete polygon               | Right-click in polygon   |
-| <div align="center">**Navigation & view**</div> | |
-| Pan up / down                | Scroll                   |
-| Pan left / right             | Shift + Scroll           |
-| Zoom at cursor               | Ctrl + Scroll            |
-| Pan (free)                   | Middle-click + drag      |
+<!-- controls:start -->
+| Action | Key |
+|---|---|
+| Previous image | `Left` |
+| Next image | `Right` |
+| Previous queue item | `Up` |
+| Next queue item | `Down` |
+| Accept focused item | `a` |
+| Reject focused item | `r` |
+| Select the focused item's annotation for editing | `e` |
+| Fit image to window | `f` |
+| Zoom to focused item | `z` |
+| Toggle box / polygon mode | `m` |
+| Toggle vertex snapping | `s` |
+| Toggle vertex streaming | `v` |
+| Select class by id | `0`-`9` |
+| Undo | `Ctrl+Z` |
+| Redo | `Ctrl+Y` |
+| Save now | `Ctrl+S` |
+| Left click at the cursor | `Space` |
+| Cancel polygon / deselect | `Escape` |
+| Toggle this help | `h` |
 
-### Review tab
-
-| Action                        | Input  |
-|-------------------------------|--------|
-| Accept detection              | `a`    |
-| Reject detection              | `r`    |
-| Edit detection (→ Annotate)   | `e`    |
-| Previous / Next detection     | `←` / `→` |
-| Next / Previous image         | `↑` / `↓` |
-| Toggle Box / Polygon mode     | `m`    |
-| Toggle help overlay           | `h`    |
-
-Press `h` in either tab for a full keybinding reference including per-action
-behavior for FP / FN / TP detections.
+| Action | Input | Mode |
+|---|---|---|
+| Zoom at cursor | Ctrl+Scroll | always |
+| Pan up / down | Scroll | always |
+| Pan left / right | Shift+Scroll | always |
+| Pan | Middle-click drag | always |
+| Draw a box | Left-click drag | box |
+| Delete box | Right-click | box |
+| Place vertex / select polygon | Left-click | polygon |
+| Close polygon | Double-click | polygon |
+| Move vertex (selected polygon) | Drag vertex | polygon |
+| Insert vertex (selected polygon) | Click edge | polygon |
+| Delete vertex / polygon | Right-click | polygon |
+<!-- controls:end -->
 
 ---
 
