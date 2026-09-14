@@ -1202,7 +1202,7 @@ class ReviewTab:
         gt_type = det.get('gt_type')
         gt_idx = det.get('gt_idx')
         # Always default to polygon when polygon labels are present
-        if a.polygons:
+        if a.document and a.document.polygons():
             target_mode = 'polygon'
         elif gt_type == 'polygon':
             target_mode = 'polygon'
@@ -1221,14 +1221,15 @@ class ReviewTab:
                 a.mode_btn.configure(text="Mode: Polygon \u2b21")
                 a.stream_btn.configure(state="normal")
                 a.snap_btn.configure(state="normal")
-            if gt_idx is not None and 0 <= gt_idx < len(a.polygons):
-                a._selected_polygon_idx = gt_idx
+            polys = a.document.polygons() if a.document else []
+            if gt_idx is not None and 0 <= gt_idx < len(polys):
+                a._selected_annotation_id = polys[gt_idx].id
         elif target_mode == 'box':
             if a.mode != 'box':
                 a.mode = 'box'
                 a.mode_btn.configure(text="Mode: Box \u25ad")
                 a.current_polygon = []
-                a._selected_polygon_idx = None
+                a._selected_annotation_id = None
                 a.stream_btn.configure(state="disabled")
                 a.snap_btn.configure(state="disabled")
 

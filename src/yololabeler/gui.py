@@ -101,6 +101,7 @@ class YoloLabeler:
         '_selected_annotation_id', '_hovered_annotation_id',
         '_stream_mode', '_stream_active', '_last_stream_pos',
         # Review data
+        'queue', 'queue_index',
         '_review_index', '_review_detection_idx', '_review_detections',
         '_review_matches',
         '_review_gt_boxes', '_review_gt_polygons',
@@ -597,7 +598,7 @@ class YoloLabeler:
                 at.zoom_index = at._nearest_zoom_index(self._review_scale)
                 at._cached_scale = None
             # Default to polygon mode if polygon labels exist
-            if self.mode != "polygon" and self.polygons:
+            if self.mode != "polygon" and self.document and self.document.polygons():
                 self.mode = "polygon"
                 self.mode_btn.configure(text="Mode: Polygon \u2b21")
                 self.stream_btn.configure(state="normal")
@@ -780,7 +781,7 @@ class YoloLabeler:
             self.current_polygon = []
             self._dragging_vertex = None
             self._drag_orig_pos = None
-            self._selected_polygon_idx = None
+            self._selected_annotation_id = None
             self._stream_mode = False
             self._stream_active = False
             self.stream_btn.configure(text="Stream: Off", state="disabled")
@@ -1024,12 +1025,10 @@ class YoloLabeler:
                 self.current_polygon = []
                 self._annotate_tab.display_image()
                 return
-            if self._selected_polygon_idx is not None:
-                self._selected_polygon_idx = None
+            if self._selected_annotation_id is not None:
+                self._selected_annotation_id = None
                 self._annotate_tab._clear_drag_state()
                 self._annotate_tab.display_image()
-                if self._review_return_pending:
-                    self.root.after(50, self._review_tab._review_confirm_dialog)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Time tracking
@@ -1049,8 +1048,6 @@ class YoloLabeler:
                     self._stats["sessions"] = []
                 if "image_status" not in self._stats:
                     self._stats["image_status"] = {}
-                if "annotation_authors" not in self._stats:
-                    self._stats["annotation_authors"] = {}
                 # Migrate old format: extract completion from top-level "images"
                 if "images" in self._stats:
                     for iname, ientry in self._stats["images"].items():
@@ -1059,11 +1056,9 @@ class YoloLabeler:
                                 iname, "complete")
                     del self._stats["images"]
             except Exception:
-                self._stats = {"sessions": [], "image_status": {},
-                               "annotation_authors": {}}
+                self._stats = {"sessions": [], "image_status": {}}
         else:
-            self._stats = {"sessions": [], "image_status": {},
-                           "annotation_authors": {}}
+            self._stats = {"sessions": [], "image_status": {}}
 
     def _save_stats(self):
         path = self._stats_path()
@@ -1075,37 +1070,6 @@ class YoloLabeler:
                 json.dump(self._stats, f, indent=2)
         except Exception as e:
             print(f"Warning: Could not save stats: {e}")
-
-    def _save_annotation_authors(self):
-        """Persist per-annotation author lists to annotation_stats.json.
-
-        Only writes an entry when at least one author is known.
-        """
-        if not self.images:
-            return
-        img_name = self.images[self.index]
-        authors = self._stats.setdefault("annotation_authors", {})
-        has_known = any(self.box_authors) or any(self.polygon_authors)
-        if has_known:
-            authors[img_name] = {
-                "boxes": list(self.box_authors),
-                "polygons": list(self.polygon_authors),
-            }
-        else:
-            authors.pop(img_name, None)
-        self._save_stats()
-
-    def _load_annotation_authors(self):
-        """Load per-annotation author lists from annotation_stats.json."""
-        if not self.images:
-            return
-        img_name = self.images[self.index]
-        authors = self._stats.get("annotation_authors", {}).get(img_name, {})
-        ba = authors.get("boxes", [])
-        pa = authors.get("polygons", [])
-        # Pad/truncate to match current annotation counts
-        self.box_authors = (ba + [""] * len(self.boxes))[:len(self.boxes)]
-        self.polygon_authors = (pa + [""] * len(self.polygons))[:len(self.polygons)]
 
     # ── Review state persistence ─────────────────────────────────────────────
 
@@ -1148,7 +1112,7 @@ class YoloLabeler:
                        "final_annotation_count": 0})
         entry["session_seconds"] += elapsed
 
-        count = len(self.boxes) + len(self.polygons)
+        count = len(self.document.annotations) if self.document else 0
         entry["final_annotation_count"] = count
         adds = self._session_add_counts.get(img_name, 0)
         entry["annotations_added"] += adds
@@ -1306,13 +1270,13 @@ class YoloLabeler:
 
     def _count_class_annotations(self):
         """Count annotations per class for the current mode."""
+        if self.document is None:
+            return {}
         counts = {}
-        if self.mode == "box":
-            for *_, cls in self.boxes:
-                counts[cls] = counts.get(cls, 0) + 1
-        else:
-            for _, cls in self.polygons:
-                counts[cls] = counts.get(cls, 0) + 1
+        for ann in self.document.annotations:
+            if ann.kind != self.mode:
+                continue
+            counts[ann.class_id] = counts.get(ann.class_id, 0) + 1
         return counts
 
     def _refresh_class_dropdown(self):

@@ -15,9 +15,7 @@ from tkinter import messagebox
 
 from PIL import Image, ImageTk
 
-from yololabeler.label_io import (
-    parse_detect_labels, parse_segment_labels,
-)
+from yololabeler.annotation.document import load_document
 from yololabeler.matching import point_to_segment_dist, point_in_polygon
 from yololabeler.rendering import halo_text
 from yololabeler.utils import auto_orient_image
@@ -137,10 +135,7 @@ class AnnotateTab:
             a.index = len(a.images) - 1
         print(f"[YoloLabeler] Loading image {a.index + 1}/{len(a.images)}: {a.images[a.index]}")
 
-        a.boxes = []
-        a.polygons = []
-        a.box_authors = []
-        a.polygon_authors = []
+        a.document = None
         self._invalidate_poly_bboxes()
         a.current_polygon = []
         a._undo_stack = []
@@ -152,8 +147,8 @@ class AnnotateTab:
         self._snap_indicator_item = None
         a._stream_active = False
         a._last_stream_pos = None
-        a._selected_polygon_idx = None
-        a._hovered_polygon_idx = None
+        a._selected_annotation_id = None
+        a._hovered_annotation_id = None
         a._annotate_pred_reference = None
         a.start_x = None
         a.start_y = None
@@ -192,11 +187,12 @@ class AnnotateTab:
         a.img_width, a.img_height = a.original_image.size
 
         self._initial_fit()
-        self._load_existing_labels()
+        rejected = self.load_document_for_current_image()
+        for message in rejected:
+            print(f"Warning: could not read {message}")
         img_name = a.images[a.index]
         if img_name not in a._session_loaded_counts:
-            a._session_loaded_counts[img_name] = (
-                len(a.boxes) + len(a.polygons))
+            a._session_loaded_counts[img_name] = len(a.document.annotations)
         if not a._defer_display:
             self.display_image()
         a.update_title()
@@ -220,6 +216,28 @@ class AnnotateTab:
         self.offset_x = (cw - a.img_width * self.scale) / 2
         self.offset_y = (ch - a.img_height * self.scale) / 2
 
+    def fit_to_window(self):
+        """Fit the whole image into the canvas and redraw."""
+        self._initial_fit()
+        self._cached_scale = None
+        self._request_redraw()
+
+    def zoom_to_bbox(self, x1, y1, x2, y2):
+        """Zoom so the box fills one third of the canvas, centred (spec 4.3)."""
+        a = self.app
+        cw = self.canvas.winfo_width() or 800
+        ch = self.canvas.winfo_height() or 600
+        det_w, det_h = max(x2 - x1, 1), max(y2 - y1, 1)
+        target = min(cw / (det_w * 3), ch / (det_h * 3))
+        self.zoom_index = self._nearest_zoom_index(target)
+        self.scale = self.zoom_levels[self.zoom_index]
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        self.offset_x = cw / 2 - cx * self.scale
+        self.offset_y = ch / 2 - cy * self.scale
+        self._cached_scale = None
+        self._request_redraw()
+        a._update_status()
+
     def _nearest_zoom_index(self, target_scale):
         best_idx = 0
         best_diff = abs(self.zoom_levels[0] - target_scale)
@@ -231,33 +249,57 @@ class AnnotateTab:
         return best_idx
 
     # ──────────────────────────────────────────────────────────────────────────
-    #  Load existing YOLO labels
+    #  Load the document for the current image
     # ──────────────────────────────────────────────────────────────────────────
-    def _load_existing_labels(self):
+    def load_document_for_current_image(self):
+        """Read label files plus sidecar into a.document. Returns rejected-line messages."""
         a = self.app
-        if not a.detect_dir or not a.segment_dir:
-            return
-        stem = os.path.splitext(a.images[a.index])[0]
+        img_name = a.images[a.index]
+        detect, segment, sidecar = self.engine.label_paths()
+        legacy = a._stats.get("annotation_authors", {}).pop(img_name, None)
+        legacy_authors = ((legacy.get("boxes", []), legacy.get("polygons", []))
+                          if legacy else None)
+        a.document, rejected = load_document(
+            img_name, a.img_width, a.img_height, detect, segment, sidecar,
+            legacy_authors=legacy_authors)
+        if legacy is not None:
+            a._save_stats()
+        a._register_class_ids({ann.class_id for ann in a.document.annotations})
+        self._invalidate_poly_bboxes()
+        return rejected
 
-        detect_path = os.path.join(a.detect_dir, f"{stem}.txt")
-        try:
-            a.boxes, det_cids = parse_detect_labels(
-                detect_path, a.img_width, a.img_height)
-            a._register_class_ids(det_cids)
-        except Exception as e:
-            print(f"Warning: Could not load detect labels for {stem}: {e}")
+    # ── Visibility and selection ──────────────────────────────────────────────
 
-        segment_path = os.path.join(a.segment_dir, f"{stem}.txt")
-        try:
-            a.polygons, seg_cids = parse_segment_labels(
-                segment_path, a.img_width, a.img_height)
-            self._invalidate_poly_bboxes()
-            a._register_class_ids(seg_cids)
-        except Exception as e:
-            print(f"Warning: Could not load segment labels for {stem}: {e}")
+    def visible_annotations(self):
+        """Annotations drawn right now, in draw order; hit-testing uses the same list."""
+        a = self.app
+        if a.document is None or not a._annotation_visible:
+            return []
+        focus_pair = a.queue[a.queue_index].annotation if (
+            a.queue and 0 <= a.queue_index < len(a.queue)) else None
+        out = []
+        for ann in a.document.annotations:
+            if ann.id == a._selected_annotation_id or (focus_pair and ann.id == focus_pair.id):
+                out.append(ann)
+            elif ann.kind == a.mode and ann.class_id == a.active_class:
+                out.append(ann)
+        return out
 
-        # Load per-annotation author metadata from annotation_stats.json
-        a._load_annotation_authors()
+    def _alive(self, ann_id):
+        """True when ann_id still names an annotation of the current document."""
+        doc = self.app.document
+        if ann_id is None or doc is None:
+            return False
+        return any(ann.id == ann_id for ann in doc.annotations)
+
+    def select_annotation(self, ann_id):
+        """Select an annotation by id, switching the annotate mode to match its kind."""
+        a = self.app
+        a._selected_annotation_id = ann_id
+        if ann_id is not None:
+            a.mode = a.document.get(ann_id).kind
+            a._set_mode(a.mode)
+        self.display_image()
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Canvas resize debounce
@@ -439,16 +481,18 @@ class AnnotateTab:
                 if ehit is not None:
                     new_hover = ehit
                 else:
-                    for pi, (points, _) in enumerate(a.polygons):
-                        if self._point_in_polygon(ix, iy, points):
-                            new_hover = pi
+                    for ann in self.visible_annotations():
+                        if ann.kind != "polygon":
+                            continue
+                        if self._point_in_polygon(ix, iy, ann.points):
+                            new_hover = ann.id
                             break
-            if new_hover != a._hovered_polygon_idx:
-                a._hovered_polygon_idx = new_hover
+            if new_hover != a._hovered_annotation_id:
+                a._hovered_annotation_id = new_hover
                 self._request_redraw()
         elif a.mode != "polygon":
-            if a._hovered_polygon_idx is not None:
-                a._hovered_polygon_idx = None
+            if a._hovered_annotation_id is not None:
+                a._hovered_annotation_id = None
 
         # Polygon preview line
         if a.mode == "polygon" and a.current_polygon:
@@ -496,14 +540,17 @@ class AnnotateTab:
         img_thr = SNAP_RADIUS / self.scale if self.scale > 0 else 1e9
         best_dist = SNAP_RADIUS
         best_pt = None
-        for pidx, (points, _) in enumerate(a.polygons):
-            if pidx < len(a._poly_bboxes):
-                bx1, by1, bx2, by2 = a._poly_bboxes[pidx]
+        for ann in self.visible_annotations():
+            if ann.kind != "polygon":
+                continue
+            bbox = a._poly_bboxes.get(ann.id)
+            if bbox is not None:
+                bx1, by1, bx2, by2 = bbox
                 if (ix + img_thr < bx1 or ix - img_thr > bx2
                         or iy + img_thr < by1 or iy - img_thr > by2):
                     continue
-            for vidx, (px, py) in enumerate(points):
-                if exclude is not None and (pidx, vidx) == exclude:
+            for vidx, (px, py) in enumerate(ann.points):
+                if exclude is not None and (ann.id, vidx) == exclude:
                     continue
                 pcx, pcy = self.image_to_canvas(px, py)
                 dist = math.hypot(cx - pcx, cy - pcy)
@@ -524,12 +571,16 @@ class AnnotateTab:
         img_thr = SNAP_RADIUS / self.scale if self.scale > 0 else 1e9
         best_dist = SNAP_RADIUS
         best_pt = None
-        for pidx, (points, _) in enumerate(a.polygons):
-            if pidx < len(a._poly_bboxes):
-                bx1, by1, bx2, by2 = a._poly_bboxes[pidx]
+        for ann in self.visible_annotations():
+            if ann.kind != "polygon":
+                continue
+            bbox = a._poly_bboxes.get(ann.id)
+            if bbox is not None:
+                bx1, by1, bx2, by2 = bbox
                 if (ix + img_thr < bx1 or ix - img_thr > bx2
                         or iy + img_thr < by1 or iy - img_thr > by2):
                     continue
+            points = ann.points
             n = len(points)
             for ei in range(n):
                 ax, ay = self.image_to_canvas(*points[ei])
@@ -600,69 +651,58 @@ class AnnotateTab:
 
         click_ix, click_iy = self.canvas_to_image(event.x, event.y)
 
-        if a.mode == "polygon" and a._selected_polygon_idx is not None:
-            pi = a._selected_polygon_idx
-            if pi < len(a.polygons):
+        sel_id = a._selected_annotation_id
+        if a.mode == "polygon" and sel_id is not None:
+            if self._alive(sel_id):
+                selected = a.document.get(sel_id)
                 vertex_hit = self._find_nearest_vertex(
                     event.x, event.y, threshold=10)
-                if vertex_hit and vertex_hit[0] == pi:
+                if vertex_hit and vertex_hit[0] == sel_id:
                     vi = vertex_hit[1]
-                    points, cls = a.polygons[pi]
                     self._push_undo()
-                    if len(points) <= 3:
-                        a.polygons.pop(pi)
-                        if pi < len(a.polygon_authors):
-                            a.polygon_authors.pop(pi)
-                        a._selected_polygon_idx = None
+                    if len(selected.points) <= 3:
+                        self.engine.delete_annotation(sel_id)
                     else:
-                        new_pts = list(points)
+                        new_pts = list(selected.points)
                         new_pts.pop(vi)
-                        a.polygons[pi] = (new_pts, cls)
-                    self._invalidate_poly_bboxes()
+                        self.engine.set_points(sel_id, new_pts)
                     self._clear_drag_state()
                     a._mark_image_annotated()
                     self.display_image()
                     a.update_title()
                     return
                 if self._point_in_polygon(click_ix, click_iy,
-                                          a.polygons[pi][0]):
+                                          selected.points):
                     self._push_undo()
-                    a.polygons.pop(pi)
-                    if pi < len(a.polygon_authors):
-                        a.polygon_authors.pop(pi)
-                    self._invalidate_poly_bboxes()
-                    a._selected_polygon_idx = None
+                    self.engine.delete_annotation(sel_id)
                     self._clear_drag_state()
                     a._mark_image_annotated()
                     self.display_image()
                     a.update_title()
                     return
-            a._selected_polygon_idx = None
+            a._selected_annotation_id = None
             self.display_image()
-            if a._review_return_pending:
-                a.root.after(50, a._review_tab._review_confirm_dialog)
             return
 
-        for i, (x1, y1, x2, y2, _) in enumerate(a.boxes):
+        for ann in self.visible_annotations():
+            if ann.kind != "box":
+                continue
+            (x1, y1), (x2, y2) = ann.points
             if x1 <= click_ix <= x2 and y1 <= click_iy <= y2:
                 self._push_undo()
-                a.boxes.pop(i)
-                if i < len(a.box_authors):
-                    a.box_authors.pop(i)
+                self.engine.delete_annotation(ann.id)
                 a._mark_image_annotated()
                 self.display_image()
                 a.update_title()
                 return
 
-        for i, (points, _) in enumerate(a.polygons):
-            if self._point_in_polygon(click_ix, click_iy, points):
+        for ann in self.visible_annotations():
+            if ann.kind != "polygon":
+                continue
+            if self._point_in_polygon(click_ix, click_iy, ann.points):
                 self._push_undo()
                 self._clear_drag_state()
-                a.polygons.pop(i)
-                if i < len(a.polygon_authors):
-                    a.polygon_authors.pop(i)
-                self._invalidate_poly_bboxes()
-                a._selected_polygon_idx = None
+                self.engine.delete_annotation(ann.id)
                 a._mark_image_annotated()
                 self.display_image()
                 a.update_title()
@@ -706,16 +746,12 @@ class AnnotateTab:
             return
 
         self._push_undo()
-        a.boxes.append((x1, y1, x2, y2, a.active_class))
-        a.box_authors.append(a._current_user)
+        self.engine.add_box(x1, y1, x2, y2)
         a._mark_image_annotated()
         a._record_annotation_added()
         a.rect = None
         self.display_image()
         a.update_title()
-
-        if a._review_return_pending:
-            a.root.after(50, a._review_tab._review_confirm_dialog)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Polygon mode
@@ -750,11 +786,12 @@ class AnnotateTab:
                 self.display_image()
             return
 
-        if a._selected_polygon_idx is not None:
-            pi = a._selected_polygon_idx
-            if pi < len(a.polygons):
+        sel_id = a._selected_annotation_id
+        if sel_id is not None:
+            if self._alive(sel_id):
+                pts_sel = a.document.get(sel_id).points
                 best_vi, best_vd = None, 8
-                for vi, (px, py) in enumerate(a.polygons[pi][0]):
+                for vi, (px, py) in enumerate(pts_sel):
                     vcx, vcy = self.image_to_canvas(px, py)
                     d = math.hypot(event.x - vcx, event.y - vcy)
                     if d < best_vd:
@@ -762,12 +799,11 @@ class AnnotateTab:
                         best_vi = vi
                 if best_vi is not None:
                     self._push_undo()
-                    a._dragging_vertex = (pi, best_vi)
-                    a._drag_orig_pos = a.polygons[pi][0][best_vi]
+                    a._dragging_vertex = (sel_id, best_vi)
+                    a._drag_orig_pos = pts_sel[best_vi]
                     self.canvas.config(cursor="fleur")
                     return
                 best_ei, best_ed, best_ept = None, 6, None
-                pts_sel = a.polygons[pi][0]
                 n_sel = len(pts_sel)
                 for ei in range(n_sel):
                     ax, ay = self.image_to_canvas(*pts_sel[ei])
@@ -790,34 +826,30 @@ class AnnotateTab:
                         best_ept = (pix, piy)
                 if best_ei is not None:
                     self._push_undo()
-                    points, cls = a.polygons[pi]
-                    new_points = list(points)
+                    new_points = list(pts_sel)
                     new_points.insert(best_ei + 1, best_ept)
-                    a.polygons[pi] = (new_points, cls)
-                    self._invalidate_poly_bboxes()
-                    a._dragging_vertex = (pi, best_ei + 1)
+                    self.engine.set_points(sel_id, new_points)
+                    a._dragging_vertex = (sel_id, best_ei + 1)
                     a._drag_orig_pos = best_ept
                     self.canvas.config(cursor="fleur")
                     self.display_image()
                     return
             just_deselected = True
-            a._selected_polygon_idx = None
-            if a._review_return_pending:
-                self.display_image()
-                a.root.after(50, a._review_tab._review_confirm_dialog)
-                return
+            a._selected_annotation_id = None
         else:
             just_deselected = False
 
         if not a.snap_enabled:
             vhit = self._find_nearest_vertex(event.x, event.y, threshold=15)
             if vhit:
-                a._selected_polygon_idx = vhit[0]
+                a._selected_annotation_id = vhit[0]
                 self.display_image()
                 return
-        for pi, (points, _) in enumerate(a.polygons):
-            if self._point_in_polygon(ix, iy, points):
-                a._selected_polygon_idx = pi
+        for ann in self.visible_annotations():
+            if ann.kind != "polygon":
+                continue
+            if self._point_in_polygon(ix, iy, ann.points):
+                a._selected_annotation_id = ann.id
                 self.display_image()
                 return
 
@@ -838,30 +870,26 @@ class AnnotateTab:
 
     def _poly_drag(self, event):
         a = self.app
-        if a._dragging_vertex is not None:
-            pi, vi = a._dragging_vertex
-            if pi >= len(a.polygons):
-                self._clear_drag_state()
-                return
-            if pi != a._selected_polygon_idx:
-                self._clear_drag_state()
-                return
-            raw_ix, raw_iy = self.canvas_to_image(event.x, event.y)
-            ix, iy = self._maybe_snap(raw_ix, raw_iy, exclude=(pi, vi))
-            did_snap = (ix, iy) != (raw_ix, raw_iy)
-            ix = max(0, min(a.img_width, ix))
-            iy = max(0, min(a.img_height, iy))
-            points, cls = a.polygons[pi]
-            new_points = list(points)
-            new_points[vi] = (ix, iy)
-            a.polygons[pi] = (new_points, cls)
-            self._invalidate_poly_bboxes()
-            self.display_image()
-            if a.snap_enabled:
-                if did_snap:
-                    self._show_snap_indicator(*self.image_to_canvas(ix, iy))
-                else:
-                    self._hide_snap_indicator()
+        if a._dragging_vertex is None:
+            return
+        ann_id, vi = a._dragging_vertex
+        if not self._alive(ann_id) or ann_id != a._selected_annotation_id:
+            self._clear_drag_state()
+            return
+        raw_ix, raw_iy = self.canvas_to_image(event.x, event.y)
+        ix, iy = self._maybe_snap(raw_ix, raw_iy, exclude=(ann_id, vi))
+        did_snap = (ix, iy) != (raw_ix, raw_iy)
+        ix = max(0, min(a.img_width, ix))
+        iy = max(0, min(a.img_height, iy))
+        new_points = list(a.document.get(ann_id).points)
+        new_points[vi] = (ix, iy)
+        self.engine.set_points(ann_id, new_points)
+        self.display_image()
+        if a.snap_enabled:
+            if did_snap:
+                self._show_snap_indicator(*self.image_to_canvas(ix, iy))
+            else:
+                self._hide_snap_indicator()
 
     def _poly_release(self, event):
         a = self.app
@@ -883,9 +911,6 @@ class AnnotateTab:
         self.display_image()
         a.update_title()
 
-        if a._review_return_pending:
-            a.root.after(50, a._review_tab._review_confirm_dialog)
-
     # ──────────────────────────────────────────────────────────────────────────
     #  Polygon spatial index
     # ──────────────────────────────────────────────────────────────────────────
@@ -905,33 +930,39 @@ class AnnotateTab:
         img_thr = threshold / self.scale if self.scale > 0 else 1e9
         best = None
         best_dist = threshold
-        for pi, (points, _) in enumerate(a.polygons):
-            if pi < len(a._poly_bboxes):
-                bx1, by1, bx2, by2 = a._poly_bboxes[pi]
+        for ann in self.visible_annotations():
+            if ann.kind != "polygon":
+                continue
+            bbox = a._poly_bboxes.get(ann.id)
+            if bbox is not None:
+                bx1, by1, bx2, by2 = bbox
                 if (qix + img_thr < bx1 or qix - img_thr > bx2
                         or qiy + img_thr < by1 or qiy - img_thr > by2):
                     continue
-            for vi, (px, py) in enumerate(points):
+            for vi, (px, py) in enumerate(ann.points):
                 vcx, vcy = self.image_to_canvas(px, py)
                 dist = math.hypot(cx - vcx, cy - vcy)
                 if dist < best_dist:
                     best_dist = dist
-                    best = (pi, vi)
+                    best = (ann.id, vi)
         return best
 
     def _find_nearest_edge_selected(self, cx, cy, threshold=6):
         a = self.app
-        pi = a._selected_polygon_idx
-        if pi is None or pi >= len(a.polygons):
+        ann_id = a._selected_annotation_id
+        if not self._alive(ann_id):
             return None
-        points = a.polygons[pi][0]
+        ann = a.document.get(ann_id)
+        if ann.kind != "polygon":
+            return None
+        points = ann.points
         n = len(points)
         for ei in range(n):
             ax, ay = self.image_to_canvas(*points[ei])
             bx, by = self.image_to_canvas(*points[(ei + 1) % n])
             dist = point_to_segment_dist(cx, cy, ax, ay, bx, by)
             if dist < threshold:
-                return pi
+                return ann_id
         return None
 
     _point_in_polygon = staticmethod(point_in_polygon)
@@ -1015,12 +1046,12 @@ class AnnotateTab:
     #  Save annotations
     # ──────────────────────────────────────────────────────────────────────────
     def save_annotations(self):
+        """Save the current document. Returns None or the engine's error message."""
         a = self.app
-        if a.images:
+        if a.document is not None:
             print(f"[YoloLabeler] Saving annotations for {a.images[a.index]} "
-                  f"({len(a.boxes)} boxes, {len(a.polygons)} polygons)")
-        self.engine.save()
-        a._save_annotation_authors()
+                  f"({len(a.document.annotations)} annotations)")
+        return self.engine.save()
 
     # ══════════════════════════════════════════════════════════════════════════
     #  Rendering (absorbed from AnnotateRenderer)
@@ -1083,81 +1114,75 @@ class AnnotateTab:
         def _halo(x, y, text, fill, **kw):
             halo_text(canvas, x, y, text, fill, **kw)
 
-        if a.mode == "box" and a._annotation_visible:
-            for box in a.boxes:
-                x1, y1, x2, y2, class_id = box
-                if class_id != a.active_class:
-                    continue
+        for ann in self.visible_annotations():
+            class_id = ann.class_id
+            is_selected = (ann.id == a._selected_annotation_id)
+            color = a._get_class_color(class_id)
+            class_name = a.class_names.get(class_id, str(class_id))
+            if ann.kind == "box":
+                (x1, y1), (x2, y2) = ann.points
                 if x2 < vis_x1 or x1 > vis_x2 or y2 < vis_y1 or y1 > vis_y2:
                     continue
                 cx1, cy1 = self.image_to_canvas(x1, y1)
                 cx2, cy2 = self.image_to_canvas(x2, y2)
-                color = a._get_class_color(class_id)
                 canvas.create_rectangle(
                     cx1, cy1, cx2, cy2, outline=color, width=line_w)
-                class_name = a.class_names.get(class_id, str(class_id))
                 _halo(cx1 + 2, cy1 - 2, anchor="sw",
                       text=f"{class_id}: {class_name}",
                       fill=color,
                       font=(a.font_family, label_size, "bold"))
+                continue
 
-        if a.mode == "polygon" and a._annotation_visible:
-            for poly_idx, (points, class_id) in enumerate(a.polygons):
-                is_selected = (poly_idx == a._selected_polygon_idx)
-                if class_id != a.active_class and not is_selected:
+            points = ann.points
+            if points and not is_selected:
+                pxs = [p[0] for p in points]
+                pys = [p[1] for p in points]
+                if (max(pxs) < vis_x1 or min(pxs) > vis_x2
+                        or max(pys) < vis_y1 or min(pys) > vis_y2):
                     continue
-                if points and not is_selected:
-                    pxs = [p[0] for p in points]
-                    pys = [p[1] for p in points]
-                    if (max(pxs) < vis_x1 or min(pxs) > vis_x2
-                            or max(pys) < vis_y1 or min(pys) > vis_y2):
-                        continue
-                color = a._get_class_color(class_id)
-                draw_color = "#00BFFF" if is_selected else color
-                canvas_pts = []
+            draw_color = "#00BFFF" if is_selected else color
+            canvas_pts = []
+            for px, py in points:
+                cx, cy = self.image_to_canvas(px, py)
+                canvas_pts.extend([cx, cy])
+            if len(canvas_pts) >= 6:
+                canvas.create_polygon(
+                    *canvas_pts, outline=draw_color, fill="",
+                    width=poly_w)
+            show_verts = (
+                is_selected
+                or ann.id == a._hovered_annotation_id
+                or (a._dragging_vertex is not None
+                    and a._dragging_vertex[0] == ann.id)
+            )
+            if (not show_verts
+                    and a._dragging_vertex is not None
+                    and a.snap_enabled
+                    and points):
+                drag_id, dvi = a._dragging_vertex
+                if self._alive(drag_id):
+                    dpts = a.document.get(drag_id).points
+                    if dvi < len(dpts):
+                        dcx, dcy = self.image_to_canvas(*dpts[dvi])
+                        for px, py in points:
+                            pcx, pcy = self.image_to_canvas(px, py)
+                            if math.hypot(dcx - pcx, dcy - pcy) \
+                                    < SNAP_RADIUS * 3:
+                                show_verts = True
+                                break
+            if show_verts:
+                r = sel_vert_r if is_selected else vert_r
                 for px, py in points:
                     cx, cy = self.image_to_canvas(px, py)
-                    canvas_pts.extend([cx, cy])
-                if len(canvas_pts) >= 6:
-                    canvas.create_polygon(
-                        *canvas_pts, outline=draw_color, fill="",
-                        width=poly_w)
-                show_verts = (
-                    is_selected
-                    or poly_idx == a._hovered_polygon_idx
-                    or (a._dragging_vertex is not None
-                        and a._dragging_vertex[0] == poly_idx)
-                )
-                if (not show_verts
-                        and a._dragging_vertex is not None
-                        and a.snap_enabled
-                        and points):
-                    dpi = a._dragging_vertex[0]
-                    if dpi < len(a.polygons):
-                        dvi = a._dragging_vertex[1]
-                        dpts = a.polygons[dpi][0]
-                        if dvi < len(dpts):
-                            dcx, dcy = self.image_to_canvas(*dpts[dvi])
-                            for px, py in points:
-                                pcx, pcy = self.image_to_canvas(px, py)
-                                if math.hypot(dcx - pcx, dcy - pcy) \
-                                        < SNAP_RADIUS * 3:
-                                    show_verts = True
-                                    break
-                if show_verts:
-                    r = sel_vert_r if is_selected else vert_r
-                    for px, py in points:
-                        cx, cy = self.image_to_canvas(px, py)
-                        canvas.create_oval(
-                            cx - r, cy - r, cx + r, cy + r,
-                            fill=draw_color, outline="white", width=1)
-                if points:
-                    lx, ly = self.image_to_canvas(*points[0])
-                    class_name = a.class_names.get(class_id, str(class_id))
-                    _halo(lx + 2, ly - 2, anchor="sw",
-                          text=f"{class_id}: {class_name}",
-                          fill=draw_color,
-                          font=(a.font_family, label_size, "bold"))
+                    canvas.create_oval(
+                        cx - r, cy - r, cx + r, cy + r,
+                        fill=draw_color, outline="white", width=1)
+            if points:
+                lx, ly = self.image_to_canvas(*points[0])
+                _halo(lx + 2, ly - 2, anchor="sw",
+                      text=f"{class_id}: {class_name}",
+                      fill=draw_color,
+                      font=(a.font_family, label_size, "bold"))
 
         if a.current_polygon:
             color = a._get_class_color(a.active_class)

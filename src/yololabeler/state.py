@@ -65,6 +65,8 @@ class AppState:
         self._last_stream_pos = None
 
         # ── Review data ──
+        self.queue = []              # QueueItem list for the current image
+        self.queue_index = 0
         self._review_index = 0
         self._review_detection_idx = 0
         self._review_detections = []
