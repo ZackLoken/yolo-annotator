@@ -1,28 +1,8 @@
-﻿"""
-YoloLabeler v1 — Image Annotation & Review Tool for YOLO Training
+﻿"""YoloLabeler main application window.
 
-Features:
-- Draw bounding boxes (detection) or polygons (instance segmentation)
-- Toggle between Box and Polygon mode via toolbar button or 'm' key
-- Save annotations in YOLO format — labels/detect/ and labels/segment/ dirs
-- Multi-class via editable dropdown (type new name + Enter to create)
-- Custom class colors via color picker
-- Ctrl+Scroll to zoom, Scroll to pan, Shift+Scroll to pan horizontally
-- Middle-click drag to pan
-- Undo/Redo (Ctrl+Z / Ctrl+Y)
-- Right-click to delete annotations
-- Full vertex editing in polygon mode (drag, insert on edge, delete)
-- Vertex streaming: 'v' toggles stream mode; click starts/stops streaming
-- Vertex snapping to existing polygon vertices (toggle 's', 5px radius)
-- Editable image counter — type index + Enter to jump
-- Help overlay grouped by Keyboard / Mouse sections (toggle 'h')
-- Per-image time tracking with 5s threshold (JSON, tied to OS username)
-- Auto EXIF orientation correction
-- Boundary clamping for annotations
-- Error handling for corrupt/unreadable images
-- Auto-resume at last labeled image
-- Cached image dimensions for fast CSV export on exit
-- Savanna Institute branding: Archivo font, SI logo, SI accent color
+Composes one AppState, one AnnotationEngine, one ReviewEngine, one
+AnnotateTab and one ReviewTab, and owns the widgets shared by both tabs:
+toolbar, status bar, class registry, folder loading and session stats.
 """
 
 import os
@@ -47,18 +27,10 @@ from yololabeler.review.tab import ReviewTab
 from yololabeler.label_io import (
     parse_detect_predictions, parse_segment_predictions,
 )
-from yololabeler.matching import (
-    compute_matches,
-)
 from yololabeler.utils import (
     suppress_tk_mac_warnings, _load_custom_fonts, _get_font_family,
     ASSETS_DIR,
 )
-
-# ── Constants ──────────────────────────────────────────────────────────────────
-VERTEX_HANDLE_RADIUS = 4
-STREAM_MIN_DISTANCE = 6   # min image-pixel distance between streamed vertices
-SNAP_RADIUS = 15           # canvas-pixel radius for vertex/edge snapping
 
 # Lightweight event object for synthesised clicks
 _SynthEvent = namedtuple('_SynthEvent', ['x', 'y'])
@@ -73,11 +45,7 @@ CANVAS_BG = "#2D2D2D"      # canvas background
 ENTRY_BG = "#2A2A2A"       # entry/combo background
 BORDER_COLOR = "#3A3A3A"   # subtle borders
 
-# ── Fixed review thresholds (match model.predict settings) ─────────────────────
-REVIEW_IOU_THRESHOLD = 0.60
-REVIEW_CONF_THRESHOLD = 0.50
-
-# SI Brand colors — used for annotation class colors only
+# SI Brand colors, offered as swatches in the class colour picker
 SI_GREEN = "#507754"
 SI_WATER_BLUE = "#83A0BA"
 SI_WOOD = "#C7B299"
@@ -88,11 +56,6 @@ SI_PERSIMMON = "#E6976B"
 SI_ELDERBERRY = "#2A194E"
 SI_SAGE = "#889E6E"
 SI_LEAF_GREEN = "#6F9382"
-
-SI_CLASS_COLORS = [
-    SI_GREEN, SI_WATER_BLUE, SI_MULBERRY, SI_LAKE_BLUE, SI_STEM_GREEN,
-    SI_PERSIMMON, SI_ELDERBERRY, SI_WOOD, SI_SAGE, SI_LEAF_GREEN,
-]
 
 # High-contrast default class colors — visible against natural/outdoor scenes
 DEFAULT_CLASS_COLORS = [
@@ -109,13 +72,6 @@ DEFAULT_CLASS_COLORS = [
 ]
 
 
-# ── Utilities ──────────────────────────────────────────────────────────────────
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  YoloLabeler  (v1)
-# ══════════════════════════════════════════════════════════════════════════════
-
 class YoloLabeler:
 
     # Attributes transparently forwarded to self._state (AppState).
@@ -127,10 +83,9 @@ class YoloLabeler:
         # Image list & current image
         'images', 'index', 'original_image', 'img_width', 'img_height',
         # Annotations
-        'boxes', 'polygons', 'current_polygon', 'mode',
+        'boxes', 'polygons', 'box_authors', 'polygon_authors',
+        'current_polygon', 'mode',
         'start_x', 'start_y', 'rect',
-        # Predictions
-        'pred_boxes', 'pred_polygons',
         # Class registry
         'class_names', 'class_colors', 'active_class',
         # Undo / redo
@@ -158,13 +113,12 @@ class YoloLabeler:
         '_review_state', '_reviewed_lookup',
         '_review_show_gt', '_review_show_pred',
         '_review_filtered_images', '_review_status_filter',
-        '_review_needs_first_zoom',
-        '_review_det_reviewed', '_review_show_help',
+        '_review_needs_first_zoom', '_review_show_help',
         '_annotation_visible',
         '_annotate_pred_reference', '_review_return_pending',
         '_review_editing_det', '_review_recompute_on_return',
         # Stats & session
-        '_stats', '_image_dims',
+        '_stats',
         '_current_user', '_session_start',
         '_image_start_time', '_review_image_start_time',
         '_session_annotated_images', '_session_images',
@@ -191,133 +145,21 @@ class YoloLabeler:
 
     def __init__(self, root, image_folder=None, class_names=None):
         self.root = root
+        # All annotation/review data defaults live in AppState; only values
+        # that differ from those defaults are set here.
         object.__setattr__(self, '_state', AppState())
         object.__setattr__(self, '_engine', AnnotationEngine(self._state))
         object.__setattr__(self, '_review', ReviewEngine(self._state))
         self.image_folder = image_folder or ""
         self.class_names = dict(class_names) if class_names else {}
-        self.class_colors = {}
-        self.images = []
-        self.labels_dir = ""
-        self.detect_dir = ""
-        self.segment_dir = ""
-        self.state_dir = ""
-        self.img_width = 0
-        self.img_height = 0
-        self.original_image = None
-
-        self.mode = "polygon"
-
-        # State — boxes
-        self.boxes = []
-        self.start_x = None
-        self.start_y = None
-        self.rect = None
-
-        # State — polygons
-        self.polygons = []
-        self.current_polygon = []
-        self._dragging_vertex = None
-        self._drag_orig_pos = None
-        self._poly_bboxes = []
-        self._poly_bboxes_dirty = True
-
-        # State — predictions (review tab, read-only)
-        self.pred_boxes = []
-        self.pred_polygons = []
-        self.pred_detect_dir = None
-        self.pred_segment_dir = None
-
-        # Review tab state
-        self._review_index = 0
-        self._review_detection_idx = 0
-        self._review_detections = []
-        self._review_matches = {}
-        self._review_gt_boxes = []
-        self._review_gt_polygons = []
-        self._review_pred_boxes = []
-        self._review_pred_polygons = []
-        self._review_original_image = None
-        self._review_img_w = 0
-        self._review_img_h = 0
-        self._review_scale = 1.0
-        self._review_offset_x = 0.0
-        self._review_offset_y = 0.0
-        self._review_cached_scale = None
-        self._review_cached_tk_image = None
-        self._review_filter_type = "all"
-        self._review_filter_class = "all"
-        self._review_pan_start_x = None
-        self._review_pan_start_y = None
-        self._review_state = {}  # persisted review state
-        self._reviewed_lookup = ("", {}, {})  # (img_name, pred_map, gt_map)
-        self._review_show_gt = True
-        self._review_show_pred = True
-        self._review_filtered_images = []  # indices of images with preds/annotations
-        self._review_status_filter = "all"  # all / not_reviewed / reviewed
-        self._review_needs_first_zoom = False  # zoom on first Review tab switch
-        self._review_det_reviewed = {}  # {img_name: set of reviewed det keys}
-        self._annotation_visible = True
-        self._review_show_help = False
-
-        # Review → Annotate transition state
-        self._annotate_pred_reference = None  # prediction overlay for Annotate
-        self._review_return_pending = False   # True when editing from Review
-
-        # Vertex streaming =
-        self._stream_mode = False       # toggled by 'v' key
-        self._stream_active = False     # currently recording stream
-        self._last_stream_pos = None
-
-        # Polygon hover tracking (for showing vertices on hover)
-        self._hovered_polygon_idx = None
-
-        # Explicit polygon selection for editing
-        self._selected_polygon_idx = None
-
-        # Vertex snapping
-        self.snap_enabled = False
-
-        # Undo / redo
-        self._undo_stack = []       # snapshots of (boxes, polygons, selected_idx)
-        self._redo_stack = []       # snapshots for redo
-        self._vertex_redo_stack = [] # vertex-level redo while drawing
-
-        # Common state
-        self.active_class = 0
-        self.show_help = False
-
-        self._review_resize_after_id = None
-        self.index = 0
-
-        # Time tracking
-        self._image_start_time = None
-        self._review_image_start_time = None
-        self._stats = {"sessions": [], "image_status": {}}
         self._current_user = getpass.getuser()
         self._session_start = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+
+        # GUI-only handles (not part of AppState)
+        self._review_cached_tk_image = None
+        self._review_resize_after_id = None
         self._timer_after_id = None
-        self._session_annotated_images = set()
-        self._session_images = {}  # {img_name: per-image stats for current session}
-        self._session_loaded_counts = {}  # {img_name: annotation count when loaded from disk}
-        self._session_add_counts = {}  # {img_name: gross annotations added this session}
-        self._session_total_adds = 0
-
-        # Cached image dims for fast CSV export
-        self._image_dims = {}
-
-        # Completion tracking and filtering
-        self._completed_images = set()
-        self._active_filter = "all"  # "all", "complete", "partial", "unannotated"
-        self._filtered_indices = []  # indices into self.images matching filter
-
-        # Deferred display / review flags
-        self._defer_display = False
-        self._review_recompute_on_return = False
-        self._review_editing_det = None
-
-        # SI logo image ref (prevent GC)
-        self._logo_image = None
+        self._logo_image = None  # keep a reference so Tk does not drop the image
 
         # ── Build GUI ──
         _load_custom_fonts()
@@ -852,15 +694,16 @@ class YoloLabeler:
         c.focus_set()
         c.bind("<Enter>", lambda e: c.focus_set())
 
-    def _key_action(self, action):
+    def _text_widget_focused(self):
+        """True when keyboard focus is in an entry or combobox, so letter keys must type."""
         focused = self.root.focus_get()
         if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
-            return
-        if focused is not None:
-            parent = focused.master
-            if isinstance(parent, ctk.CTkComboBox):
-                return
-        action()
+            return True
+        return focused is not None and isinstance(focused.master, ctk.CTkComboBox)
+
+    def _key_action(self, action):
+        if not self._text_widget_focused():
+            action()
 
     def _annotate_key(self, action):
         if self.tabview.get() != "Annotate":
@@ -873,8 +716,7 @@ class YoloLabeler:
         self._key_action(action)
 
     def _on_right_key(self, event=None):
-        focused = self.root.focus_get()
-        if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
+        if self._text_widget_focused():
             return
         if self.tabview.get() == "Review":
             self._review_tab._review_next_detection()
@@ -882,8 +724,7 @@ class YoloLabeler:
             self._annotate_tab.next_image()
 
     def _on_left_key(self, event=None):
-        focused = self.root.focus_get()
-        if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
+        if self._text_widget_focused():
             return
         if self.tabview.get() == "Review":
             self._review_tab._review_prev_detection()
@@ -891,34 +732,28 @@ class YoloLabeler:
             self._annotate_tab.prev_image()
 
     def _on_up_key(self, event=None):
-        focused = self.root.focus_get()
-        if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
+        if self._text_widget_focused():
             return
         if self.tabview.get() == "Review":
             self._review_tab._review_next_image()
 
     def _on_down_key(self, event=None):
-        focused = self.root.focus_get()
-        if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
+        if self._text_widget_focused():
             return
         if self.tabview.get() == "Review":
             self._review_tab._review_prev_image()
 
     def _help_key(self):
-        """Toggle help in both tabs."""
-        self._key_action(self._annotate_tab.toggle_help)
+        """Toggle the help overlay of whichever tab is active."""
+        if self.tabview.get() == "Review":
+            self._key_action(self._review_tab.toggle_help)
+        else:
+            self._key_action(self._annotate_tab.toggle_help)
 
     def _on_space_key(self, event):
         """Spacebar = left click at current cursor position (annotate only)."""
-        if self.tabview.get() != "Annotate":
+        if self.tabview.get() != "Annotate" or self._text_widget_focused():
             return
-        focused = self.root.focus_get()
-        if isinstance(focused, (tk.Entry, ctk.CTkEntry)):
-            return
-        if focused is not None:
-            parent = focused.master
-            if isinstance(parent, ctk.CTkComboBox):
-                return
         # Get cursor position relative to the canvas
         cx = self.canvas.winfo_pointerx() - self.canvas.winfo_rootx()
         cy = self.canvas.winfo_pointery() - self.canvas.winfo_rooty()
@@ -929,14 +764,18 @@ class YoloLabeler:
     # ──────────────────────────────────────────────────────────────────────────
     #  Mode toggle
     # ──────────────────────────────────────────────────────────────────────────
-    def _toggle_mode(self, event=None):
-        if self.mode == "box":
-            self.mode = "polygon"
+    def _set_mode(self, mode):
+        """Switch annotation mode and update the toolbar buttons to match.
+
+        Leaving polygon mode discards any in-progress polygon, selection,
+        drag and streaming state, since none of them apply to boxes.
+        """
+        self.mode = mode
+        if mode == "polygon":
             self.mode_btn.configure(text="Mode: Polygon \u2b21")
             self.stream_btn.configure(state="normal")
             self.snap_btn.configure(state="normal")
         else:
-            self.mode = "box"
             self.mode_btn.configure(text="Mode: Box \u25ad")
             self.current_polygon = []
             self._dragging_vertex = None
@@ -944,9 +783,11 @@ class YoloLabeler:
             self._selected_polygon_idx = None
             self._stream_mode = False
             self._stream_active = False
-            self.stream_btn.configure(text="Stream: Off")
-            self.stream_btn.configure(state="disabled")
+            self.stream_btn.configure(text="Stream: Off", state="disabled")
             self.snap_btn.configure(state="disabled")
+
+    def _toggle_mode(self, event=None):
+        self._set_mode("polygon" if self.mode == "box" else "box")
         self._annotate_tab.display_image()
         self.update_title()
         self._update_status()
@@ -1025,7 +866,6 @@ class YoloLabeler:
                 else:
                     self._stats["image_status"][img_name] = "unannotated"
         self._save_stats()
-        self._image_dims = {}
         self._rebuild_filter()
         self.index = 0
 
@@ -1041,10 +881,7 @@ class YoloLabeler:
                     self.detect_dir, f"{os.path.splitext(img)[0]}.txt"))
                 for img in self.images[:50])
             if has_det:
-                self.mode = "box"
-                self.mode_btn.configure(text="Mode: Box \u25ad")
-                self.stream_btn.configure(state="disabled")
-                self.snap_btn.configure(state="disabled")
+                self._set_mode("box")
 
         # Persist classes (merges pre-open + JSON + ensures file exists)
         self._save_classes_file()
@@ -1086,56 +923,28 @@ class YoloLabeler:
         return False
 
     def _show_welcome(self):
-        self.canvas.delete("all")
-        cw = self.canvas.winfo_width() or 1200
-        ch = self.canvas.winfo_height() or 800
-        self.canvas.create_text(
-            cw // 2, ch // 2,
-            text='Click "Open Folder" to load images',
-            fill=FG_COLOR, font=(self.font_family, 16),
-            tags="welcome")
+        """Show the open-folder prompt on both canvases until a folder is loaded."""
         self.root.title("YoloLabeler")
-        # Re-center on resize
-        self._welcome_bind_id = self.canvas.bind(
-            "<Configure>", self._reposition_welcome)
-        # Show welcome on review canvas too
-        rc = self._review_canvas
-        rc.delete("all")
-        rcw = rc.winfo_width() or 1200
-        rch = rc.winfo_height() or 800
-        rc.create_text(
-            rcw // 2, rch // 2,
-            text='Click "Open Folder" to load images',
-            fill=FG_COLOR, font=(self.font_family, 16),
-            tags="review_welcome")
-        self._review_welcome_bind_id = rc.bind(
-            "<Configure>", self._reposition_review_welcome)
+        for canvas in (self.canvas, self._review_canvas):
+            canvas.delete("all")
+            cw = canvas.winfo_width() or 1200
+            ch = canvas.winfo_height() or 800
+            canvas.create_text(
+                cw // 2, ch // 2,
+                text='Click "Open Folder" to load images',
+                fill=FG_COLOR, font=(self.font_family, 16),
+                tags="welcome")
+            # add="+" keeps each tab's own <Configure> resize handler bound.
+            canvas.bind("<Configure>", self._reposition_welcome, add="+")
 
-    def _reposition_review_welcome(self, event=None):
-        """Keep review welcome text centered when canvas resizes."""
-        items = self._review_canvas.find_withtag("review_welcome")
+    @staticmethod
+    def _reposition_welcome(event):
+        """Keep welcome text centered on resize; a no-op once the text is gone."""
+        canvas = event.widget
+        items = canvas.find_withtag("welcome")
         if items:
-            cw = self._review_canvas.winfo_width()
-            ch = self._review_canvas.winfo_height()
-            self._review_canvas.coords(items[0], cw // 2, ch // 2)
-        else:
-            if hasattr(self, "_review_welcome_bind_id"):
-                self._review_canvas.unbind(
-                    "<Configure>", self._review_welcome_bind_id)
-                del self._review_welcome_bind_id
-
-    def _reposition_welcome(self, event=None):
-        """Keep welcome text centered when canvas resizes."""
-        items = self.canvas.find_withtag("welcome")
-        if items:
-            cw = self.canvas.winfo_width()
-            ch = self.canvas.winfo_height()
-            self.canvas.coords(items[0], cw // 2, ch // 2)
-        else:
-            # Welcome text gone (folder opened), unbind
-            if hasattr(self, "_welcome_bind_id"):
-                self.canvas.unbind("<Configure>", self._welcome_bind_id)
-                del self._welcome_bind_id
+            canvas.coords(items[0], canvas.winfo_width() // 2,
+                          canvas.winfo_height() // 2)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Open folder
@@ -1300,23 +1109,11 @@ class YoloLabeler:
 
     # ── Review state persistence ─────────────────────────────────────────────
 
-    def _review_state_path(self):
-        return self._review.review_state_path()
-
     def _load_review_state(self):
         self._review.load_review_state()
 
     def _save_review_state(self):
         self._review.save_review_state()
-
-    def _mark_image_reviewed(self, img_name):
-        self._review.mark_image_reviewed(img_name)
-
-    def _is_image_reviewed(self, img_name):
-        return self._review.is_image_reviewed(img_name)
-
-    def _get_image_review_status(self, img_name):
-        return self._review.get_image_review_status(img_name)
 
     def _mark_image_annotated(self):
         """Call whenever user creates/modifies an annotation."""
@@ -1420,15 +1217,8 @@ class YoloLabeler:
             return
         elapsed = time.time() - self._review_image_start_time
         self._review_image_start_time = None
-        if not self.images:
-            return
-        img_name = self.images[self._review_index]
-        per_image = self._review_state.setdefault("image", {})
-        img_data = per_image.setdefault(
-            img_name, {"img_status": "not_started", "detections": []})
-        img_data["review_seconds"] = round(
-            img_data.get("review_seconds", 0.0) + elapsed, 2)
-        self._save_review_state()
+        if self.images:
+            self._review.add_review_time(self.images[self._review_index], elapsed)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Image status & filtering
@@ -1548,14 +1338,9 @@ class YoloLabeler:
             return
         try:
             class_id = int(choice.split(":")[0].strip())
-            self.active_class = class_id
-            self._update_color_btn()
-            self._refresh_class_dropdown()
-            self.update_title()
-            if self.original_image is not None:
-                self._annotate_tab.display_image()
-        except (ValueError, IndexError):
-            pass
+        except ValueError:
+            return
+        self._select_class_by_id(class_id)
 
     def _add_class_dialog(self):
         """Open a small dialog to add a new class by name."""
@@ -1788,8 +1573,8 @@ class YoloLabeler:
                     self.class_names[cid] = v.get("name", f"class_{cid}")
                     if "color" in v:
                         self.class_colors[cid] = v["color"]
-            except Exception:
-                pass
+            except (OSError, ValueError, AttributeError) as e:
+                print(f"Warning: Could not read {classes_json_path}: {e}")
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Title & counter
@@ -1870,6 +1655,16 @@ class YoloLabeler:
     # ──────────────────────────────────────────────────────────────────────────
     #  Shared helpers (used by both Annotate and Review tabs)
     # ──────────────────────────────────────────────────────────────────────────
+    def _register_class_ids(self, class_ids):
+        """Add placeholder names for class ids seen in files but not in classes.json."""
+        unknown = [cid for cid in class_ids if cid not in self.class_names]
+        if not unknown:
+            return
+        for cid in unknown:
+            self.class_names[cid] = f"class_{cid}"
+        self._refresh_class_dropdown()
+        self._save_classes_file()
+
     def _load_predictions(self, image_name, img_w, img_h):
         """Load model predictions for an image."""
         pred_boxes = []
@@ -1880,37 +1675,21 @@ class YoloLabeler:
 
         detect_path = os.path.join(self.pred_detect_dir, f"{stem}.txt")
         try:
-            pboxes, det_cids = parse_detect_predictions(
+            pred_boxes, det_cids = parse_detect_predictions(
                 detect_path, img_w, img_h)
-            pred_boxes.extend(pboxes)
-            for cid in det_cids:
-                if cid not in self.class_names:
-                    self.class_names[cid] = f"class_{cid}"
-                    self._refresh_class_dropdown()
-                    self._save_classes_file()
+            self._register_class_ids(det_cids)
         except Exception as e:
             print(f"Warning: Could not load detect predictions for {stem}: {e}")
 
         segment_path = os.path.join(self.pred_segment_dir, f"{stem}.txt")
         try:
-            ppolys, seg_cids = parse_segment_predictions(
+            pred_polygons, seg_cids = parse_segment_predictions(
                 segment_path, img_w, img_h)
-            pred_polygons.extend(ppolys)
-            for cid in seg_cids:
-                if cid not in self.class_names:
-                    self.class_names[cid] = f"class_{cid}"
-                    self._refresh_class_dropdown()
-                    self._save_classes_file()
+            self._register_class_ids(seg_cids)
         except Exception as e:
             print(f"Warning: Could not load segment predictions for {stem}: {e}")
 
         return pred_boxes, pred_polygons
-
-    def _compute_matches(self, gt_boxes, gt_polygons, pred_boxes, pred_polygons,
-                         iou_threshold=0.5, conf_threshold=0.25):
-        """Match predictions to ground truth using IoU."""
-        return compute_matches(gt_boxes, gt_polygons, pred_boxes,
-                               pred_polygons, iou_threshold, conf_threshold)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

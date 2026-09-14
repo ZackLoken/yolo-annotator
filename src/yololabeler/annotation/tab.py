@@ -1,9 +1,8 @@
-"""AnnotateTab — Annotation canvas, interaction, rendering for the Annotate tab.
+"""AnnotateTab: annotation canvas, interaction and rendering for the Annotate tab.
 
-Consolidates all annotate-tab functionality: canvas construction, bindings,
-coordinate conversion, pan/zoom, image loading, box/polygon interaction,
-snapping, vertex streaming, undo/redo, save, and canvas rendering
-(absorbed from AnnotateRenderer).
+Covers canvas construction, bindings, coordinate conversion, pan/zoom, image
+loading, box/polygon interaction, snapping, vertex streaming, undo/redo, save,
+and canvas rendering.
 """
 
 import math
@@ -12,6 +11,7 @@ import sys
 import time
 import tkinter as tk
 import tkinter.font as tkFont
+from tkinter import messagebox
 
 from PIL import Image, ImageTk
 
@@ -22,10 +22,12 @@ from yololabeler.matching import point_to_segment_dist, point_in_polygon
 from yololabeler.rendering import halo_text
 from yololabeler.utils import auto_orient_image
 
-# Constants
-VERTEX_HANDLE_RADIUS = 4
-STREAM_MIN_DISTANCE = 6
-SNAP_RADIUS = 15
+# Interaction constants, carried over from the original implementation
+VERTEX_HANDLE_RADIUS = 4      # base vertex marker radius in canvas px
+STREAM_MIN_DISTANCE = 6       # min image-px distance between streamed vertices
+SNAP_RADIUS = 15              # canvas-px radius for vertex/edge snapping
+SNAP_INDICATOR_RADIUS = 12    # canvas-px radius of the snap-target marker
+SNAP_INDICATOR_COLOR = "#FFE7B1"
 FG_COLOR = "#E0E0E0"
 CANVAS_BG = "#2D2D2D"
 
@@ -164,8 +166,6 @@ class AnnotateTab:
 
         a._image_start_time = None
 
-        img_path = os.path.join(a.image_folder, a.images[a.index])
-
         # Try loading the image; skip corrupt files
         attempts = 0
         while attempts < len(a.images):
@@ -176,7 +176,6 @@ class AnnotateTab:
                 a.original_image = auto_orient_image(a.original_image)
                 break
             except Exception as e:
-                from tkinter import messagebox
                 messagebox.showwarning(
                     "Image Error",
                     f"Could not load:\n{img_path}\n\n{e}")
@@ -185,14 +184,12 @@ class AnnotateTab:
                     a.index = 0
                 attempts += 1
         else:
-            from tkinter import messagebox
             messagebox.showerror(
                 "No Valid Images",
                 "No loadable images found in this folder.")
             return
 
         a.img_width, a.img_height = a.original_image.size
-        a._image_dims[a.images[a.index]] = (a.img_width, a.img_height)
 
         self._initial_fit()
         self._load_existing_labels()
@@ -200,7 +197,7 @@ class AnnotateTab:
         if img_name not in a._session_loaded_counts:
             a._session_loaded_counts[img_name] = (
                 len(a.boxes) + len(a.polygons))
-        if not getattr(a, '_defer_display', False):
+        if not a._defer_display:
             self.display_image()
         a.update_title()
         a._update_status()
@@ -244,37 +241,23 @@ class AnnotateTab:
 
         detect_path = os.path.join(a.detect_dir, f"{stem}.txt")
         try:
-            boxes, det_cids = parse_detect_labels(
+            a.boxes, det_cids = parse_detect_labels(
                 detect_path, a.img_width, a.img_height)
-            a.boxes.extend(boxes)
-            for cid in det_cids:
-                if cid not in a.class_names:
-                    a.class_names[cid] = f"class_{cid}"
-                    a._refresh_class_dropdown()
-                    a._save_classes_file()
+            a._register_class_ids(det_cids)
         except Exception as e:
             print(f"Warning: Could not load detect labels for {stem}: {e}")
 
         segment_path = os.path.join(a.segment_dir, f"{stem}.txt")
         try:
-            polygons, seg_cids = parse_segment_labels(
+            a.polygons, seg_cids = parse_segment_labels(
                 segment_path, a.img_width, a.img_height)
-            a.polygons.extend(polygons)
             self._invalidate_poly_bboxes()
-            for cid in seg_cids:
-                if cid not in a.class_names:
-                    a.class_names[cid] = f"class_{cid}"
-                    a._refresh_class_dropdown()
-                    a._save_classes_file()
+            a._register_class_ids(seg_cids)
         except Exception as e:
             print(f"Warning: Could not load segment labels for {stem}: {e}")
 
         # Load per-annotation author metadata from annotation_stats.json
         a._load_annotation_authors()
-
-    def _load_predictions(self, image_name, img_w, img_h):
-        """Delegate to app-level shared helper."""
-        return self.app._load_predictions(image_name, img_w, img_h)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Canvas resize debounce
@@ -318,12 +301,8 @@ class AnnotateTab:
 
     def toggle_help(self, event=None):
         a = self.app
-        if a.tabview.get() == "Review":
-            a._review_show_help = not a._review_show_help
-            a._review_tab._display_review_image()
-        else:
-            a.show_help = not a.show_help
-            self.display_image()
+        a.show_help = not a.show_help
+        self.display_image()
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Scroll / Zoom / Pan
@@ -438,34 +417,11 @@ class AnnotateTab:
             ix, iy = self.canvas_to_image(event.x, event.y)
             snapped = self._maybe_snap(ix, iy)
             if snapped != (ix, iy):
-                sx, sy = self.image_to_canvas(*snapped)
-                snap_r = 12
-                if self._snap_indicator_item:
-                    try:
-                        self.canvas.coords(
-                            self._snap_indicator_item,
-                            sx - snap_r, sy - snap_r, sx + snap_r, sy + snap_r)
-                    except tk.TclError:
-                        self._snap_indicator_item = None
-                if not self._snap_indicator_item:
-                    self._snap_indicator_item = self.canvas.create_oval(
-                        sx - snap_r, sy - snap_r, sx + snap_r, sy + snap_r,
-                        outline="#FFE7B1", fill="#FFE7B1",
-                        width=2, stipple="gray50")
+                self._show_snap_indicator(*self.image_to_canvas(*snapped))
             else:
-                if self._snap_indicator_item:
-                    try:
-                        self.canvas.delete(self._snap_indicator_item)
-                    except tk.TclError:
-                        pass
-                    self._snap_indicator_item = None
+                self._hide_snap_indicator()
         elif not (a.mode == "polygon" and a.snap_enabled):
-            if self._snap_indicator_item:
-                try:
-                    self.canvas.delete(self._snap_indicator_item)
-                except tk.TclError:
-                    pass
-                self._snap_indicator_item = None
+            self._hide_snap_indicator()
 
         # Polygon hover detection
         if not _motion_throttled and a.mode == "polygon":
@@ -473,32 +429,20 @@ class AnnotateTab:
             ix, iy = self.canvas_to_image(event.x, event.y)
             new_hover = None
             hover_thr = 25
-            if not a.current_polygon:
-                vhit = self._find_nearest_vertex(event.x, event.y, threshold=hover_thr)
-                if vhit:
-                    new_hover = vhit[0]
-                else:
-                    ehit = self._find_nearest_edge_selected(event.x, event.y, threshold=hover_thr)
-                    if ehit is not None:
-                        new_hover = ehit
-                    else:
-                        for pi, (points, _) in enumerate(a.polygons):
-                            if self._point_in_polygon(ix, iy, points):
-                                new_hover = pi
-                                break
+            # Vertices get a wider hit radius while a polygon is being drawn.
+            vertex_thr = hover_thr + 5 if a.current_polygon else hover_thr
+            vhit = self._find_nearest_vertex(event.x, event.y, threshold=vertex_thr)
+            if vhit:
+                new_hover = vhit[0]
             else:
-                vhit = self._find_nearest_vertex(event.x, event.y, threshold=hover_thr + 5)
-                if vhit:
-                    new_hover = vhit[0]
+                ehit = self._find_nearest_edge_selected(event.x, event.y, threshold=hover_thr)
+                if ehit is not None:
+                    new_hover = ehit
                 else:
-                    ehit = self._find_nearest_edge_selected(event.x, event.y, threshold=hover_thr)
-                    if ehit is not None:
-                        new_hover = ehit
-                    else:
-                        for pi, (points, _) in enumerate(a.polygons):
-                            if self._point_in_polygon(ix, iy, points):
-                                new_hover = pi
-                                break
+                    for pi, (points, _) in enumerate(a.polygons):
+                        if self._point_in_polygon(ix, iy, points):
+                            new_hover = pi
+                            break
             if new_hover != a._hovered_polygon_idx:
                 a._hovered_polygon_idx = new_hover
                 self._request_redraw()
@@ -521,6 +465,28 @@ class AnnotateTab:
     # ──────────────────────────────────────────────────────────────────────────
     #  Vertex snapping
     # ──────────────────────────────────────────────────────────────────────────
+    def _show_snap_indicator(self, sx, sy):
+        """Place (or move) the snap-target marker at canvas point (sx, sy)."""
+        bbox = (sx - SNAP_INDICATOR_RADIUS, sy - SNAP_INDICATOR_RADIUS,
+                sx + SNAP_INDICATOR_RADIUS, sy + SNAP_INDICATOR_RADIUS)
+        if self._snap_indicator_item:
+            try:
+                self.canvas.coords(self._snap_indicator_item, *bbox)
+                return
+            except tk.TclError:
+                self._snap_indicator_item = None
+        self._snap_indicator_item = self.canvas.create_oval(
+            *bbox, outline=SNAP_INDICATOR_COLOR, fill=SNAP_INDICATOR_COLOR,
+            width=2, stipple="gray50")
+
+    def _hide_snap_indicator(self):
+        if self._snap_indicator_item:
+            try:
+                self.canvas.delete(self._snap_indicator_item)
+            except tk.TclError:
+                pass
+            self._snap_indicator_item = None
+
     def _maybe_snap(self, ix, iy, exclude=None):
         a = self.app
         if not a.snap_enabled:
@@ -893,27 +859,9 @@ class AnnotateTab:
             self.display_image()
             if a.snap_enabled:
                 if did_snap:
-                    sx, sy = self.image_to_canvas(ix, iy)
-                    snap_r = 12
-                    if self._snap_indicator_item:
-                        try:
-                            self.canvas.coords(
-                                self._snap_indicator_item,
-                                sx - snap_r, sy - snap_r, sx + snap_r, sy + snap_r)
-                        except tk.TclError:
-                            self._snap_indicator_item = None
-                    if not self._snap_indicator_item:
-                        self._snap_indicator_item = self.canvas.create_oval(
-                            sx - snap_r, sy - snap_r, sx + snap_r, sy + snap_r,
-                            outline="#FFE7B1", fill="#FFE7B1",
-                            width=2, stipple="gray50")
+                    self._show_snap_indicator(*self.image_to_canvas(ix, iy))
                 else:
-                    if self._snap_indicator_item:
-                        try:
-                            self.canvas.delete(self._snap_indicator_item)
-                        except tk.TclError:
-                            pass
-                        self._snap_indicator_item = None
+                    self._hide_snap_indicator()
 
     def _poly_release(self, event):
         a = self.app
@@ -969,32 +917,6 @@ class AnnotateTab:
                 if dist < best_dist:
                     best_dist = dist
                     best = (pi, vi)
-        return best
-
-    def _find_nearest_edge(self, cx, cy, threshold=6):
-        a = self.app
-        self._ensure_poly_bboxes()
-        qix, qiy = self.canvas_to_image(cx, cy)
-        img_thr = threshold / self.scale if self.scale > 0 else 1e9
-        best = None
-        best_dist = threshold
-        for pi, (points, _) in enumerate(a.polygons):
-            if pi < len(a._poly_bboxes):
-                bx1, by1, bx2, by2 = a._poly_bboxes[pi]
-                if (qix + img_thr < bx1 or qix - img_thr > bx2
-                        or qiy + img_thr < by1 or qiy - img_thr > by2):
-                    continue
-            n = len(points)
-            for ei in range(n):
-                ax, ay = self.image_to_canvas(*points[ei])
-                bx, by = self.image_to_canvas(*points[(ei + 1) % n])
-                dist = point_to_segment_dist(cx, cy, ax, ay, bx, by)
-                if dist < best_dist:
-                    best_dist = dist
-                    ix, iy = self.canvas_to_image(cx, cy)
-                    ix = max(0, min(a.img_width, ix))
-                    iy = max(0, min(a.img_height, iy))
-                    best = (pi, ei, (ix, iy))
         return best
 
     def _find_nearest_edge_selected(self, cx, cy, threshold=6):

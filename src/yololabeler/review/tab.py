@@ -1,9 +1,8 @@
-"""ReviewTab — Review domain module for YoloLabeler.
+"""ReviewTab: review canvas, navigation, actions and rendering for the Review tab.
 
-Consolidates all review-tab functionality: canvas construction, bindings,
-coordinate conversion, pan/zoom, image loading, detection management,
-navigation, filter callbacks, review actions (accept/reject/edit),
-advancement logic, and canvas rendering (absorbed from ReviewRenderer).
+Covers canvas construction, bindings, coordinate conversion, pan/zoom, image
+loading, detection management, navigation, filter callbacks, review actions
+(accept/reject/edit), advancement logic, and canvas rendering.
 """
 
 import os
@@ -17,15 +16,19 @@ from PIL import Image, ImageTk
 import customtkinter as ctk
 
 from yololabeler.label_io import parse_detect_labels, parse_segment_labels
+from yololabeler.matching import compute_matches
 from yololabeler.rendering import halo_text
+from yololabeler.utils import auto_orient_image
 
-# Constants (duplicated from annotator to avoid circular import)
+# Palette constants (duplicated from gui.py to avoid a circular import)
 FG_COLOR = "#E0E0E0"
 CANVAS_BG = "#2D2D2D"
 BG_COLOR = "#1E1E1E"
 ACCENT_HOVER = "#608864"
 SI_GREEN = "#507754"
 SI_PERSIMMON = "#E6976B"
+
+# Matching thresholds; chosen to mirror the model.predict settings used for these predictions
 REVIEW_IOU_THRESHOLD = 0.60
 REVIEW_CONF_THRESHOLD = 0.50
 
@@ -175,33 +178,21 @@ class ReviewTab:
         self._display_review_image()
 
     def _review_zoom(self, event):
-        a = self.app
-        cx, cy = self._review_canvas_to_image(event.x, event.y)
-        factor = 1.15 if event.delta > 0 else 1 / 1.15
-        new_scale = max(0.05, min(10.0, a._review_scale * factor))
-        a._review_offset_x = event.x - cx * new_scale
-        a._review_offset_y = event.y - cy * new_scale
-        a._review_scale = new_scale
-        a._review_cached_scale = None
-        self._display_review_image()
-        a._update_status()
+        self._review_zoom_linux(event, event.delta)
+
+    @staticmethod
+    def _wheel_delta(event):
+        """Scroll distance in canvas px for a Windows/macOS <MouseWheel> event."""
+        if sys.platform == "darwin":
+            return event.delta * 2
+        return event.delta // 3
 
     def _review_scroll(self, event):
-        a = self.app
-        if sys.platform == "darwin":
-            delta = -event.delta * 2
-        else:
-            delta = -event.delta // 3
-        a._review_offset_y -= delta
+        self.app._review_offset_y += self._wheel_delta(event)
         self._display_review_image()
 
     def _review_hscroll(self, event):
-        a = self.app
-        if sys.platform == "darwin":
-            delta = -event.delta * 2
-        else:
-            delta = -event.delta // 3
-        a._review_offset_x -= delta
+        self.app._review_offset_x += self._wheel_delta(event)
         self._display_review_image()
 
     def _review_scroll_linux(self, event, direction):
@@ -213,6 +204,7 @@ class ReviewTab:
         self._display_review_image()
 
     def _review_zoom_linux(self, event, direction):
+        """Zoom about the cursor; *direction* > 0 zooms in."""
         a = self.app
         cx, cy = self._review_canvas_to_image(event.x, event.y)
         factor = 1.15 if direction > 0 else 1 / 1.15
@@ -261,6 +253,11 @@ class ReviewTab:
         a._review_show_pred = a._review_pred_var.get()
         self._display_review_image()
 
+    def toggle_help(self, event=None):
+        a = self.app
+        a._review_show_help = not a._review_show_help
+        self._display_review_image()
+
     # ══════════════════════════════════════════════════════════════════════════
     #  Image filter list
     # ══════════════════════════════════════════════════════════════════════════
@@ -272,46 +269,23 @@ class ReviewTab:
         Images with neither are skipped entirely.
         """
         a = self.app
-        if not a.images:
-            a._review_filtered_images = []
-            return
-        filtered = []
-        has_any_preds = False
-        for img_name in a.images:
-            stem = os.path.splitext(img_name)[0]
-            has_pred = (
-                (a.pred_detect_dir and os.path.exists(
-                    os.path.join(a.pred_detect_dir, f"{stem}.txt")))
-                or (a.pred_segment_dir and os.path.exists(
-                    os.path.join(a.pred_segment_dir, f"{stem}.txt")))
-            )
-            if has_pred:
-                has_any_preds = True
-        if has_any_preds:
-            # Show only images that have prediction files
+
+        def _indices_with_file(dirs):
+            found = []
             for i, img_name in enumerate(a.images):
                 stem = os.path.splitext(img_name)[0]
-                has_pred = (
-                    (a.pred_detect_dir and os.path.exists(
-                        os.path.join(a.pred_detect_dir, f"{stem}.txt")))
-                    or (a.pred_segment_dir and os.path.exists(
-                        os.path.join(a.pred_segment_dir, f"{stem}.txt")))
-                )
-                if has_pred:
-                    filtered.append(i)
+                if any(d and os.path.exists(os.path.join(d, f"{stem}.txt"))
+                       for d in dirs):
+                    found.append(i)
+            return found
+
+        with_preds = _indices_with_file((a.pred_detect_dir, a.pred_segment_dir))
+        if with_preds:
+            a._review_filtered_images = with_preds
         else:
-            # No predictions anywhere — show images with annotations
-            for i, img_name in enumerate(a.images):
-                stem = os.path.splitext(img_name)[0]
-                has_annot = (
-                    (a.detect_dir and os.path.exists(
-                        os.path.join(a.detect_dir, f"{stem}.txt")))
-                    or (a.segment_dir and os.path.exists(
-                        os.path.join(a.segment_dir, f"{stem}.txt")))
-                )
-                if has_annot:
-                    filtered.append(i)
-        a._review_filtered_images = filtered
+            # No predictions anywhere: fall back to images that have annotations
+            a._review_filtered_images = _indices_with_file(
+                (a.detect_dir, a.segment_dir))
 
     def _refresh_review_class_filter(self):
         """Update class filter dropdown values from current class_names."""
@@ -324,10 +298,36 @@ class ReviewTab:
     #  Image loading
     # ══════════════════════════════════════════════════════════════════════════
 
+    def _load_review_gt(self, img_name):
+        """Read the current image's GT label files into the review GT lists."""
+        a = self.app
+        stem = os.path.splitext(img_name)[0]
+        a._review_gt_boxes = []
+        a._review_gt_polygons = []
+        detect_path = os.path.join(a.detect_dir, f"{stem}.txt")
+        try:
+            a._review_gt_boxes, _ = parse_detect_labels(
+                detect_path, a._review_img_w, a._review_img_h)
+        except Exception as e:
+            print(f"Warning: Could not load detect labels for {stem}: {e}")
+        segment_path = os.path.join(a.segment_dir, f"{stem}.txt")
+        try:
+            a._review_gt_polygons, _ = parse_segment_labels(
+                segment_path, a._review_img_w, a._review_img_h)
+        except Exception as e:
+            print(f"Warning: Could not load segment labels for {stem}: {e}")
+
+    def _run_matching(self):
+        """Recompute TP/FP/FN matches from the current review GT and predictions."""
+        a = self.app
+        a._review_matches = compute_matches(
+            a._review_gt_boxes, a._review_gt_polygons,
+            a._review_pred_boxes, a._review_pred_polygons,
+            iou_threshold=REVIEW_IOU_THRESHOLD,
+            conf_threshold=REVIEW_CONF_THRESHOLD)
+
     def _review_load_image(self):
         """Load image, GT, predictions, and run matching for review."""
-        from yololabeler.utils import auto_orient_image
-
         a = self.app
         if not a.images:
             return
@@ -352,38 +352,11 @@ class ReviewTab:
         a._review_img_w = pil_img.width
         a._review_img_h = pil_img.height
 
-        # Load GT from disk
-        a._review_gt_boxes = []
-        a._review_gt_polygons = []
-        stem = os.path.splitext(img_name)[0]
-
-        detect_path = os.path.join(a.detect_dir, f"{stem}.txt")
-        try:
-            boxes, _ = parse_detect_labels(
-                detect_path, a._review_img_w, a._review_img_h)
-            a._review_gt_boxes.extend(boxes)
-        except Exception:
-            pass
-
-        segment_path = os.path.join(a.segment_dir, f"{stem}.txt")
-        try:
-            polys, _ = parse_segment_labels(
-                segment_path, a._review_img_w, a._review_img_h)
-            a._review_gt_polygons.extend(polys)
-        except Exception:
-            pass
-
-        # Load predictions
+        self._load_review_gt(img_name)
         a._review_pred_boxes, a._review_pred_polygons = \
             a._load_predictions(
                 img_name, a._review_img_w, a._review_img_h)
-
-        # Run matching
-        a._review_matches = a._compute_matches(
-            a._review_gt_boxes, a._review_gt_polygons,
-            a._review_pred_boxes, a._review_pred_polygons,
-            iou_threshold=REVIEW_IOU_THRESHOLD,
-            conf_threshold=REVIEW_CONF_THRESHOLD)
+        self._run_matching()
 
         self.engine.rebuild_review_detections()
         self._refresh_review_class_filter()
@@ -448,29 +421,7 @@ class ReviewTab:
         a = self.app
         if not a.images:
             return
-        img_name = a.images[a._review_index]
-        stem = os.path.splitext(img_name)[0]
-
-        # Reload GT boxes
-        a._review_gt_boxes = []
-        detect_path = os.path.join(a.detect_dir, f"{stem}.txt")
-        try:
-            boxes, _ = parse_detect_labels(
-                detect_path, a._review_img_w, a._review_img_h)
-            a._review_gt_boxes.extend(boxes)
-        except Exception:
-            pass
-
-        # Reload GT polygons
-        a._review_gt_polygons = []
-        segment_path = os.path.join(a.segment_dir, f"{stem}.txt")
-        try:
-            polys, _ = parse_segment_labels(
-                segment_path, a._review_img_w, a._review_img_h)
-            a._review_gt_polygons.extend(polys)
-        except Exception:
-            pass
-
+        self._load_review_gt(a.images[a._review_index])
         self._review_recompute_and_advance()
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -1476,11 +1427,7 @@ class ReviewTab:
         Used after modifying actions (FP accept/add, TP/FN reject/delete).
         """
         a = self.app
-        a._review_matches = a._compute_matches(
-            a._review_gt_boxes, a._review_gt_polygons,
-            a._review_pred_boxes, a._review_pred_polygons,
-            iou_threshold=REVIEW_IOU_THRESHOLD,
-            conf_threshold=REVIEW_CONF_THRESHOLD)
+        self._run_matching()
         self.engine.rebuild_review_detections()
 
         if not a._review_detections:

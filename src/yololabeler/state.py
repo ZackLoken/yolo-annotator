@@ -23,8 +23,8 @@ class AppState:
         self.img_height = 0
 
         # ── Annotation data ──
-        self.boxes = []              # [(class_id, x1, y1, x2, y2), ...]
-        self.polygons = []           # [(class_id, [x1,y1, ...]), ...]
+        self.boxes = []              # [(x1, y1, x2, y2, class_id), ...] pixel coords
+        self.polygons = []           # [([(x, y), ...], class_id), ...] pixel coords
         self.box_authors = []        # parallel to boxes: username per annotation
         self.polygon_authors = []    # parallel to polygons: username per annotation
         self.current_polygon = []    # in-progress polygon vertices
@@ -34,10 +34,6 @@ class AppState:
         self.start_x = None
         self.start_y = None
         self.rect = None
-
-        # ── Predictions (read-only, for review tab) ──
-        self.pred_boxes = []
-        self.pred_polygons = []
 
         # ── Class registry ──
         self.class_names = {}
@@ -97,7 +93,6 @@ class AppState:
         self._review_filtered_images = []
         self._review_status_filter = "all"
         self._review_needs_first_zoom = False
-        self._review_det_reviewed = {}
         self._review_show_help = False
         self._annotation_visible = True
         self._annotate_pred_reference = None
@@ -107,7 +102,6 @@ class AppState:
 
         # ── Stats & session tracking ──
         self._stats = {"sessions": [], "image_status": {}}
-        self._image_dims = {}
         self._current_user = ""
         self._session_start = ""
         self._image_start_time = None
