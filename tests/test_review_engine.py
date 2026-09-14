@@ -408,3 +408,31 @@ class TestVerdicts:
         moved = engine.load_review_state()
         assert moved and moved.startswith(path + ".corrupt-")
         assert engine.state._review_state == {}
+
+
+# ── migrate_centre_entries ──────────────────────────────────────────────────
+
+class TestMigrateCentreEntries:
+    def test_moves_matching_entries_and_drops_the_rest(self, engine, tmp_path):
+        engine.state.image_folder = str(tmp_path)
+        engine.state.state_dir = str(tmp_path / "state")
+        os.makedirs(engine.state.state_dir)
+        engine.state._review_state = {"image": {"img_001.jpg": {
+            "img_status": "started",
+            "detections": [
+                {"match_type": "FP", "action": "rejected", "reviewed_by": "zack",
+                 "class_id": 0, "pred_bbox_norm": [0.828125, 0.104167, 0.09375, 0.125],
+                 "gt_bbox_norm": None, "iou": None, "conf": 0.9},
+                {"match_type": "FP", "action": "accepted", "reviewed_by": "zack",
+                 "class_id": 0, "pred_bbox_norm": [0.1, 0.1, 0.05, 0.05],
+                 "gt_bbox_norm": None, "iou": None, "conf": 0.7},
+            ]}}}
+        preds = [pred("h:1", 500, 20, 560, 80)]
+        dropped = engine.migrate_centre_entries("img_001.jpg", preds, 640, 480)
+        assert dropped == 1
+        v = engine.verdicts("img_001.jpg")
+        assert v["h:1"]["action"] == "rejected" and v["h:1"]["by"] == "zack"
+        assert "detections" not in engine.state._review_state["image"]["img_001.jpg"]
+
+    def test_noop_without_legacy_entries(self, engine):
+        assert engine.migrate_centre_entries("img_001.jpg", [], 640, 480) == 0

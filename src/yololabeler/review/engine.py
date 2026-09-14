@@ -190,6 +190,40 @@ class ReviewEngine:
         self.verdicts(img_name).pop(key, None)
         self.save_review_state()
 
+    def migrate_centre_entries(self, img_name, predictions, width, height):
+        """Re-key old centre-matched verdict entries by prediction id (spec 6.3)."""
+        entry = self.state._review_state.get("image", {}).get(img_name)
+        if not entry or "detections" not in entry:
+            return 0
+        legacy = entry.pop("detections")
+        verdicts = self.verdicts(img_name)
+        dropped = 0
+        for old in legacy:
+            centre = old.get("pred_bbox_norm")
+            if not centre:
+                dropped += 1
+                continue
+            cx, cy = centre[0] * width, centre[1] * height
+            hit = None
+            for p in predictions:
+                xs = [pt[0] for pt in p.points]
+                ys = [pt[1] for pt in p.points]
+                pcx, pcy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+                if (abs(pcx - cx) / width < MATCH_TOLERANCE
+                        and abs(pcy - cy) / height < MATCH_TOLERANCE):
+                    hit = p
+                    break
+            if hit is None:
+                dropped += 1
+                continue
+            verdicts[hit.id] = {
+                "action": old.get("action", "reviewed"),
+                "kind": old.get("match_type", "").lower(),
+                "class_id": old.get("class_id"), "conf": old.get("conf"),
+                "iou": old.get("iou"), "by": old.get("reviewed_by", ""), "at": ""}
+        self.save_review_state()
+        return dropped
+
     # ── Image review status ───────────────────────────────────────────────
 
     def mark_image_reviewed(self, img_name):
