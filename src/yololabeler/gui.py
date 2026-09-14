@@ -511,13 +511,15 @@ class YoloLabeler:
         self._review_panel.refresh()
 
     def _act_on_item(self, apply):
-        """Shared body of accept and reject: undo point, mutate, record, refresh."""
+        """Shared body of accept and reject: undo point, mutate, save, record, refresh."""
         item = self._review_panel.current_item()
         if item is None or self.predictions_blind:
             return
         self._review.backup_original_labels()
         self._engine.push_undo()
         action, _ = apply(item)
+        # Labels first, so a crash cannot leave a verdict for an unwritten change.
+        self.save_current()
         self._review.record_verdict(self.images[self.index], item, action, self._current_user)
         self._mark_image_annotated()
         self._review_panel.refresh(keep_focus=False)
@@ -543,6 +545,8 @@ class YoloLabeler:
         if not self.images or self.document is None:
             return None
         if self.load_errors:
+            # A read-only image still records its status and timing.
+            self._save_stats()
             return None
         error = self._annotate_tab.save_annotations()
         if error:
@@ -768,13 +772,11 @@ class YoloLabeler:
             return
 
         if self.images:
-            try:
-                self._record_image_time()
-                self._annotate_tab.save_annotations()
-                self._end_session()
-                self._save_stats()
-            except Exception as e:
-                print(f"Warning: Could not save before opening new folder: {e}")
+            self._record_image_time()
+            if self.save_current():
+                return
+            self._end_session()
+            self._save_stats()
 
         self._init_folder(new_folder)
 

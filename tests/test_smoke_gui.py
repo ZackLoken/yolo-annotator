@@ -8,6 +8,7 @@ from PIL import Image
 pytest.importorskip("customtkinter")
 import customtkinter as ctk  # noqa: E402
 
+from yololabeler import gui as guimod  # noqa: E402
 from yololabeler.gui import YoloLabeler  # noqa: E402
 
 
@@ -142,6 +143,20 @@ class TestActions:
         app.edit_pair()
         assert app._selected_annotation_id == app.queue[app.queue_index].annotation.id
 
+    def test_accept_writes_the_label_file_at_once(self, app, folder):
+        app._review_panel.focus_item(0)
+        assert app.queue[0].kind == "fp"
+        app.accept_item()
+        lines = (folder / "labels" / "detect" / "a.txt").read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2
+
+    def test_reject_removes_the_annotation_from_disk_at_once(self, app, folder):
+        panel = app._review_panel
+        panel.focus_item(len(app.queue) - 1)
+        assert app.queue[app.queue_index].kind == "tp"
+        app.reject_item()
+        assert not (folder / "labels" / "detect" / "a.txt").exists()
+
 
 # ── navigation and saving ───────────────────────────────────────────────────
 
@@ -179,6 +194,45 @@ class TestNavigation:
     def test_success_is_silent(self, app):
         app.save_now()
         assert app.banner_text is None
+
+
+# ── open folder ─────────────────────────────────────────────────────────────
+
+def second_folder(folder):
+    """Create and return a sibling image folder for the Open Folder tests."""
+    other = folder / "other"
+    other.mkdir()
+    Image.new("RGB", (640, 480), "gray").save(other / "c.jpg")
+    return other
+
+
+class TestOpenFolder:
+    def test_read_only_image_is_not_overwritten(self, app, folder, monkeypatch):
+        labels = folder / "labels" / "detect" / "a.txt"
+        labels.write_text("0 0.500000 0.500000 0.200000 0.200000\nnope\n", encoding="utf-8")
+        app._annotate_tab.load_image()
+        assert app.load_errors
+        other = second_folder(folder)
+        monkeypatch.setattr(guimod.filedialog, "askdirectory", lambda **kw: str(other))
+        app._open_folder()
+        assert app.image_folder == str(other)
+        assert labels.read_text(encoding="utf-8").splitlines() == [
+            "0 0.500000 0.500000 0.200000 0.200000", "nope"]
+
+    def test_failed_save_blocks_the_switch_and_shows_the_banner(self, app, folder, monkeypatch):
+        import os
+        broken = folder / "labels" / "detect" / "a.txt"
+        os.remove(broken)
+        os.makedirs(broken)
+        app._engine.add_box(1, 1, 30, 30)
+        other = second_folder(folder)
+        monkeypatch.setattr(guimod.filedialog, "askdirectory", lambda **kw: str(other))
+        try:
+            app._open_folder()
+            assert app.image_folder == str(folder)
+            assert "Could not save" in app.banner_text and "Ctrl+S" in app.banner_text
+        finally:
+            os.rmdir(broken)
 
 
 # ── completion and blind ────────────────────────────────────────────────────
