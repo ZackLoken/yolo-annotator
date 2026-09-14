@@ -261,6 +261,30 @@ class TestOpenFolder:
                    for i in app.canvas.find_all() if app.canvas.type(i) == "text")
 
 
+# ── state files ─────────────────────────────────────────────────────────────
+
+class TestStateFiles:
+    def test_corrupt_classes_json_is_quarantined_not_overwritten(self, app, folder):
+        path = folder / "state" / "classes.json"
+        path.write_text("{not json", encoding="utf-8")
+        app._init_folder(str(folder))
+        moved = list((folder / "state").glob("classes.json.corrupt-*"))
+        assert len(moved) == 1
+        assert moved[0].read_text(encoding="utf-8") == "{not json"
+        assert "classes.json could not be read" in app.banner_text
+
+    def test_construction_writes_no_classes_json_to_the_cwd(self, folder, monkeypatch):
+        cwd = folder / "cwd"
+        cwd.mkdir()
+        monkeypatch.chdir(cwd)
+        root = new_root()
+        app = YoloLabeler(root, image_folder=str(folder))
+        root.update()
+        assert list(cwd.iterdir()) == []
+        assert (folder / "state" / "classes.json").exists()
+        app._quit()
+
+
 # ── completion and blind ────────────────────────────────────────────────────
 
 class TestCompletion:

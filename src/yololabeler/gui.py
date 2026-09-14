@@ -20,7 +20,7 @@ import customtkinter as ctk
 import shutil
 
 from yololabeler.state import AppState
-from yololabeler.state_io import AnnotationStats
+from yololabeler.state_io import AnnotationStats, read_json_or_quarantine
 from yololabeler.annotation.engine import AnnotationEngine
 from yololabeler.annotation.tab import AnnotateTab
 from yololabeler.keybindings import KEY_BINDINGS
@@ -670,7 +670,11 @@ class YoloLabeler:
         # Reset the registry, load this folder's classes, then merge the constructor's
         self.class_names = {}
         self.class_colors = {}
-        self._load_classes_json()
+        moved = self._load_classes_json()
+        if moved:
+            self.show_banner(
+                f"classes.json could not be read and was moved to "
+                f"{os.path.basename(moved)}. Starting a new one.")
         for cid, name in self._constructor_class_names.items():
             self.class_names.setdefault(cid, name)
         self._refresh_class_dropdown()
@@ -1262,7 +1266,9 @@ class YoloLabeler:
 
     def _save_classes_file(self):
         """Save classes and colors to classes.json (unified format)."""
-        if not self.image_folder:
+        # state_dir, not image_folder: the toolbar asks for a class colour before
+        # _init_folder sets it, and an empty state_dir would write into the cwd.
+        if not self.state_dir:
             return
         classes_path = os.path.join(self.state_dir, "classes.json")
         data = {}
@@ -1431,23 +1437,24 @@ class YoloLabeler:
             self.canvas.update_idletasks()
 
     def _load_classes_json(self):
-        """Load classes and colors from classes.json."""
-        if not self.image_folder:
-            return
-        classes_json_path = os.path.join(self.state_dir, "classes.json")
-        if os.path.exists(classes_json_path):
+        """Load classes.json into the registry; returns the quarantined path if corrupt."""
+        if not self.state_dir:
+            return None
+        data, moved = read_json_or_quarantine(
+            os.path.join(self.state_dir, "classes.json"))
+        if not isinstance(data, dict):
+            return moved
+        for key, entry in data.items():
+            if not isinstance(entry, dict):
+                continue
             try:
-                with open(classes_json_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                self.class_names = {}
-                self.class_colors = {}
-                for k, v in data.items():
-                    cid = int(k)
-                    self.class_names[cid] = v.get("name", f"class_{cid}")
-                    if "color" in v:
-                        self.class_colors[cid] = v["color"]
-            except (OSError, ValueError, AttributeError) as e:
-                print(f"Warning: Could not read {classes_json_path}: {e}")
+                cid = int(key)
+            except ValueError:
+                continue
+            self.class_names[cid] = entry.get("name", f"class_{cid}")
+            if "color" in entry:
+                self.class_colors[cid] = entry["color"]
+        return moved
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Title & counter
