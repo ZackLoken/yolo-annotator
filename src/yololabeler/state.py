@@ -24,6 +24,7 @@ class AppState:
 
         # ── Annotation data ──
         self.document = None         # Document for the current image, or None
+        self.load_errors = []        # rejected label-line messages for the current image
         self.verdicts = {}           # live per-image verdict dict from ReviewEngine
         self.current_polygon = []    # in-progress polygon vertices
         self.mode = "polygon"        # "box" | "polygon"

@@ -84,7 +84,7 @@ class YoloLabeler:
         # Image list & current image
         'images', 'index', 'original_image', 'img_width', 'img_height',
         # Annotations
-        'document', 'verdicts',
+        'document', 'load_errors', 'verdicts',
         'current_polygon', 'mode',
         'start_x', 'start_y', 'rect',
         # Class registry
@@ -541,6 +541,8 @@ class YoloLabeler:
     def save_current(self):
         """Save the current image's document and stats. Returns None or an error message."""
         if not self.images or self.document is None:
+            return None
+        if self.load_errors:
             return None
         error = self._annotate_tab.save_annotations()
         if error:

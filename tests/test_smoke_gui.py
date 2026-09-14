@@ -235,3 +235,24 @@ class TestImport:
     def test_run_import_returns_form_error(self, app, tmp_path):
         error = app._run_import(str(tmp_path), "bur_detect_json", None, "m")
         assert "class id" in error
+
+
+# ── load failures ───────────────────────────────────────────────────────────
+
+class TestLoadFailures:
+    def test_bad_label_line_makes_image_read_only(self, app, folder):
+        p = folder / "labels" / "detect" / "a.txt"
+        p.write_text("0 0.5 0.5 0.2 0.2\nnope\n", encoding="utf-8")
+        app._annotate_tab.load_image()
+        assert app.load_errors and "line 2" in app.banner_text
+        assert "will not be saved" in app.banner_text
+        app._engine.add_box(1, 1, 20, 20)
+        assert app.save_current() is None
+        assert p.read_text(encoding="utf-8").splitlines() == ["0 0.5 0.5 0.2 0.2", "nope"]
+
+    def test_bad_prediction_line_is_reported_not_fatal(self, app, folder):
+        p = folder / "predictions" / "detect" / "a.txt"
+        p.write_text("0 0.9 0.5 0.5 0.2 0.2\nbroken\n", encoding="utf-8")
+        app._annotate_tab.load_image()
+        assert len(app.predictions) == 1
+        assert "line 2" in app.banner_text

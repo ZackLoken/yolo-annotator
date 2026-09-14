@@ -188,13 +188,21 @@ class AnnotateTab:
 
         self.fit_to_window()
         rejected = self.load_document_for_current_image()
-        for message in rejected:
-            print(f"Warning: could not read {message}")
+        a.load_errors = rejected
+        messages = []
+        if rejected:
+            messages.append(f"{len(rejected)} label lines could not be read "
+                            f"({'; '.join(rejected)}). This image will not be saved until they are fixed.")
         img_name = a.images[a.index]
         if img_name not in a._session_loaded_counts:
             a._session_loaded_counts[img_name] = len(a.document.annotations)
         a.verdicts = a._review.verdicts(img_name)
         a._review_panel.load_predictions_for_current_image()
+        if a.predictions_rejected:
+            messages.append(f"{len(a.predictions_rejected)} prediction lines could not be read "
+                            f"({'; '.join(a.predictions_rejected)}).")
+        if messages:
+            a.banner_text = "\n".join(messages)
         a._review_panel.refresh_class_filter()
         a._review_panel.refresh(keep_focus=False)
         a.queue_index = a._review_panel.first_unreviewed()
