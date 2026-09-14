@@ -179,3 +179,40 @@ class TestNavigation:
     def test_success_is_silent(self, app):
         app.save_now()
         assert app.banner_text is None
+
+
+# ── completion and blind ────────────────────────────────────────────────────
+
+class TestCompletion:
+    def test_complete_records_and_gates(self, app, folder):
+        app._complete_var.set(True)
+        app._on_complete_toggled()
+        rec = app._stats_store.completion("a.jpg")
+        assert rec["by"] == app._current_user and rec["blind"] is False
+        assert rec["annotation_count"] == 1 and rec["model"] is None
+        assert app._stats_store.image_status("a.jpg") == "complete"
+        app._complete_var.set(False)
+        app._on_complete_toggled()
+        assert app._stats_store.completion("a.jpg") is None
+
+    def test_complete_label_counts_unreviewed(self, app):
+        assert app.complete_cb.cget("text") == "Complete (2 not reviewed)"
+        app._review_panel.focus_item(0)
+        app.reject_item()
+        assert app.complete_cb.cget("text") == "Complete (1 not reviewed)"
+
+    def test_blind_hides_predictions_until_complete(self, app):
+        app._blind_var.set(True)
+        app._on_blind_toggled()
+        assert app.predictions == [] and app.predictions_blind and app.queue == []
+        app._complete_var.set(True)
+        app._on_complete_toggled()
+        assert app._stats_store.completion("a.jpg")["blind"] is True
+        assert len(app.predictions) == 2 and not app.predictions_blind
+
+    def test_model_name_from_manifest(self, app, folder):
+        from yololabeler.predictions.store import write_manifest
+        write_manifest(folder / "predictions", {"model": "nathan_v15"})
+        app._complete_var.set(True)
+        app._on_complete_toggled()
+        assert app._stats_store.completion("a.jpg")["model"] == "nathan_v15"

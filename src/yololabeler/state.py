@@ -81,7 +81,7 @@ class AppState:
         self._annotation_visible = True
 
         # ── Stats & session tracking ──
-        self._stats = {"sessions": [], "image_status": {}}
+        self._stats = {"sessions": [], "image_status": {}, "blind": [], "completion": {}}
         self._current_user = ""
         self._session_start = ""
         self._image_start_time = None

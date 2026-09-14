@@ -262,13 +262,11 @@ class AnnotateTab:
         a = self.app
         img_name = a.images[a.index]
         detect, segment, sidecar = self.engine.label_paths()
-        legacy = a._stats.get("annotation_authors", {}).pop(img_name, None)
-        legacy_authors = ((legacy.get("boxes", []), legacy.get("polygons", []))
-                          if legacy else None)
+        legacy_authors = a._stats_store.pop_legacy_authors(img_name)
         a.document, rejected = load_document(
             img_name, a.img_width, a.img_height, detect, segment, sidecar,
             legacy_authors=legacy_authors)
-        if legacy is not None:
+        if legacy_authors is not None:
             a._save_stats()
         a._register_class_ids({ann.class_id for ann in a.document.annotations})
         self._invalidate_poly_bboxes()

@@ -118,7 +118,8 @@ class ReviewPanel:
         a = self.app
         img_name = a.images[a.index]
         a.predictions, a.predictions_rejected = [], []
-        a.predictions_blind = a._stats_store.is_blind(img_name)
+        store = a._stats_store
+        a.predictions_blind = store.is_blind(img_name) and store.completion(img_name) is None
         if a.predictions_blind:
             return
         stem = os.path.splitext(img_name)[0]
@@ -134,7 +135,7 @@ class ReviewPanel:
     def refresh(self, keep_focus=True):
         """Rerun matching and rebuild the queue; called after every document change."""
         a = self.app
-        if a.document is None:
+        if a.document is None or a.predictions_blind:
             a.queue, a.matches = [], {}
             self.update_labels()
             return
@@ -281,4 +282,6 @@ class ReviewPanel:
             self.counts_label.configure(
                 text=f"TP {len(m.get('tp', []))}  FP {len(m.get('fp', []))}  "
                      f"FN {len(m.get('fn', []))}")
+        pending = sum(1 for item in a.queue if item.key not in a.verdicts)
+        a.complete_cb.configure(text=f"Complete ({pending} not reviewed)" if pending else "Complete")
         a._update_status()

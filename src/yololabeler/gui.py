@@ -20,9 +20,11 @@ import customtkinter as ctk
 import shutil
 
 from yololabeler.state import AppState
+from yololabeler.state_io import AnnotationStats
 from yololabeler.annotation.engine import AnnotationEngine
 from yololabeler.annotation.tab import AnnotateTab
 from yololabeler.keybindings import KEY_BINDINGS
+from yololabeler.predictions.store import read_manifest
 from yololabeler.review.engine import ReviewEngine, apply_accept, apply_reject
 from yololabeler.review.panel import ReviewPanel
 from yololabeler.utils import (
@@ -68,14 +70,6 @@ DEFAULT_CLASS_COLORS = [
     "#FF69B4",  # Hot Pink
     "#00CED1",  # Dark Turquoise
 ]
-
-
-class _BlindShim:
-    """Stand-in for the stats store until Task 14 builds it; no image is blind yet."""
-
-    def is_blind(self, img_name):
-        """Report every image as not part of the blind cohort."""
-        return False
 
 
 class YoloLabeler:
@@ -155,7 +149,8 @@ class YoloLabeler:
         # GUI-only handles (not part of AppState)
         self._timer_after_id = None
         self._logo_image = None  # keep a reference so Tk does not drop the image
-        self._stats_store = _BlindShim()
+        self._stats_store = AnnotationStats()
+        self._stats = self._stats_store.data
 
         # ── Build GUI ──
         _load_custom_fonts()
@@ -318,6 +313,14 @@ class YoloLabeler:
             border_color=BORDER_COLOR,
             command=self._on_complete_toggled)
         self.complete_cb.pack(side="left", padx=(0, 4))
+
+        self._blind_var = tk.BooleanVar(value=False)
+        self.blind_cb = ctk.CTkCheckBox(
+            _tb_g3, text="Blind", variable=self._blind_var,
+            font=(self.font_family, 11), text_color=FG_COLOR,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
+            command=self._on_blind_toggled)
+        self.blind_cb.pack(side="left", padx=(0, 4))
 
         ctk.CTkLabel(_tb_g3, text="Status:",
                      font=(self.font_family, 11),
@@ -661,12 +664,11 @@ class YoloLabeler:
         self.conf_threshold = self._review.conf_threshold
         self._review_panel._show_threshold()
         # Prepopulate image_status for every image in the folder
+        store = self._stats_store
         for img_name in self.images:
-            if img_name not in self._stats["image_status"]:
-                if self._has_annotations(img_name):
-                    self._stats["image_status"][img_name] = "partial"
-                else:
-                    self._stats["image_status"][img_name] = "unannotated"
+            if img_name not in store.data["image_status"]:
+                status = "partial" if self._has_annotations(img_name) else "unannotated"
+                store.set_image_status(img_name, status)
         self._save_stats()
         self._rebuild_filter()
         self.index = 0
@@ -855,42 +857,36 @@ class YoloLabeler:
         return None
 
     def _load_stats(self):
+        """Load annotation_stats.json into _stats_store, quarantining it if corrupt."""
         path = self._stats_path()
-        if path and os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    self._stats = json.load(f)
-                if "sessions" not in self._stats:
-                    self._stats["sessions"] = []
-                if "image_status" not in self._stats:
-                    self._stats["image_status"] = {}
-                # Migrate old format: extract completion from top-level "images"
-                if "images" in self._stats:
-                    for iname, ientry in self._stats["images"].items():
-                        if ientry.get("status") == "complete":
-                            self._stats["image_status"].setdefault(
-                                iname, "complete")
-                    del self._stats["images"]
-            except Exception:
-                self._stats = {"sessions": [], "image_status": {}}
+        if path is None:
+            self._stats_store, moved = AnnotationStats(), None
         else:
-            self._stats = {"sessions": [], "image_status": {}}
+            self._stats_store, moved = AnnotationStats.load(path)
+        self._stats = self._stats_store.data
+        if moved:
+            self.show_banner(
+                f"annotation_stats.json could not be read and was moved to "
+                f"{os.path.basename(moved)}. Starting a new one.")
 
     def _save_stats(self):
         path = self._stats_path()
         if not path:
             return
         try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(self._stats, f, indent=2)
-        except Exception as e:
+            self._stats_store.save(path)
+        except OSError as e:
             print(f"Warning: Could not save stats: {e}")
 
     # ── Review state persistence ─────────────────────────────────────────────
 
     def _load_review_state(self):
-        self._review.load_review_state()
+        """Load review_stats.json, quarantining it if corrupt."""
+        moved = self._review.load_review_state()
+        if moved:
+            self.show_banner(
+                f"review_stats.json could not be read and was moved to "
+                f"{os.path.basename(moved)}. Starting a new one.")
 
     def _save_review_state(self):
         self._review.save_review_state()
@@ -998,22 +994,43 @@ class YoloLabeler:
         """Return 'complete', 'partial', or 'unannotated' for an image."""
         return self._stats.get("image_status", {}).get(img_name, "unannotated")
 
+    def _current_model_name(self):
+        """Return the model name from the predictions manifest, or None if absent."""
+        manifest = read_manifest(os.path.join(self.image_folder, "predictions"))
+        return manifest.get("model") if manifest else None
+
     def _on_complete_toggled(self):
-        """Handle the Complete checkbox toggle."""
+        """Complete is the dataset gate; it writes the completion record (spec 3.4)."""
         if not self.images:
             return
         img_name = self.images[self.index]
+        store = self._stats_store
         if self._complete_var.get():
+            blind = store.is_blind(img_name) and store.completion(img_name) is None
+            store.set_completion(img_name, self._current_user, blind,
+                                 len(self.document.annotations) if self.document else 0,
+                                 None if blind else self._current_model_name())
+            store.set_image_status(img_name, "complete")
             self._completed_images.add(img_name)
-            status = "complete"
         else:
+            store.clear_completion(img_name)
             self._completed_images.discard(img_name)
-            status = "partial" if self._has_annotations(img_name) else "unannotated"
-        # Persist completion status
-        self._stats["image_status"][img_name] = status
-        self._save_stats()
+            store.set_image_status(
+                img_name, "partial" if self._has_annotations(img_name) else "unannotated")
+        self.save_current()
         self._rebuild_filter()
         self._update_filter_label()
+        self._review_panel.load_predictions_for_current_image()
+        self._review_panel.refresh(keep_focus=False)
+
+    def _on_blind_toggled(self):
+        """Handle the Blind checkbox toggle, hiding or restoring predictions."""
+        if not self.images:
+            return
+        self._stats_store.set_blind(self.images[self.index], self._blind_var.get())
+        self._save_stats()
+        self._review_panel.load_predictions_for_current_image()
+        self._review_panel.refresh(keep_focus=False)
 
     def _on_filter_changed(self, choice):
         """Handle filter dropdown selection."""
@@ -1367,6 +1384,7 @@ class YoloLabeler:
         # Update complete checkbox to reflect current image
         img_name = self.images[self.index]
         self._complete_var.set(img_name in self._completed_images)
+        self._blind_var.set(self._stats_store.is_blind(img_name))
         self._refresh_class_dropdown()
 
     # ──────────────────────────────────────────────────────────────────────────
