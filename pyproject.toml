@@ -19,6 +19,9 @@ dependencies = [
     "shapely>=2.0",
 ]
 
+[project.optional-dependencies]
+packaging = ["pyinstaller>=6.22"]
+
 [project.urls]
 Homepage = "https://github.com/ZackLoken/yolo-annotator"
 

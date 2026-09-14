@@ -1,6 +1,6 @@
 # Building the Windows app
 
-    pip install pyinstaller
+    pip install -e ".[packaging]"
     pyinstaller packaging/yololabeler.spec --noconfirm --distpath packaging/dist --workpath packaging/build
 
 Result: `packaging/dist/YoloLabeler/YoloLabeler.exe`. Zip the folder and send it.
