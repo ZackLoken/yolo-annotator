@@ -14,7 +14,7 @@ authors = [
     {name = "Zack Loken"},
 ]
 dependencies = [
-    "Pillow>=9.0",
+    "Pillow>=9.1",
     "customtkinter>=5.0",
     "shapely>=2.0",
 ]

@@ -4,7 +4,7 @@ import os
 import sys
 import contextlib
 
-from PIL import Image, ExifTags
+from PIL import Image
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
@@ -25,20 +25,32 @@ def suppress_tk_mac_warnings():
         yield
 
 
+_ARCHIVO_FILES = ("Archivo-Regular.ttf", "Archivo-Bold.ttf",
+                  "Archivo-Medium.ttf", "Archivo-SemiBold.ttf")
+
+
+def _existing_font_paths():
+    return [p for p in (os.path.join(ASSETS_DIR, n) for n in _ARCHIVO_FILES)
+            if os.path.exists(p)]
+
+
 def _load_custom_fonts():
+    """Register the bundled Archivo fonts with the OS for this process.
+
+    Returns True only when at least one font file was registered, so
+    _get_font_family never names a family that is not available.
+    """
     global _CUSTOM_FONT_LOADED
-    if not os.path.isdir(ASSETS_DIR):
+    paths = _existing_font_paths()
+    if not paths:
         return False
     if sys.platform.startswith("win"):
         try:
             import ctypes
             FR_PRIVATE = 0x10
             gdi32 = ctypes.windll.gdi32
-            for name in ("Archivo-Regular.ttf", "Archivo-Bold.ttf",
-                         "Archivo-Medium.ttf", "Archivo-SemiBold.ttf"):
-                path = os.path.join(ASSETS_DIR, name)
-                if os.path.exists(path):
-                    gdi32.AddFontResourceExW(path, FR_PRIVATE, 0)
+            for path in paths:
+                gdi32.AddFontResourceExW(path, FR_PRIVATE, 0)
             _CUSTOM_FONT_LOADED = True
             return True
         except Exception:
@@ -52,14 +64,12 @@ def _load_custom_fonts():
                 ct = ctypes.cdll.LoadLibrary(ct_path)
                 cf_path = ctypes.util.find_library("CoreFoundation")
                 cf = ctypes.cdll.LoadLibrary(cf_path)
-                for name in ("Archivo-Regular.ttf", "Archivo-Bold.ttf",
-                             "Archivo-Medium.ttf", "Archivo-SemiBold.ttf"):
-                    path = os.path.join(ASSETS_DIR, name)
-                    if os.path.exists(path):
-                        url_ref = cf.CFURLCreateFromFileSystemRepresentation(
-                            None, path.encode("utf-8"), len(path.encode("utf-8")), False)
-                        if url_ref:
-                            ct.CTFontManagerRegisterFontsForURL(url_ref, 1, None)
+                for path in paths:
+                    encoded = path.encode("utf-8")
+                    url_ref = cf.CFURLCreateFromFileSystemRepresentation(
+                        None, encoded, len(encoded), False)
+                    if url_ref:
+                        ct.CTFontManagerRegisterFontsForURL(url_ref, 1, None)
                 _CUSTOM_FONT_LOADED = True
                 return True
         except Exception:
@@ -68,6 +78,7 @@ def _load_custom_fonts():
 
 
 def _get_font_family():
+    """Pick the UI font family: bundled Archivo if registered, else a system sans."""
     import tkinter.font as tkFont
     if _CUSTOM_FONT_LOADED:
         return "Archivo"
@@ -82,32 +93,31 @@ def _get_font_family():
     return "TkDefaultFont"
 
 
+# TIFF/EXIF tag id for Orientation; ExifTags.Base needs Pillow 9.4, so use the number.
+_EXIF_ORIENTATION_TAG = 0x0112
+
+_ORIENTATION_TRANSPOSE = {
+    2: Image.Transpose.FLIP_LEFT_RIGHT,
+    3: Image.Transpose.ROTATE_180,
+    4: Image.Transpose.FLIP_TOP_BOTTOM,
+    5: Image.Transpose.TRANSPOSE,
+    6: Image.Transpose.ROTATE_270,
+    7: Image.Transpose.TRANSVERSE,
+    8: Image.Transpose.ROTATE_90,
+}
+
+
 def auto_orient_image(img):
+    """Return *img* rotated/flipped upright per its EXIF Orientation tag.
+
+    Images without a usable tag are returned as the same object.
+    """
     try:
-        exif = img._getexif()
-        if exif is None:
-            return img
-        orientation_key = None
-        for k, v in ExifTags.TAGS.items():
-            if v == "Orientation":
-                orientation_key = k
-                break
-        if orientation_key is None or orientation_key not in exif:
-            return img
-        orientation = exif[orientation_key]
-        ops = {
-            2: lambda i: i.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
-            3: lambda i: i.rotate(180, expand=True),
-            4: lambda i: i.transpose(Image.Transpose.FLIP_TOP_BOTTOM),
-            5: lambda i: i.transpose(
-                Image.Transpose.FLIP_LEFT_RIGHT).rotate(270, expand=True),
-            6: lambda i: i.rotate(270, expand=True),
-            7: lambda i: i.transpose(
-                Image.Transpose.FLIP_LEFT_RIGHT).rotate(90, expand=True),
-            8: lambda i: i.rotate(90, expand=True),
-        }
-        if orientation in ops:
-            img = ops[orientation](img)
+        orientation = img.getexif().get(_EXIF_ORIENTATION_TAG)
     except Exception as e:
-        print(f"Warning: Could not auto-orient image: {e}")
-    return img
+        print(f"Warning: Could not read EXIF orientation: {e}")
+        return img
+    method = _ORIENTATION_TRANSPOSE.get(orientation)
+    if method is None:
+        return img
+    return img.transpose(method)
