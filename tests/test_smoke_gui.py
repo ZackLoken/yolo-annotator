@@ -216,3 +216,22 @@ class TestCompletion:
         app._complete_var.set(True)
         app._on_complete_toggled()
         assert app._stats_store.completion("a.jpg")["model"] == "nathan_v15"
+
+
+# ── import ──────────────────────────────────────────────────────────────────
+
+class TestImport:
+    def test_run_import_reloads_predictions(self, app, folder, tmp_path):
+        import json
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.json").write_text(json.dumps({"boxes": [[100, 100, 200, 200]], "scores": [0.95]}),
+                                    encoding="utf-8")
+        assert app._run_import(str(src), "bur_detect_json", 0, "nathan_v15") is None
+        assert len(app.predictions) == 1 and app.predictions[0].confidence == 0.95
+        assert "Imported predictions for 1 images" in app.banner_text
+        assert app._current_model_name() == "nathan_v15"
+
+    def test_run_import_returns_form_error(self, app, tmp_path):
+        error = app._run_import(str(tmp_path), "bur_detect_json", None, "m")
+        assert "class id" in error
