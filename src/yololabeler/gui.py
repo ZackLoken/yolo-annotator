@@ -151,12 +151,14 @@ class YoloLabeler:
         # GUI-only handles (not part of AppState)
         self._timer_after_id = None
         self._logo_image = None  # keep a reference so Tk does not drop the image
+        self._app_icon_image = None  # same, for the window/taskbar icon
         self._stats_store = AnnotationStats()
         self._stats = self._stats_store.data
 
         # ── Build GUI ──
         _load_custom_fonts()
         self.font_family = _get_font_family()
+        self._set_window_icon()
         self._build_toolbar()
         object.__setattr__(self, '_review_panel', ReviewPanel(self))
         self._build_status_bar()
@@ -406,8 +408,14 @@ class YoloLabeler:
             self._annotate_tab.display_image()
 
     # ──────────────────────────────────────────────────────────────────────────
-    #  Logo
+    #  Icon and logo
     # ──────────────────────────────────────────────────────────────────────────
+    def _set_window_icon(self):
+        """Set the window/taskbar icon from the bundled app_icon.png."""
+        icon_path = os.path.join(ASSETS_DIR, "app_icon.png")
+        self._app_icon_image = ImageTk.PhotoImage(Image.open(icon_path))
+        self.root.iconphoto(True, self._app_icon_image)
+
     def _load_logo(self, parent):
         logo_path = os.path.join(ASSETS_DIR, "si_logo.png")
         if os.path.exists(logo_path):

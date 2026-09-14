@@ -15,5 +15,6 @@ a = Analysis([os.path.join(here, "launch.py")], pathex=[os.path.join(here, "..",
              hookspath=[], runtime_hooks=[], excludes=[], cipher=block_cipher)
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="YoloLabeler",
-          debug=False, console=False, icon=None)
+          debug=False, console=False,
+          icon=os.path.join(assets, "app_icon.ico"))
 coll = COLLECT(exe, a.binaries, a.zipfiles, a.datas, name="YoloLabeler")
