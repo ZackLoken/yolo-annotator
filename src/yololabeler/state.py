@@ -94,3 +94,4 @@ class AppState:
         # ── Misc flags ──
         self._defer_display = False
         self.show_help = False
+        self.banner_text = None

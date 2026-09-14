@@ -120,7 +120,7 @@ class YoloLabeler:
         '_session_annotated_images', '_session_images',
         '_session_loaded_counts', '_session_add_counts', '_session_total_adds',
         # Misc state
-        '_defer_display', 'show_help',
+        '_defer_display', 'show_help', 'banner_text',
     })
 
     def __getattr__(self, name):
@@ -467,9 +467,11 @@ class YoloLabeler:
         return focused is not None and isinstance(focused.master, ctk.CTkComboBox)
 
     def _key_action(self, action):
-        """Run a bound action unless the user is typing into a widget."""
-        if not self._text_widget_focused():
-            action()
+        """Run a bound action unless the user is typing into a widget, clearing any banner first."""
+        if self._text_widget_focused():
+            return
+        self.clear_banner()
+        action()
 
     def _toggle_snap_key(self):
         """Toggle snapping, which only applies in polygon mode."""
@@ -525,12 +527,44 @@ class YoloLabeler:
             return
         self._annotate_tab.select_annotation(item.annotation.id)
 
+    def save_current(self):
+        """Save the current image's document and stats. Returns None or an error message."""
+        if not self.images or self.document is None:
+            return None
+        error = self._annotate_tab.save_annotations()
+        if error:
+            message = f"{error}. Fix it and press Ctrl+S."
+            self.show_banner(message)
+            return message
+        self._save_stats()
+        return None
+
     def save_now(self):
-        """Save the current image; Task 13 implements it."""
+        """Save the current image on demand (Ctrl+S)."""
+        self.save_current()
+
+    def go_to_image(self, index):
+        """Save, then load another image (spec 5.2). Returns False when the save failed."""
+        if not self.images:
+            return False
+        if self.save_current():
+            return False
+        self._record_image_time()
+        self.banner_text = None
+        self.index = index % len(self.images)
+        self._annotate_tab.load_image()
+        return True
 
     def show_banner(self, text):
-        """Report one message to the user; Task 13 replaces this with the canvas banner."""
-        print(f"[YoloLabeler] {text}")
+        """One canvas message, replacing any previous one (spec 7.1)."""
+        self.banner_text = text
+        self._annotate_tab.display_image()
+
+    def clear_banner(self):
+        """Dismiss the current banner, if any."""
+        if self.banner_text is not None:
+            self.banner_text = None
+            self._annotate_tab.display_image()
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Mode toggle
@@ -750,20 +784,51 @@ class YoloLabeler:
     # ──────────────────────────────────────────────────────────────────────────
     def _quit(self):
         if self.image_folder and self.images:
-            print("[YoloLabeler] Saving and closing...")
-            try:
-                self._record_image_time()
-                self._annotate_tab.save_annotations()
-                self._end_session()
-                self._save_stats()
-                print("[YoloLabeler] Done.")
-            except Exception as e:
-                print(f"Warning: Could not save on exit: {e}")
+            error = self.save_current()
+            if error and not self._confirm_quit_without_saving():
+                return
+            self._record_image_time()
+            self._end_session()
+            self._save_stats()
         if self._timer_after_id:
             self.root.after_cancel(self._timer_after_id)
         if self._annotate_tab._resize_after_id:
             self.root.after_cancel(self._annotate_tab._resize_after_id)
         self.root.destroy()
+
+    def _confirm_quit_without_saving(self):
+        """The one modal: a save failed on quit (spec 7.2). True means quit anyway."""
+        count = len(self.document.annotations) if self.document else 0
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("Save failed")
+        dialog.configure(fg_color=BG_COLOR)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        result = {"quit": False}
+        ctk.CTkLabel(dialog, text=self.banner_text or "Could not save.",
+                     font=(self.font_family, 12), text_color=FG_COLOR,
+                     wraplength=380).pack(padx=16, pady=(16, 6))
+        ctk.CTkLabel(dialog, text=f"Quitting now loses {count} annotations on this image.",
+                     font=(self.font_family, 11), text_color=FG_COLOR).pack(padx=16, pady=(0, 12))
+        row = ctk.CTkFrame(dialog, fg_color="transparent")
+        row.pack(pady=(0, 14))
+
+        def retry():
+            if self.save_current() is None:
+                result["quit"] = True
+                dialog.destroy()
+
+        def quit_anyway():
+            result["quit"] = True
+            dialog.destroy()
+
+        ctk.CTkButton(row, text="Retry", width=110, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                      text_color=FG_COLOR, command=retry).pack(side="left", padx=(0, 10))
+        ctk.CTkButton(row, text="Quit without saving", width=160, fg_color=ENTRY_BG,
+                      hover_color=ACCENT_HOVER, text_color=FG_COLOR,
+                      command=quit_anyway).pack(side="left")
+        dialog.wait_window()
+        return result["quit"]
 
     def _on_escape(self, event=None):
         if self.mode == "polygon":
@@ -956,14 +1021,12 @@ class YoloLabeler:
                    "Partial": "partial", "Unannotated": "unannotated"}
         self._active_filter = mapping.get(choice, "all")
         self._record_image_time()
-        self._annotate_tab.save_annotations()
-        self._save_stats()
         self._rebuild_filter()
         if self._filtered_indices:
-            self.index = self._filtered_indices[0]
-            self._annotate_tab.load_image()
+            self.go_to_image(self._filtered_indices[0])
         else:
-            # No images match filter — clear the canvas
+            self.save_current()
+            # No images match the filter, so clear the canvas.
             self.original_image = None
             self.canvas.delete("all")
             self._annotate_tab._cached_scale = None
@@ -1329,11 +1392,7 @@ class YoloLabeler:
         if idx < 0 or idx >= len(self.images):
             self._on_counter_focus_out()
             return
-        self._record_image_time()
-        self._annotate_tab.save_annotations()
-        self._save_stats()
-        self.index = idx
-        self._annotate_tab.load_image()
+        self.go_to_image(idx)
         self.canvas.focus_set()
 
     def _on_counter_focus_out(self, event=None):

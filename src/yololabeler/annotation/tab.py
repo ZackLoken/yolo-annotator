@@ -977,41 +977,25 @@ class AnnotateTab:
     # ──────────────────────────────────────────────────────────────────────────
     def next_image(self, event=None):
         a = self.app
-        a._record_image_time()
-        self.save_annotations()
-        a._save_stats()
         if a._active_filter != "all" and a._filtered_indices:
             for idx in a._filtered_indices:
                 if idx > a.index:
-                    a.index = idx
-                    self.load_image()
+                    a.go_to_image(idx)
                     return
-            a.index = a._filtered_indices[0]
-            self.load_image()
+            a.go_to_image(a._filtered_indices[0])
             return
-        a.index += 1
-        if a.index >= len(a.images):
-            a.index = 0
-        self.load_image()
+        a.go_to_image(a.index + 1)
 
     def prev_image(self, event=None):
         a = self.app
-        a._record_image_time()
-        self.save_annotations()
-        a._save_stats()
         if a._active_filter != "all" and a._filtered_indices:
             for idx in reversed(a._filtered_indices):
                 if idx < a.index:
-                    a.index = idx
-                    self.load_image()
+                    a.go_to_image(idx)
                     return
-            a.index = a._filtered_indices[-1]
-            self.load_image()
+            a.go_to_image(a._filtered_indices[-1])
             return
-        a.index -= 1
-        if a.index < 0:
-            a.index = len(a.images) - 1
-        self.load_image()
+        a.go_to_image(a.index - 1)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Undo / Redo
@@ -1215,14 +1199,42 @@ class AnnotateTab:
             self.canvas, self.image_to_canvas, a, a.class_names, a.font_family,
             label_size, show_gt=a._review_show_gt, show_pred=a._review_show_pred)
 
-        self.render_help()
+        help_y0 = 10
+        if a.banner_text:
+            banner_h = self._draw_block(a.banner_text.split("\n"), y0=10)
+            help_y0 = 10 + banner_h + 10
+        self.render_help(help_y0)
 
-    def render_help(self):
+    def _draw_block(self, lines, y0):
+        """Draw a padded text block at x 10, y0, shared by the banner and the help overlay; returns its height."""
+        canvas = self.canvas
+        font_family = "Menlo" if sys.platform == "darwin" else "Consolas"
+        font_size = 14
+        pad = 14
+
+        fnt = tkFont.Font(family=font_family, size=font_size)
+        line_height = fnt.metrics("linespace") + 2
+        max_text_w = max(fnt.measure(ln) for ln in lines) if lines else 100
+
+        block_w = max_text_w + pad * 3
+        block_h = len(lines) * line_height + pad * 2
+        x0 = 10
+
+        canvas.create_rectangle(
+            x0, y0, x0 + block_w, y0 + block_h,
+            fill="#1A1A1A", outline="#444444", width=1, stipple="")
+
+        for i, line in enumerate(lines):
+            canvas.create_text(
+                x0 + pad, y0 + pad + i * line_height,
+                anchor="nw", text=line,
+                fill=FG_COLOR, font=(font_family, font_size))
+        return block_h
+
+    def render_help(self, y0=10):
         a = self.app
         if not a.show_help:
             return
-
-        canvas = self.canvas
 
         if a.mode == "box":
             help_lines = [
@@ -1273,28 +1285,4 @@ class AnnotateTab:
                 "  double-click or Escape to finish.",
             ]
 
-        if sys.platform == "darwin":
-            font_family = "Menlo"
-        else:
-            font_family = "Consolas"
-        font_size = 14
-        pad = 14
-
-        fnt = tkFont.Font(family=font_family, size=font_size)
-        line_height = fnt.metrics("linespace") + 2
-        max_text_w = max(fnt.measure(ln) for ln in help_lines) \
-            if help_lines else 100
-
-        block_w = max_text_w + pad * 3
-        block_h = len(help_lines) * line_height + pad * 2
-        x0, y0 = 10, 10
-
-        canvas.create_rectangle(
-            x0, y0, x0 + block_w, y0 + block_h,
-            fill="#1A1A1A", outline="#444444", width=1, stipple="")
-
-        for i, line in enumerate(help_lines):
-            canvas.create_text(
-                x0 + pad, y0 + pad + i * line_height,
-                anchor="nw", text=line,
-                fill=FG_COLOR, font=(font_family, font_size))
+        self._draw_block(help_lines, y0)

@@ -141,3 +141,41 @@ class TestActions:
         panel.focus_item(len(app.queue) - 1)
         app.edit_pair()
         assert app._selected_annotation_id == app.queue[app.queue_index].annotation.id
+
+
+# ── navigation and saving ───────────────────────────────────────────────────
+
+class TestNavigation:
+    def test_go_to_image_saves_first(self, app, folder):
+        tab = app._annotate_tab
+        tab.on_button_press(click_at(tab, 50, 50))
+        tab.on_button_release(click_at(tab, 150, 150))
+        assert app.go_to_image(1)
+        lines = (folder / "labels" / "detect" / "a.txt").read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2
+        assert (folder / "state" / "annotations" / "a.json").exists()
+
+    def test_failed_save_blocks_navigation_and_shows_banner(self, app, folder):
+        import os
+        broken_path = folder / "labels" / "detect" / "a.txt"
+        os.remove(broken_path)
+        os.makedirs(broken_path)
+        app.document.annotations.clear()
+        app._engine.add_box(1, 1, 30, 30)
+        try:
+            assert not app.go_to_image(1)
+            assert app.index == 0
+            assert "Could not save" in app.banner_text and "Ctrl+S" in app.banner_text
+        finally:
+            # Restore a normal path so the fixture's teardown quit can save cleanly
+            # instead of blocking on the quit-without-saving modal.
+            os.rmdir(broken_path)
+
+    def test_banner_clears_on_key_action(self, app):
+        app.show_banner("hello")
+        app._key_action(lambda: None)
+        assert app.banner_text is None
+
+    def test_success_is_silent(self, app):
+        app.save_now()
+        assert app.banner_text is None
