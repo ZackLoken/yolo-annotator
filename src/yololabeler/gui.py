@@ -411,10 +411,17 @@ class YoloLabeler:
     #  Icon and logo
     # ──────────────────────────────────────────────────────────────────────────
     def _set_window_icon(self):
-        """Set the window/taskbar icon from the bundled app_icon.png."""
-        icon_path = os.path.join(ASSETS_DIR, "app_icon.png")
-        self._app_icon_image = ImageTk.PhotoImage(Image.open(icon_path))
+        """Set the window/taskbar icon from the bundled app_icon assets.
+
+        CustomTkinter's CTk schedules its own titlebar-icon override 200ms
+        after construction unless iconbitmap was called first, so iconphoto
+        alone is silently overwritten on Windows; iconbitmap must run too.
+        """
+        self._app_icon_image = ImageTk.PhotoImage(
+            Image.open(os.path.join(ASSETS_DIR, "app_icon.png")))
         self.root.iconphoto(True, self._app_icon_image)
+        if sys.platform.startswith("win"):
+            self.root.iconbitmap(os.path.join(ASSETS_DIR, "app_icon.ico"))
 
     def _load_logo(self, parent):
         logo_path = os.path.join(ASSETS_DIR, "si_logo.png")
