@@ -1,13 +1,9 @@
-"""AnnotationEngine — Annotation CRUD, spatial index, undo/redo.
-
-GUI-free.  Operates on an AppState instance.  Can be instantiated
-headlessly for programmatic use (AI agents, training pipelines, CLI).
-"""
+"""AnnotationEngine: headless CRUD, undo/redo and save over the current Document."""
 
 import os
 
+from yololabeler.annotation.document import new_annotation, save_document
 from yololabeler.state import AppState
-from yololabeler.label_io import write_detect_labels, write_segment_labels
 
 # Snapshot count kept for undo; value carried over from the original implementation.
 UNDO_DEPTH = 30
@@ -19,48 +15,43 @@ class AnnotationEngine:
     def __init__(self, state: AppState):
         self.state = state
 
-    # ── Spatial index (polygon bounding-box cache) ────────────────────────
+    # ── Spatial index ──────────────────────────────────────────────────────
 
     def invalidate_poly_bboxes(self):
+        """Mark the polygon bounding-box cache stale."""
         self.state._poly_bboxes_dirty = True
 
     def ensure_poly_bboxes(self):
+        """Rebuild the polygon bounding-box cache, keyed by annotation id, if stale."""
         s = self.state
         if not s._poly_bboxes_dirty:
             return
-        s._poly_bboxes = []
-        for points, _ in s.polygons:
-            if points:
-                xs = [p[0] for p in points]
-                ys = [p[1] for p in points]
-                s._poly_bboxes.append((min(xs), min(ys), max(xs), max(ys)))
-            else:
-                s._poly_bboxes.append((0, 0, 0, 0))
+        s._poly_bboxes = {}
+        if s.document is not None:
+            for a in s.document.polygons():
+                xs = [p[0] for p in a.points]
+                ys = [p[1] for p in a.points]
+                s._poly_bboxes[a.id] = (min(xs), min(ys), max(xs), max(ys))
         s._poly_bboxes_dirty = False
 
-    # ── Undo / redo ───────────────────────────────────────────────────────
+    # ── Undo / redo ────────────────────────────────────────────────────────
 
     def _snapshot(self):
-        """Copy the undoable annotation state into a tuple."""
         s = self.state
-        return (
-            list(s.boxes),
-            list(s.polygons),
-            s._selected_polygon_idx,
-            list(s.box_authors),
-            list(s.polygon_authors),
-        )
+        return (s.document.snapshot(), s._selected_annotation_id, dict(s.verdicts))
 
     def _restore(self, snap):
-        """Replace the undoable annotation state from a snapshot tuple."""
         s = self.state
-        (s.boxes, s.polygons, s._selected_polygon_idx,
-         s.box_authors, s.polygon_authors) = snap
+        annotations, selected, verdicts = snap
+        s.document.restore(annotations)
+        s._selected_annotation_id = selected
+        s.verdicts.clear()
+        s.verdicts.update(verdicts)
         self.invalidate_poly_bboxes()
         self.clear_drag_state()
 
     def push_undo(self):
-        """Snapshot current annotation state before a mutation."""
+        """Snapshot the document, selection and verdicts before a mutation."""
         s = self.state
         s._undo_stack.append(self._snapshot())
         s._redo_stack.clear()
@@ -68,10 +59,7 @@ class AnnotationEngine:
             s._undo_stack.pop(0)
 
     def undo_snapshot(self):
-        """Restore previous state from snapshot stack.
-
-        Returns True if state was restored, False if stack was empty.
-        """
+        """Restore the previous snapshot; returns False when there is none."""
         s = self.state
         if not s._undo_stack:
             return False
@@ -80,10 +68,7 @@ class AnnotationEngine:
         return True
 
     def redo_snapshot(self):
-        """Restore state from redo stack.
-
-        Returns True if state was restored, False if stack was empty.
-        """
+        """Re-apply the last undone snapshot; returns False when there is none."""
         s = self.state
         if not s._redo_stack:
             return False
@@ -91,65 +76,73 @@ class AnnotationEngine:
         self._restore(s._redo_stack.pop())
         return True
 
-    # ── Drag / selection helpers ──────────────────────────────────────────
-
     def clear_drag_state(self):
+        """Reset in-progress vertex-drag and hover state."""
         s = self.state
         s._dragging_vertex = None
         s._drag_orig_pos = None
-        s._hovered_polygon_idx = None
+        s._hovered_annotation_id = None
 
-    # ── Polygon CRUD ──────────────────────────────────────────────────────
+    # ── CRUD ───────────────────────────────────────────────────────────────
+
+    def add_box(self, x1, y1, x2, y2):
+        """Append a drawn box for the active class; caller pushes undo first."""
+        s = self.state
+        a = new_annotation("box", ((x1, y1), (x2, y2)), s.active_class, s._current_user)
+        s.document.add(a)
+        return a
 
     def close_current_polygon(self):
-        """Finalize the in-progress polygon.
-
-        Clamps vertices to image bounds, pushes undo, appends polygon.
-        Returns True if a polygon was added, False if < 3 vertices.
-        """
+        """Finalize the in-progress polygon, clamped to image bounds; None if under 3 vertices."""
         s = self.state
         if len(s.current_polygon) < 3:
             s.current_polygon = []
-            return False
-        clamped = []
-        for x, y in s.current_polygon:
-            clamped.append((
-                max(0, min(s.img_width, x)),
-                max(0, min(s.img_height, y)),
-            ))
+            return None
+        clamped = [(max(0, min(s.img_width, x)), max(0, min(s.img_height, y)))
+                   for x, y in s.current_polygon]
         self.push_undo()
-        s.polygons.append((clamped, s.active_class))
-        s.polygon_authors.append(s._current_user)
+        a = new_annotation("polygon", clamped, s.active_class, s._current_user)
+        s.document.add(a)
         self.invalidate_poly_bboxes()
         s.current_polygon = []
-        return True
+        return a
 
-    # ── I/O ───────────────────────────────────────────────────────────────
+    def delete_annotation(self, ann_id):
+        """Remove and return the annotation with the given id."""
+        removed = self.state.document.remove(ann_id)
+        self.invalidate_poly_bboxes()
+        if self.state._selected_annotation_id == ann_id:
+            self.state._selected_annotation_id = None
+        return removed
+
+    def set_points(self, ann_id, points):
+        """Replace the points of the given annotation in place."""
+        self.state.document.replace(ann_id, points=points)
+        self.invalidate_poly_bboxes()
+
+    # ── I/O ────────────────────────────────────────────────────────────────
+
+    def label_paths(self):
+        """Return the (detect, segment, sidecar) file paths for the current image."""
+        s = self.state
+        stem = os.path.splitext(s.images[s.index])[0]
+        return (os.path.join(s.detect_dir, f"{stem}.txt"),
+                os.path.join(s.segment_dir, f"{stem}.txt"),
+                os.path.join(s.state_dir, "annotations", f"{stem}.json"))
 
     def save(self):
-        """Save current annotations to YOLO-format label files.
-
-        Returns True on success, False if save was skipped or failed.
-        """
+        """Write labels and sidecar for the current image; returns None or an error message."""
         s = self.state
-        if (not s.images or not s.labels_dir
-                or not s.detect_dir or not s.segment_dir):
-            return False
+        if s.document is None or not s.images:
+            return "No image loaded"
+        if s.img_width <= 0 or s.img_height <= 0:
+            return f"Invalid image size {s.img_width}x{s.img_height}"
         os.makedirs(s.detect_dir, exist_ok=True)
         os.makedirs(s.segment_dir, exist_ok=True)
-        stem = os.path.splitext(s.images[s.index])[0]
-        detect_path = os.path.join(s.detect_dir, f"{stem}.txt")
-        segment_path = os.path.join(s.segment_dir, f"{stem}.txt")
-        if s.img_width <= 0 or s.img_height <= 0:
-            print(f"Warning: Invalid image dimensions "
-                  f"({s.img_width}x{s.img_height}), skipping save")
-            return False
+        detect, segment, sidecar = self.label_paths()
         try:
-            write_detect_labels(detect_path, s.boxes,
-                                s.img_width, s.img_height)
-            write_segment_labels(segment_path, s.polygons,
-                                 s.img_width, s.img_height)
-            return True
+            save_document(s.document, detect, segment, sidecar)
         except OSError as e:
-            print(f"Warning: Could not save annotations: {e}")
-            return False
+            target = e.filename2 or e.filename or detect
+            return f"Could not save {target}: {e.strerror or e}"
+        return None

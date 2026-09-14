@@ -23,10 +23,8 @@ class AppState:
         self.img_height = 0
 
         # ── Annotation data ──
-        self.boxes = []              # [(x1, y1, x2, y2, class_id), ...] pixel coords
-        self.polygons = []           # [([(x, y), ...], class_id), ...] pixel coords
-        self.box_authors = []        # parallel to boxes: username per annotation
-        self.polygon_authors = []    # parallel to polygons: username per annotation
+        self.document = None         # Document for the current image, or None
+        self.verdicts = {}           # live per-image verdict dict from ReviewEngine
         self.current_polygon = []    # in-progress polygon vertices
         self.mode = "polygon"        # "box" | "polygon"
 
@@ -53,15 +51,15 @@ class AppState:
         self._active_filter = "all"
         self._filtered_indices = []
 
-        # ── Spatial index (polygon bounding-box cache) ──
-        self._poly_bboxes = []
+        # ── Spatial index (polygon bounding-box cache, by annotation id) ──
+        self._poly_bboxes = {}
         self._poly_bboxes_dirty = True
 
         # ── Annotation interaction ──
-        self._dragging_vertex = None
+        self._dragging_vertex = None       # (annotation id, vertex index)
         self._drag_orig_pos = None
-        self._selected_polygon_idx = None
-        self._hovered_polygon_idx = None
+        self._selected_annotation_id = None
+        self._hovered_annotation_id = None
         self._stream_mode = False
         self._stream_active = False
         self._last_stream_pos = None

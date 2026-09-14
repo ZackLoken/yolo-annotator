@@ -83,7 +83,7 @@ class YoloLabeler:
         # Image list & current image
         'images', 'index', 'original_image', 'img_width', 'img_height',
         # Annotations
-        'boxes', 'polygons', 'box_authors', 'polygon_authors',
+        'document', 'verdicts',
         'current_polygon', 'mode',
         'start_x', 'start_y', 'rect',
         # Class registry
@@ -98,7 +98,7 @@ class YoloLabeler:
         '_poly_bboxes', '_poly_bboxes_dirty',
         # Interaction
         '_dragging_vertex', '_drag_orig_pos',
-        '_selected_polygon_idx', '_hovered_polygon_idx',
+        '_selected_annotation_id', '_hovered_annotation_id',
         '_stream_mode', '_stream_active', '_last_stream_pos',
         # Review data
         '_review_index', '_review_detection_idx', '_review_detections',
