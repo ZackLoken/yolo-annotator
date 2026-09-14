@@ -22,7 +22,6 @@ from yololabeler.label_io import (
 )
 
 Point = Tuple[float, float]
-SOURCES = ("drawn", "accepted", "unknown")
 
 
 @dataclass(frozen=True)

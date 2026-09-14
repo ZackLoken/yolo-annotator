@@ -207,8 +207,7 @@ class AnnotateTab:
         a._review_panel.refresh(keep_focus=False)
         a.queue_index = a._review_panel.first_unreviewed()
         a._review_panel.update_labels()
-        if not a._defer_display:
-            self.display_image()
+        self.display_image()
         a.update_title()
         a._update_status()
 

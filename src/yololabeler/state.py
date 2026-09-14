@@ -93,6 +93,5 @@ class AppState:
         self._session_total_adds = 0
 
         # ── Misc flags ──
-        self._defer_display = False
         self.show_help = False
         self.banner_text = None

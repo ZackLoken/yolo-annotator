@@ -70,8 +70,6 @@ def _applies(when, mode, has_queue, has_pair):
         return True
     if when == "polygon":
         return mode == "polygon"
-    if when == "box":
-        return mode == "box"
     if when == "queue":
         return has_queue
     return has_pair

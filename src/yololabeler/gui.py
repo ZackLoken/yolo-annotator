@@ -115,7 +115,7 @@ class YoloLabeler:
         '_session_annotated_images', '_session_images',
         '_session_loaded_counts', '_session_add_counts', '_session_total_adds',
         # Misc state
-        '_defer_display', 'show_help', 'banner_text',
+        'show_help', 'banner_text',
     })
 
     def __getattr__(self, name):
@@ -988,9 +988,6 @@ class YoloLabeler:
             self.show_banner(
                 f"review_stats.json could not be read and was moved to "
                 f"{os.path.basename(moved)}. Starting a new one.")
-
-    def _save_review_state(self):
-        self._review.save_review_state()
 
     def _mark_image_annotated(self):
         """Call whenever user creates/modifies an annotation."""
