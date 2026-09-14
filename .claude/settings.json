@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/run_related_tests.py",
+            "timeout": 30,
+            "statusMessage": "Running related pytest module..."
+          }
+        ]
+      }
+    ]
+  }
+}

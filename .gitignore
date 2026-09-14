@@ -25,3 +25,6 @@ env/
 Thumbs.db
 CSV_text_file_converter.ipynb
 /backups
+
+# Local design docs and plans, not published
+/docs
