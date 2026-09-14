@@ -11,6 +11,16 @@ import shutil
 from yololabeler.state import AppState
 from yololabeler.label_io import write_detect_labels, write_segment_labels
 
+# Centre-match tolerance and hash cell size (1/500) carried over from the original code.
+MATCH_TOLERANCE = 0.002
+LOOKUP_QUANT = 500
+
+
+def _quantize(bbox_norm):
+    """Spatial-hash cell for a normalised ``[cx, cy, w, h]`` bbox."""
+    return (round(bbox_norm[0] * LOOKUP_QUANT),
+            round(bbox_norm[1] * LOOKUP_QUANT))
+
 
 class ReviewEngine:
     """Review operations that operate on AppState without any GUI dependency."""
@@ -56,6 +66,15 @@ class ReviewEngine:
         img_data = per_image.setdefault(
             img_name, {"img_status": "completed", "detections": []})
         img_data["img_status"] = "completed"
+        self.save_review_state()
+
+    def add_review_time(self, img_name, seconds):
+        """Accumulate elapsed review seconds onto an image's review record."""
+        per_image = self.state._review_state.setdefault("image", {})
+        img_data = per_image.setdefault(
+            img_name, {"img_status": "not_started", "detections": []})
+        img_data["review_seconds"] = round(
+            img_data.get("review_seconds", 0.0) + seconds, 2)
         self.save_review_state()
 
     def is_image_reviewed(self, img_name):
@@ -117,30 +136,23 @@ class ReviewEngine:
         img_w = max(s._review_img_w, 1)
         img_h = max(s._review_img_h, 1)
 
-        def _norm(gt_or_pred_type, gt_or_pred_idx, boxes, polygons):
-            if gt_or_pred_type == 'box' and gt_or_pred_idx is not None:
-                if 0 <= gt_or_pred_idx < len(boxes):
-                    b = boxes[gt_or_pred_idx]
-                    x1, y1, x2, y2 = b[0], b[1], b[2], b[3]
-                    return [
-                        round((x1 + x2) / 2 / img_w, 6),
-                        round((y1 + y2) / 2 / img_h, 6),
-                        round((x2 - x1) / img_w, 6),
-                        round((y2 - y1) / img_h, 6)]
-            elif gt_or_pred_type == 'polygon' and gt_or_pred_idx is not None:
-                if 0 <= gt_or_pred_idx < len(polygons):
-                    pts = (polygons[gt_or_pred_idx][0]
-                           if isinstance(polygons[gt_or_pred_idx], tuple)
-                           else polygons[gt_or_pred_idx])
-                    xs = [p[0] for p in pts]
-                    ys = [p[1] for p in pts]
-                    x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
-                    return [
-                        round((x1 + x2) / 2 / img_w, 6),
-                        round((y1 + y2) / 2 / img_h, 6),
-                        round((x2 - x1) / img_w, 6),
-                        round((y2 - y1) / img_h, 6)]
-            return None
+        def _norm(geom_type, idx, boxes, polygons):
+            if idx is None:
+                return None
+            if geom_type == 'box' and 0 <= idx < len(boxes):
+                x1, y1, x2, y2 = boxes[idx][:4]
+            elif geom_type == 'polygon' and 0 <= idx < len(polygons):
+                pts = polygons[idx][0]
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+            else:
+                return None
+            return [
+                round((x1 + x2) / 2 / img_w, 6),
+                round((y1 + y2) / 2 / img_h, 6),
+                round((x2 - x1) / img_w, 6),
+                round((y2 - y1) / img_h, 6)]
 
         gt_bbox = _norm(det.get('gt_type'), det.get('gt_idx'),
                         s._review_gt_boxes, s._review_gt_polygons)
@@ -164,18 +176,15 @@ class ReviewEngine:
             s._reviewed_lookup = (img_name, {}, {})
             return
         reviewed_dets = img_data.get("detections", [])
-        QUANT = 500
         pred_map = {}
         gt_map = {}
         for entry in reviewed_dets:
             e_pred = entry.get("pred_bbox_norm")
             if e_pred:
-                qk = (round(e_pred[0] * QUANT), round(e_pred[1] * QUANT))
-                pred_map.setdefault(qk, []).append(entry)
+                pred_map.setdefault(_quantize(e_pred), []).append(entry)
             e_gt = entry.get("gt_bbox_norm")
             if e_gt:
-                qk = (round(e_gt[0] * QUANT), round(e_gt[1] * QUANT))
-                gt_map.setdefault(qk, []).append(entry)
+                gt_map.setdefault(_quantize(e_gt), []).append(entry)
         s._reviewed_lookup = (img_name, pred_map, gt_map)
 
     def invalidate_reviewed_lookup(self):
@@ -196,38 +205,24 @@ class ReviewEngine:
 
         _, pred_map, gt_map = s._reviewed_lookup
 
-        TOLERANCE = 0.002
-        QUANT = 500
-
-        det_type = det['det_type']
-        if det_type in ('tp', 'fp'):
-            pred_bbox = self.det_norm_bbox(det, 'pred')
-            if not pred_bbox:
-                return None
-            pcx, pcy = pred_bbox[0], pred_bbox[1]
-            qx, qy = round(pcx * QUANT), round(pcy * QUANT)
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    for entry in pred_map.get((qx + dx, qy + dy), ()):
-                        e_pred = entry.get("pred_bbox_norm")
-                        if (e_pred
-                                and abs(e_pred[0] - pcx) < TOLERANCE
-                                and abs(e_pred[1] - pcy) < TOLERANCE):
-                            return entry
-        else:  # fn
-            gt_bbox = self.det_norm_bbox(det, 'gt')
-            if not gt_bbox:
-                return None
-            gcx, gcy = gt_bbox[0], gt_bbox[1]
-            qx, qy = round(gcx * QUANT), round(gcy * QUANT)
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    for entry in gt_map.get((qx + dx, qy + dy), ()):
-                        e_gt = entry.get("gt_bbox_norm")
-                        if (e_gt
-                                and abs(e_gt[0] - gcx) < TOLERANCE
-                                and abs(e_gt[1] - gcy) < TOLERANCE):
-                            return entry
+        # TP/FP entries are keyed by the prediction centre, FN by the GT centre.
+        if det['det_type'] in ('tp', 'fp'):
+            bbox = self.det_norm_bbox(det, 'pred')
+            lookup, key = pred_map, "pred_bbox_norm"
+        else:
+            bbox = self.det_norm_bbox(det, 'gt')
+            lookup, key = gt_map, "gt_bbox_norm"
+        if not bbox:
+            return None
+        cx, cy = bbox[0], bbox[1]
+        qx, qy = _quantize(bbox)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for entry in lookup.get((qx + dx, qy + dy), ()):
+                    e = entry.get(key)
+                    if (e and abs(e[0] - cx) < MATCH_TOLERANCE
+                            and abs(e[1] - cy) < MATCH_TOLERANCE):
+                        return entry
         return None
 
     # ── Detection list (filtered) ─────────────────────────────────────────

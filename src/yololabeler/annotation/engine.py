@@ -9,6 +9,9 @@ import os
 from yololabeler.state import AppState
 from yololabeler.label_io import write_detect_labels, write_segment_labels
 
+# Snapshot count kept for undo; value carried over from the original implementation.
+UNDO_DEPTH = 30
+
 
 class AnnotationEngine:
     """Annotation logic that operates on AppState without any GUI dependency."""
@@ -37,19 +40,31 @@ class AnnotationEngine:
 
     # ── Undo / redo ───────────────────────────────────────────────────────
 
-    def push_undo(self):
-        """Snapshot current annotation state before a mutation."""
+    def _snapshot(self):
+        """Copy the undoable annotation state into a tuple."""
         s = self.state
-        snapshot = (
+        return (
             list(s.boxes),
             list(s.polygons),
             s._selected_polygon_idx,
             list(s.box_authors),
             list(s.polygon_authors),
         )
-        s._undo_stack.append(snapshot)
+
+    def _restore(self, snap):
+        """Replace the undoable annotation state from a snapshot tuple."""
+        s = self.state
+        (s.boxes, s.polygons, s._selected_polygon_idx,
+         s.box_authors, s.polygon_authors) = snap
+        self.invalidate_poly_bboxes()
+        self.clear_drag_state()
+
+    def push_undo(self):
+        """Snapshot current annotation state before a mutation."""
+        s = self.state
+        s._undo_stack.append(self._snapshot())
         s._redo_stack.clear()
-        if len(s._undo_stack) > 30:
+        if len(s._undo_stack) > UNDO_DEPTH:
             s._undo_stack.pop(0)
 
     def undo_snapshot(self):
@@ -60,22 +75,8 @@ class AnnotationEngine:
         s = self.state
         if not s._undo_stack:
             return False
-        redo_snap = (
-            list(s.boxes),
-            list(s.polygons),
-            s._selected_polygon_idx,
-            list(s.box_authors),
-            list(s.polygon_authors),
-        )
-        s._redo_stack.append(redo_snap)
-        snap = s._undo_stack.pop()
-        s.boxes = snap[0]
-        s.polygons = snap[1]
-        s._selected_polygon_idx = snap[2]
-        s.box_authors = snap[3] if len(snap) > 3 else [""] * len(s.boxes)
-        s.polygon_authors = snap[4] if len(snap) > 4 else [""] * len(s.polygons)
-        self.invalidate_poly_bboxes()
-        self.clear_drag_state()
+        s._redo_stack.append(self._snapshot())
+        self._restore(s._undo_stack.pop())
         return True
 
     def redo_snapshot(self):
@@ -86,22 +87,8 @@ class AnnotationEngine:
         s = self.state
         if not s._redo_stack:
             return False
-        undo_snap = (
-            list(s.boxes),
-            list(s.polygons),
-            s._selected_polygon_idx,
-            list(s.box_authors),
-            list(s.polygon_authors),
-        )
-        s._undo_stack.append(undo_snap)
-        snap = s._redo_stack.pop()
-        s.boxes = snap[0]
-        s.polygons = snap[1]
-        s._selected_polygon_idx = snap[2]
-        s.box_authors = snap[3] if len(snap) > 3 else [""] * len(s.boxes)
-        s.polygon_authors = snap[4] if len(snap) > 4 else [""] * len(s.polygons)
-        self.invalidate_poly_bboxes()
-        self.clear_drag_state()
+        s._undo_stack.append(self._snapshot())
+        self._restore(s._redo_stack.pop())
         return True
 
     # ── Drag / selection helpers ──────────────────────────────────────────

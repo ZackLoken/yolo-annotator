@@ -160,6 +160,30 @@ def parse_segment_predictions(path, img_w, img_h):
 
 # ── Writing ─────────────────────────────────────────────────────────────────
 
+def _write_label_lines(path, lines):
+    """Atomically replace *path* with *lines*, or delete it when there are none.
+
+    An empty label file is never left on disk; YOLO treats a missing file
+    as an image with no objects.
+    """
+    if not lines:
+        if os.path.exists(path):
+            os.remove(path)
+        return
+    dir_name = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def write_detect_labels(path, boxes, img_w, img_h):
     """Write detect boxes to a YOLO label file.
 
@@ -172,26 +196,14 @@ def write_detect_labels(path, boxes, img_w, img_h):
     img_w, img_h : int
         Image dimensions for normalisation.
     """
-    if boxes:
-        dir_name = os.path.dirname(path) or "."
-        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                for x1, y1, x2, y2, cls in boxes:
-                    xc = ((x1 + x2) / 2) / img_w
-                    yc = ((y1 + y2) / 2) / img_h
-                    w = (x2 - x1) / img_w
-                    h = (y2 - y1) / img_h
-                    f.write(f"{cls} {xc:.6f} {yc:.6f} {w:.6f} {h:.6f}\n")
-            os.replace(tmp_path, path)
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-    elif os.path.exists(path):
-        os.remove(path)
+    lines = []
+    for x1, y1, x2, y2, cls in boxes:
+        xc = ((x1 + x2) / 2) / img_w
+        yc = ((y1 + y2) / 2) / img_h
+        w = (x2 - x1) / img_w
+        h = (y2 - y1) / img_h
+        lines.append(f"{cls} {xc:.6f} {yc:.6f} {w:.6f} {h:.6f}\n")
+    _write_label_lines(path, lines)
 
 
 def write_segment_labels(path, polygons, img_w, img_h):
@@ -207,22 +219,8 @@ def write_segment_labels(path, polygons, img_w, img_h):
     img_w, img_h : int
         Image dimensions for normalisation.
     """
-    if polygons:
-        dir_name = os.path.dirname(path) or "."
-        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                for points, cls in polygons:
-                    coords = " ".join(
-                        f"{x / img_w:.6f} {y / img_h:.6f}"
-                        for x, y in points)
-                    f.write(f"{cls} {coords}\n")
-            os.replace(tmp_path, path)
-        except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-    elif os.path.exists(path):
-        os.remove(path)
+    lines = []
+    for points, cls in polygons:
+        coords = " ".join(f"{x / img_w:.6f} {y / img_h:.6f}" for x, y in points)
+        lines.append(f"{cls} {coords}\n")
+    _write_label_lines(path, lines)

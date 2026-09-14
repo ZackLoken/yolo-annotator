@@ -1,6 +1,5 @@
 """Tests for ReviewEngine — headless review logic."""
 
-import json
 import os
 import tempfile
 
