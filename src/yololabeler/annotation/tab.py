@@ -295,10 +295,9 @@ class AnnotateTab:
     def select_annotation(self, ann_id):
         """Select an annotation by id, switching the annotate mode to match its kind."""
         a = self.app
-        a._selected_annotation_id = ann_id
         if ann_id is not None:
-            a.mode = a.document.get(ann_id).kind
-            a._set_mode(a.mode)
+            a._set_mode(a.document.get(ann_id).kind)
+        a._selected_annotation_id = ann_id
         self.display_image()
 
     # ──────────────────────────────────────────────────────────────────────────

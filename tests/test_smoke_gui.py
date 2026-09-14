@@ -73,6 +73,12 @@ class TestAnnotate:
         assert len(app.document.annotations) == 2
         assert app.document.annotations[1].author == app._current_user
 
+    def test_select_annotation_keeps_a_box_selected(self, app):
+        ann = app.document.annotations[0]
+        app._annotate_tab.select_annotation(ann.id)
+        assert app.mode == "box"
+        assert app._selected_annotation_id == ann.id
+
     def test_hidden_class_is_not_a_delete_target(self, app):
         app._select_class_by_id(0)
         app.class_names[1] = "other"
