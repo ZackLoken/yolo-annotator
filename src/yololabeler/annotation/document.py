@@ -59,6 +59,7 @@ class Document:
         self.annotations: List[Annotation] = list(annotations)
 
     def add(self, annotation):
+        """Append an annotation to the end of the document."""
         self.annotations.append(annotation)
 
     def _index(self, ann_id):
@@ -68,9 +69,11 @@ class Document:
         raise KeyError(ann_id)
 
     def get(self, ann_id):
+        """Return the annotation with the given id, or raise KeyError."""
         return self.annotations[self._index(ann_id)]
 
     def remove(self, ann_id):
+        """Remove and return the annotation with the given id."""
         return self.annotations.pop(self._index(ann_id))
 
     def replace(self, ann_id, **changes):
@@ -82,15 +85,19 @@ class Document:
         return self.annotations[i]
 
     def boxes(self):
+        """Return the box annotations, in insertion order."""
         return [a for a in self.annotations if a.kind == "box"]
 
     def polygons(self):
+        """Return the polygon annotations, in insertion order."""
         return [a for a in self.annotations if a.kind == "polygon"]
 
     def snapshot(self):
+        """Return an immutable copy of the current annotations for undo/redo."""
         return tuple(self.annotations)
 
     def restore(self, snap):
+        """Replace the annotations with a previously taken snapshot."""
         self.annotations = list(snap)
 
     def line_for(self, annotation):
@@ -103,6 +110,7 @@ class Document:
                                    self.width, self.height)
 
     def label_lines(self):
+        """Return the (detect, segment) label lines for all annotations."""
         detect = [self.line_for(a) for a in self.boxes()]
         segment = [self.line_for(a) for a in self.polygons()]
         return detect, segment
