@@ -5,8 +5,13 @@ import tempfile
 
 import pytest
 
+from yololabeler.annotation.document import Document, new_annotation
+from yololabeler.predictions.store import Prediction
 from yololabeler.state import AppState
-from yololabeler.review.engine import ReviewEngine
+from yololabeler.review.engine import (
+    DEFAULT_CONF_THRESHOLD, QueueItem, ReviewEngine, apply_accept, apply_reject,
+    build_queue, match_document,
+)
 
 
 @pytest.fixture
@@ -267,3 +272,139 @@ class TestSaveGt:
             engine.save_gt()
             assert os.path.exists(os.path.join(s.detect_dir, "img_001.txt"))
             assert os.path.exists(os.path.join(s.segment_dir, "img_001.txt"))
+
+
+# ── Document-based queue and verdicts ───────────────────────────────────────
+
+
+def pred(pid, x1, y1, x2, y2, cid=0, conf=0.9):
+    """Build a box Prediction for tests, deriving line_index from the id."""
+    return Prediction(pid, "box", ((x1, y1), (x2, y2)), cid, conf, int(pid.split(":")[1]))
+
+
+@pytest.fixture
+def scene():
+    """One matched box, one model miss, one false positive, one low-confidence pred."""
+    doc = Document("img_001.jpg", 640, 480)
+    doc.add(new_annotation("box", ((10, 10), (110, 110)), 0, "z"))
+    doc.add(new_annotation("box", ((300, 300), (400, 400)), 0, "z"))
+    preds = [pred("h:0", 12, 12, 112, 112),
+             pred("h:1", 500, 20, 560, 80),
+             pred("h:2", 500, 300, 560, 360, conf=0.3)]
+    return doc, preds
+
+
+# ── match_document / build_queue ────────────────────────────────────────────
+
+class TestQueue:
+    def test_queue_order_and_keys(self, scene):
+        doc, preds = scene
+        matches = match_document(doc, preds, 0.6, 0.5)
+        queue = build_queue(doc, preds, matches, {})
+        assert [q.kind for q in queue] == ["fp", "fn", "tp"]
+        assert queue[0].key == "h:1"
+        assert queue[1].key == doc.annotations[1].id
+        assert queue[2].key == "h:0" and queue[2].annotation is doc.annotations[0]
+        assert queue[2].iou == pytest.approx(0.9238, abs=0.001)
+
+    def test_low_confidence_is_absent(self, scene):
+        doc, preds = scene
+        queue = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})
+        assert all(q.key != "h:2" for q in queue)
+
+    def test_threshold_change_reveals_it(self, scene):
+        doc, preds = scene
+        queue = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.25), {})
+        assert any(q.key == "h:2" and q.kind == "fp" for q in queue)
+
+    def test_filters(self, scene):
+        doc, preds = scene
+        matches = match_document(doc, preds, 0.6, 0.5)
+        verdicts = {"h:1": {"action": "rejected"}}
+        assert [q.kind for q in build_queue(doc, preds, matches, verdicts, filter_type="fn")] == ["fn"]
+        assert [q.key for q in build_queue(doc, preds, matches, verdicts, filter_status="reviewed")] == ["h:1"]
+        assert len(build_queue(doc, preds, matches, verdicts, filter_status="not_reviewed")) == 2
+        assert build_queue(doc, preds, matches, verdicts, filter_class=7) == []
+
+    def test_polygon_prediction_matches_polygon_annotation(self):
+        doc = Document("a.jpg", 100, 100)
+        doc.add(new_annotation("polygon", ((0, 0), (50, 0), (50, 50), (0, 50)), 1, "z"))
+        p = Prediction("h:0", "polygon", ((1, 1), (50, 0), (50, 50), (0, 50)), 1, 0.8, 0)
+        queue = build_queue(doc, [p], match_document(doc, [p], 0.6, 0.5), {})
+        assert [q.kind for q in queue] == ["tp"]
+
+
+# ── apply_accept / apply_reject ─────────────────────────────────────────────
+
+class TestActions:
+    def test_accept_fp_inserts_annotation_with_provenance(self, scene):
+        doc, preds = scene
+        item = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})[0]
+        action, created = apply_accept(doc, item, "ren")
+        assert action == "accepted"
+        assert created in doc.annotations
+        assert created.source == "accepted" and created.prediction_id == "h:1"
+        assert created.confidence == pytest.approx(0.9) and created.author == "ren"
+        assert created.points == ((500.0, 20.0), (560.0, 80.0)) and created.class_id == 0
+
+    def test_accept_tp_and_fn_change_nothing(self, scene):
+        doc, preds = scene
+        queue = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})
+        before = list(doc.annotations)
+        assert apply_accept(doc, queue[1], "ren") == ("kept", None)
+        assert apply_accept(doc, queue[2], "ren") == ("confirmed", None)
+        assert doc.annotations == before
+
+    def test_reject_fp_changes_nothing(self, scene):
+        doc, preds = scene
+        item = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})[0]
+        assert apply_reject(doc, item) == ("rejected", None)
+        assert len(doc.annotations) == 2
+
+    def test_reject_tp_and_fn_delete(self, scene):
+        doc, preds = scene
+        queue = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})
+        action, removed = apply_reject(doc, queue[2])
+        assert action == "rejected" and removed not in doc.annotations
+        action, removed = apply_reject(doc, queue[1])
+        assert removed not in doc.annotations and doc.annotations == []
+
+
+# ── verdict persistence ─────────────────────────────────────────────────────
+
+class TestVerdicts:
+    def test_record_and_remove(self, engine, tmp_path, scene):
+        engine.state.image_folder = str(tmp_path)
+        engine.state.state_dir = str(tmp_path / "state")
+        os.makedirs(engine.state.state_dir)
+        doc, preds = scene
+        item = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})[0]
+        engine.record_verdict("img_001.jpg", item, "rejected", "ren")
+        v = engine.verdicts("img_001.jpg")["h:1"]
+        assert v["action"] == "rejected" and v["by"] == "ren" and v["class_id"] == 0
+        assert v["conf"] == pytest.approx(0.9) and v["iou"] is None and v["at"]
+        engine.save_review_state()
+        engine.load_review_state()
+        assert "h:1" in engine.verdicts("img_001.jpg")
+        engine.remove_verdict("img_001.jpg", "h:1")
+        assert engine.verdicts("img_001.jpg") == {}
+
+    def test_conf_threshold_persists(self, engine, tmp_path):
+        engine.state.image_folder = str(tmp_path)
+        engine.state.state_dir = str(tmp_path / "state")
+        os.makedirs(engine.state.state_dir)
+        assert engine.conf_threshold == DEFAULT_CONF_THRESHOLD
+        engine.conf_threshold = 0.3
+        engine.load_review_state()
+        assert engine.conf_threshold == pytest.approx(0.3)
+
+    def test_corrupt_state_is_quarantined(self, engine, tmp_path):
+        engine.state.image_folder = str(tmp_path)
+        engine.state.state_dir = str(tmp_path / "state")
+        os.makedirs(engine.state.state_dir)
+        path = os.path.join(engine.state.state_dir, "review_stats.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("{")
+        moved = engine.load_review_state()
+        assert moved and moved.startswith(path + ".corrupt-")
+        assert engine.state._review_state == {}

@@ -4,22 +4,120 @@ GUI-free.  Operates on an AppState instance.  Can be instantiated
 headlessly for programmatic use (AI agents, training pipelines, CLI).
 """
 
-import json
+import datetime
 import os
 import shutil
+from dataclasses import dataclass
+from typing import List, Optional
 
+from yololabeler.annotation.document import new_annotation
+from yololabeler.label_io import write_detect_labels, write_json_atomic, write_segment_labels
+from yololabeler.matching import compute_matches
 from yololabeler.state import AppState
-from yololabeler.label_io import write_detect_labels, write_segment_labels
+from yololabeler.state_io import read_json_or_quarantine
 
 # Centre-match tolerance and hash cell size (1/500) carried over from the original code.
 MATCH_TOLERANCE = 0.002
 LOOKUP_QUANT = 500
+# Default prediction confidence cutoff for the document-based queue (spec 4.3);
+# supersedes the old tab-level REVIEW_CONF_THRESHOLD constant.
+DEFAULT_CONF_THRESHOLD = 0.50
 
 
 def _quantize(bbox_norm):
     """Spatial-hash cell for a normalised ``[cx, cy, w, h]`` bbox."""
     return (round(bbox_norm[0] * LOOKUP_QUANT),
             round(bbox_norm[1] * LOOKUP_QUANT))
+
+
+@dataclass(frozen=True)
+class QueueItem:
+    """One thing to judge: an unmatched prediction, a model miss, or a match."""
+    kind: str
+    prediction: object
+    annotation: object
+    iou: Optional[float]
+
+    @property
+    def key(self):
+        """The prediction id for fp/tp, the annotation id for fn."""
+        return self.prediction.id if self.kind in ("fp", "tp") else self.annotation.id
+
+    @property
+    def class_id(self):
+        """The class id, from the prediction when present, else the annotation."""
+        return self.prediction.class_id if self.prediction else self.annotation.class_id
+
+
+def _split_predictions(predictions):
+    """Split a Prediction list into (box list, polygon list), original order kept."""
+    boxes = [p for p in predictions if p.kind == "box"]
+    polys = [p for p in predictions if p.kind == "polygon"]
+    return boxes, polys
+
+
+def match_document(document, predictions, iou_threshold, conf_threshold):
+    """Run compute_matches over a Document and a Prediction list."""
+    pboxes, ppolys = _split_predictions(predictions)
+    gt_boxes = [(*a.points[0], *a.points[1], a.class_id) for a in document.boxes()]
+    gt_polys = [(list(a.points), a.class_id) for a in document.polygons()]
+    pred_boxes = [(*p.points[0], *p.points[1], p.class_id, p.confidence) for p in pboxes]
+    pred_polys = [(list(p.points), p.class_id, p.confidence) for p in ppolys]
+    return compute_matches(gt_boxes, gt_polys, pred_boxes, pred_polys,
+                           iou_threshold, conf_threshold)
+
+
+def build_queue(document, predictions, matches, verdicts, filter_type="all",
+                filter_class="all", filter_status="all"):
+    """Flatten matches into QueueItems ordered fp, fn, tp, then filter (spec 4.4)."""
+    boxes, polys = document.boxes(), document.polygons()
+    pboxes, ppolys = _split_predictions(predictions)
+
+    def gt(gt_type, idx):
+        return (boxes if gt_type == "box" else polys)[idx]
+
+    def pr(p_type, idx):
+        return (pboxes if p_type == "box" else ppolys)[idx]
+
+    items: List[QueueItem] = []
+    for p_type, p_idx, _cid, _conf in matches["fp"]:
+        items.append(QueueItem("fp", pr(p_type, p_idx), None, None))
+    for gt_type, gt_idx, _cid in matches["fn"]:
+        items.append(QueueItem("fn", None, gt(gt_type, gt_idx), None))
+    for gt_type, gt_idx, p_type, p_idx, iou, _cid, _conf in matches["tp"]:
+        items.append(QueueItem("tp", pr(p_type, p_idx), gt(gt_type, gt_idx), iou))
+
+    def keep(item):
+        if filter_type != "all" and item.kind != filter_type:
+            return False
+        if filter_class != "all" and item.class_id != filter_class:
+            return False
+        reviewed = item.key in verdicts
+        if filter_status == "reviewed":
+            return reviewed
+        if filter_status == "not_reviewed":
+            return not reviewed
+        return True
+
+    return [item for item in items if keep(item)]
+
+
+def apply_accept(document, item, user):
+    """Accept the item; an fp becomes an annotation (spec 3.3)."""
+    if item.kind == "fp":
+        p = item.prediction
+        created = new_annotation(p.kind, p.points, p.class_id, user, source="accepted",
+                                 prediction_id=p.id, confidence=p.confidence)
+        document.add(created)
+        return "accepted", created
+    return ("confirmed" if item.kind == "tp" else "kept"), None
+
+
+def apply_reject(document, item):
+    """Reject the item; a tp or fn loses its annotation (spec 3.3)."""
+    if item.annotation is not None:
+        return "rejected", document.remove(item.annotation.id)
+    return "rejected", None
 
 
 class ReviewEngine:
@@ -37,26 +135,60 @@ class ReviewEngine:
         return None
 
     def load_review_state(self):
+        """Read review_stats.json; returns the quarantined path if it was corrupt."""
         path = self.review_state_path()
-        if path and os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    self.state._review_state = json.load(f)
-            except Exception:
-                self.state._review_state = {}
-        else:
-            self.state._review_state = {}
+        moved = None
+        data = None
+        if path:
+            data, moved = read_json_or_quarantine(path)
+        self.state._review_state = data or {}
         self.invalidate_reviewed_lookup()
+        return moved
 
     def save_review_state(self):
+        """Write review_stats.json atomically."""
         path = self.review_state_path()
         if not path:
             return
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(self.state._review_state, f, indent=2)
-        except Exception as e:
+            write_json_atomic(path, self.state._review_state)
+        except OSError as e:
             print(f"Warning: Could not save review state: {e}")
+
+    # ── Verdicts (document-based queue) ────────────────────────────────────
+
+    @property
+    def conf_threshold(self):
+        """The persisted prediction confidence cutoff, DEFAULT_CONF_THRESHOLD if unset."""
+        settings = self.state._review_state.get("settings", {})
+        return float(settings.get("conf_threshold", DEFAULT_CONF_THRESHOLD))
+
+    @conf_threshold.setter
+    def conf_threshold(self, value):
+        self.state._review_state.setdefault("settings", {})["conf_threshold"] = float(value)
+        self.save_review_state()
+
+    def _image_entry(self, img_name):
+        per_image = self.state._review_state.setdefault("image", {})
+        return per_image.setdefault(img_name, {"img_status": "not_started", "detections": []})
+
+    def verdicts(self, img_name):
+        """The live verdict dict for an image, keyed by QueueItem.key."""
+        return self._image_entry(img_name).setdefault("verdicts", {})
+
+    def record_verdict(self, img_name, item, action, user):
+        """Record the outcome of a queue item review and save."""
+        self.verdicts(img_name)[item.key] = {
+            "action": action, "kind": item.kind, "class_id": item.class_id,
+            "conf": item.prediction.confidence if item.prediction else None,
+            "iou": round(item.iou, 4) if item.iou is not None else None,
+            "by": user, "at": datetime.datetime.now().isoformat(timespec="seconds")}
+        self.save_review_state()
+
+    def remove_verdict(self, img_name, key):
+        """Remove a recorded verdict, if present, and save."""
+        self.verdicts(img_name).pop(key, None)
+        self.save_review_state()
 
     # ── Image review status ───────────────────────────────────────────────
 
