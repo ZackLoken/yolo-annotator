@@ -62,6 +62,14 @@ class TestBurDetectJson:
         result = import_predictions(src, folder, "bur_detect_json", "m", 0, "z")
         assert result.files_written == 0 and result.files_skipped == ["zzz.json"]
 
+    def test_empty_result_does_not_count_as_written(self, tmp_path, folder):
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.json").write_text(json.dumps({"boxes": [], "scores": []}), encoding="utf-8")
+        result = import_predictions(src, folder, "bur_detect_json", "m", 0, "z")
+        assert result.files_written == 0
+        assert not (folder / "predictions" / "detect" / "a.txt").exists()
+
 
 # ── ultralytics_txt ─────────────────────────────────────────────────────────
 

@@ -163,7 +163,8 @@ def import_predictions(source_dir, image_folder, fmt, model_name, class_id, user
     for stem, (detect, segment) in converted.items():
         _write_label_lines(os.path.join(detect_dir, f"{stem}.txt"), [l + "\n" for l in detect])
         _write_label_lines(os.path.join(segment_dir, f"{stem}.txt"), [l + "\n" for l in segment])
-        result.files_written += 1
+        if detect or segment:
+            result.files_written += 1
     write_manifest(os.path.join(image_folder, "predictions"), {
         "model": model_name, "source_format": fmt,
         "imported_at": datetime.datetime.now().isoformat(timespec="seconds"),
