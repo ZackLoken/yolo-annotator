@@ -104,8 +104,9 @@ for the same list, filtered to the current mode.
 
 Vertex streaming (`v`) places vertices continuously as the mouse moves instead of
 one per click: click to start streaming, move the mouse to trace the outline, click
-again to pause, and double-click or `Escape` to finish the polygon. Toggle edge
-snapping (`s`) at the same time to pull streamed vertices onto nearby existing edges.
+again to pause, and double-click to finish the polygon; `Escape` cancels it instead.
+Toggle edge snapping (`s`) at the same time to pull streamed vertices onto nearby
+existing edges.
 
 ---
 

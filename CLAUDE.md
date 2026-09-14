@@ -51,7 +51,11 @@ path, called by navigation, completion, accept, reject, `Ctrl+S`, and quit.
 binding there is the only way to add one, and it drives the help overlay and the
 README Controls tables. `banner_text`, shown and cleared through
 `show_banner`/`clear_banner` in `gui.py`, is the only user feedback channel; there
-are no pop-ups for routine messages, only the one quit-without-saving dialog.
+are no pop-ups for routine feedback (import results, save failures, rejected lines
+go through the banner). A few genuine error conditions (no images in the chosen
+folder, a corrupt or entirely unreadable image set) still use a blocking
+messagebox, and the quit-without-saving confirmation is the one deliberate modal
+in the normal workflow.
 Verdicts are keyed by prediction id, except a model miss (an annotation with no
 matching prediction), which is keyed by the annotation's id instead.
 
