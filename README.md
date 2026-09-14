@@ -56,6 +56,15 @@ yololabeler /path/to/images
 python -m yololabeler /path/to/images
 ```
 
+### Running the packaged build
+
+A Windows build needs no Python or conda install. `packaging/yololabeler.spec`
+builds a PyInstaller windowed, one-directory bundle; the result is
+`packaging/dist/YoloLabeler/YoloLabeler.exe`, alongside its supporting files.
+Build instructions are in `packaging/README.md`.
+
+The executable is unsigned, so the first run shows a Windows SmartScreen prompt
+("Windows protected your PC"). Choose "More info", then "Run anyway" to continue.
 
 ---
 
@@ -360,16 +369,6 @@ a `labels_backed_up` flag set once the first `.original/` backup is made.
 `{"by", "at", "blind", "annotation_count", "model"}`, where `model` is the name
 recorded in the predictions manifest when predictions were visible, or `null`
 for a blind pass.
-
-## Running the packaged build
-
-A Windows build needs no Python or conda install. `packaging/yololabeler.spec`
-builds a PyInstaller windowed, one-directory bundle; the result is
-`packaging/dist/YoloLabeler/YoloLabeler.exe`, alongside its supporting files.
-Build instructions are in `packaging/README.md`.
-
-The executable is unsigned, so the first run shows a Windows SmartScreen prompt
-("Windows protected your PC"). Choose "More info", then "Run anyway" to continue.
 
 ---
 
