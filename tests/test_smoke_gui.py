@@ -256,3 +256,15 @@ class TestLoadFailures:
         app._annotate_tab.load_image()
         assert len(app.predictions) == 1
         assert "line 2" in app.banner_text
+
+    def test_bad_label_and_prediction_lines_together(self, app, folder):
+        labels_path = folder / "labels" / "detect" / "a.txt"
+        preds_path = folder / "predictions" / "detect" / "a.txt"
+        labels_path.write_text("0 0.5 0.5 0.2 0.2\nnope\n", encoding="utf-8")
+        preds_path.write_text("0 0.9 0.5 0.5 0.2 0.2\nbroken\n", encoding="utf-8")
+        app._annotate_tab.load_image()
+        assert len(app.load_errors) == 1 and "labels" in app.load_errors[0]
+        assert len(app.predictions_rejected) == 1 and "predictions" in app.predictions_rejected[0]
+        assert app.load_errors[0] in app.banner_text
+        assert app.predictions_rejected[0] in app.banner_text
+        assert app.save_current() is None
