@@ -1114,6 +1114,14 @@ class AnnotateTab:
         def _halo(x, y, text, fill, **kw):
             halo_text(canvas, x, y, text, fill, **kw)
 
+        drag_canvas_pt = None
+        if a._dragging_vertex is not None and a.snap_enabled:
+            drag_id, dvi = a._dragging_vertex
+            if self._alive(drag_id):
+                dpts = a.document.get(drag_id).points
+                if dvi < len(dpts):
+                    drag_canvas_pt = self.image_to_canvas(*dpts[dvi])
+
         for ann in self.visible_annotations():
             class_id = ann.class_id
             is_selected = (ann.id == a._selected_annotation_id)
@@ -1155,21 +1163,13 @@ class AnnotateTab:
                 or (a._dragging_vertex is not None
                     and a._dragging_vertex[0] == ann.id)
             )
-            if (not show_verts
-                    and a._dragging_vertex is not None
-                    and a.snap_enabled
-                    and points):
-                drag_id, dvi = a._dragging_vertex
-                if self._alive(drag_id):
-                    dpts = a.document.get(drag_id).points
-                    if dvi < len(dpts):
-                        dcx, dcy = self.image_to_canvas(*dpts[dvi])
-                        for px, py in points:
-                            pcx, pcy = self.image_to_canvas(px, py)
-                            if math.hypot(dcx - pcx, dcy - pcy) \
-                                    < SNAP_RADIUS * 3:
-                                show_verts = True
-                                break
+            if not show_verts and drag_canvas_pt is not None and points:
+                dcx, dcy = drag_canvas_pt
+                for px, py in points:
+                    pcx, pcy = self.image_to_canvas(px, py)
+                    if math.hypot(dcx - pcx, dcy - pcy) < SNAP_RADIUS * 3:
+                        show_verts = True
+                        break
             if show_verts:
                 r = sel_vert_r if is_selected else vert_r
                 for px, py in points:
