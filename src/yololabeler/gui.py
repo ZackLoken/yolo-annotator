@@ -501,13 +501,15 @@ class YoloLabeler:
         self._annotate_tab.on_button_press(_SynthEvent(cx, cy))
 
     def undo(self):
-        """Undo the last annotation change and rebuild the queue around it."""
+        """Undo the last annotation change, persist the restored verdicts, rebuild the queue."""
         self._annotate_tab.undo_last()
+        self._review.save_review_state()
         self._review_panel.refresh()
 
     def redo(self):
-        """Redo the last undone annotation change and rebuild the queue around it."""
+        """Redo the last undone change, persist the restored verdicts, rebuild the queue."""
         self._annotate_tab.redo_last()
+        self._review.save_review_state()
         self._review_panel.refresh()
 
     def _act_on_item(self, apply):

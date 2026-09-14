@@ -1,5 +1,6 @@
 """Headed smoke test: build the real window and drive the canvas; skipped without a display."""
 
+import json
 import tkinter as tk
 
 import pytest
@@ -16,6 +17,15 @@ def click_at(tab, ix, iy):
     """A synthetic click event on the canvas point showing image pixel (ix, iy)."""
     cx, cy = tab.image_to_canvas(ix, iy)
     return type("E", (), {"x": int(cx), "y": int(cy)})()
+
+
+def disk_verdicts(folder, image="a.jpg"):
+    """The verdicts review_stats.json actually holds on disk for one image."""
+    path = folder / "state" / "review_stats.json"
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return data.get("image", {}).get(image, {}).get("verdicts", {})
 
 
 @pytest.fixture
@@ -127,15 +137,17 @@ class TestActions:
         assert app.verdicts[added.prediction_id]["action"] == "accepted"
         assert [q.kind for q in app.queue] == ["tp", "tp"]
 
-    def test_reject_tp_deletes_and_undo_restores_both(self, app):
+    def test_reject_tp_deletes_and_undo_restores_both(self, app, folder):
         panel = app._review_panel
         panel.focus_item(len(app.queue) - 1)
         assert app.queue[app.queue_index].kind == "tp"
         key = app.queue[app.queue_index].key
         app.reject_item()
         assert app.document.annotations == [] and app.verdicts[key]["action"] == "rejected"
+        assert disk_verdicts(folder)[key]["action"] == "rejected"
         app.undo()
         assert len(app.document.annotations) == 1 and key not in app.verdicts
+        assert key not in disk_verdicts(folder)
 
     def test_edit_pair_selects_annotation(self, app):
         panel = app._review_panel
