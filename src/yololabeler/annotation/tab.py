@@ -1116,9 +1116,16 @@ class AnnotateTab:
                 if dvi < len(dpts):
                     drag_canvas_pt = self.image_to_canvas(*dpts[dvi])
 
+        focus_ann = a.queue[a.queue_index].annotation if (
+            a.queue and 0 <= a.queue_index < len(a.queue)) else None
+        gold_ann_id = (focus_ann.id if focus_ann is not None and a._review_show_gt
+                       else None)
+
         for ann in self.visible_annotations():
             class_id = ann.class_id
             is_selected = (ann.id == a._selected_annotation_id)
+            if ann.id == gold_ann_id and not is_selected:
+                continue
             color = a._get_class_color(class_id)
             class_name = a.class_names.get(class_id, str(class_id))
             if ann.kind == "box":
@@ -1127,6 +1134,10 @@ class AnnotateTab:
                     continue
                 cx1, cy1 = self.image_to_canvas(x1, y1)
                 cx2, cy2 = self.image_to_canvas(x2, y2)
+                if is_selected:
+                    canvas.create_rectangle(
+                        cx1, cy1, cx2, cy2, outline="white", fill="",
+                        width=line_w + 2)
                 canvas.create_rectangle(
                     cx1, cy1, cx2, cy2, outline=color, width=line_w)
                 _halo(cx1 + 2, cy1 - 2, anchor="sw",
@@ -1142,14 +1153,17 @@ class AnnotateTab:
                 if (max(pxs) < vis_x1 or min(pxs) > vis_x2
                         or max(pys) < vis_y1 or min(pys) > vis_y2):
                     continue
-            draw_color = "#00BFFF" if is_selected else color
             canvas_pts = []
             for px, py in points:
                 cx, cy = self.image_to_canvas(px, py)
                 canvas_pts.extend([cx, cy])
             if len(canvas_pts) >= 6:
+                if is_selected:
+                    canvas.create_polygon(
+                        *canvas_pts, outline="white", fill="",
+                        width=poly_w + 2)
                 canvas.create_polygon(
-                    *canvas_pts, outline=draw_color, fill="",
+                    *canvas_pts, outline=color, fill="",
                     width=poly_w)
             show_verts = (
                 is_selected
@@ -1170,12 +1184,12 @@ class AnnotateTab:
                     cx, cy = self.image_to_canvas(px, py)
                     canvas.create_oval(
                         cx - r, cy - r, cx + r, cy + r,
-                        fill=draw_color, outline="white", width=1)
+                        fill=color, outline="white", width=1)
             if points:
                 lx, ly = self.image_to_canvas(*points[0])
                 _halo(lx + 2, ly - 2, anchor="sw",
                       text=f"{class_id}: {class_name}",
-                      fill=draw_color,
+                      fill=color,
                       font=(a.font_family, label_size, "bold"))
 
         if a.current_polygon:

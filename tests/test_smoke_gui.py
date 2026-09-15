@@ -10,7 +10,9 @@ pytest.importorskip("customtkinter")
 import customtkinter as ctk  # noqa: E402
 
 from yololabeler import gui as guimod  # noqa: E402
+from yololabeler.annotation.document import new_annotation  # noqa: E402
 from yololabeler.gui import YoloLabeler  # noqa: E402
+from yololabeler.review.layer import LayerStyle  # noqa: E402
 
 
 def click_at(tab, ix, iy):
@@ -102,6 +104,94 @@ class TestAnnotate:
         app.class_names[1] = "other"
         app._select_class_by_id(1)
         assert app._annotate_tab.visible_annotations() == []
+
+
+# ── render ──────────────────────────────────────────────────────────────────
+
+def shapes_at(tab, points):
+    """(outline colour, width) for every canvas shape drawn at those image points."""
+    canvas = tab.canvas
+    want = [c for p in points for c in tab.image_to_canvas(*p)]
+    return [(canvas.itemcget(i, "outline"), float(canvas.itemcget(i, "width")))
+            for i in canvas.find_all()
+            if canvas.coords(i) == pytest.approx(want, abs=0.5)]
+
+
+def add_polygon(app):
+    """Append a polygon annotation of the active class to the loaded document."""
+    ann = new_annotation("polygon", ((100, 100), (200, 100), (200, 200)),
+                         app.active_class, "tester")
+    app.document.add(ann)
+    return ann
+
+
+class TestRenderSelection:
+    def test_unselected_box_is_drawn_once_in_the_class_colour(self, app):
+        tab = app._annotate_tab
+        app.queue = []
+        app._review_show_pred = False
+        ann = app.document.annotations[0]
+        tab.render()
+        drawn = shapes_at(tab, ann.points)
+        assert [c for c, _ in drawn] == [app._get_class_color(ann.class_id)]
+
+    def test_selected_box_gets_a_white_halo(self, app):
+        tab = app._annotate_tab
+        app.queue = []
+        app._review_show_pred = False
+        ann = app.document.annotations[0]
+        tab.select_annotation(ann.id)
+        tab.render()
+        drawn = dict(shapes_at(tab, ann.points))
+        color = app._get_class_color(ann.class_id)
+        assert set(drawn) == {"white", color}
+        assert drawn["white"] == pytest.approx(drawn[color] + 2)
+
+    def test_unselected_polygon_is_drawn_once_in_the_class_colour(self, app):
+        tab = app._annotate_tab
+        app.queue = []
+        app._review_show_pred = False
+        ann = add_polygon(app)
+        tab.select_annotation(ann.id)
+        tab.select_annotation(None)
+        tab.render()
+        drawn = shapes_at(tab, ann.points)
+        assert [c for c, _ in drawn] == [app._get_class_color(ann.class_id)]
+
+    def test_selected_polygon_gets_a_white_halo(self, app):
+        tab = app._annotate_tab
+        app.queue = []
+        app._review_show_pred = False
+        ann = add_polygon(app)
+        tab.select_annotation(ann.id)
+        tab.render()
+        drawn = dict(shapes_at(tab, ann.points))
+        color = app._get_class_color(ann.class_id)
+        assert set(drawn) == {"white", color}
+        assert drawn["white"] == pytest.approx(drawn[color] + 2)
+
+
+class TestRenderFocus:
+    def test_focused_annotation_is_drawn_only_in_the_focus_colour(self, app):
+        tab = app._annotate_tab
+        app._review_panel.focus_item(len(app.queue) - 1)
+        ann = app.queue[app.queue_index].annotation
+        assert ann is not None
+        tab.render()
+        assert len(tab.canvas.find_withtag("gt_focus")) == 1
+        colors = [c for c, _ in shapes_at(tab, ann.points)]
+        assert colors.count(LayerStyle().focused_gt_color) == 1
+        assert app._get_class_color(ann.class_id) not in colors
+
+    def test_editing_the_focused_pair_keeps_the_class_coloured_shape(self, app):
+        tab = app._annotate_tab
+        app._review_panel.focus_item(len(app.queue) - 1)
+        ann = app.queue[app.queue_index].annotation
+        app.edit_pair()
+        tab.render()
+        colors = [c for c, _ in shapes_at(tab, ann.points)]
+        assert app._get_class_color(ann.class_id) in colors
+        assert "white" in colors
 
 
 # ── review panel ────────────────────────────────────────────────────────────
