@@ -85,3 +85,9 @@ class TestDrawPredictionLayer:
         draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
         rect = [i for i in canvas.find_all() if canvas.type(i) == "rectangle"][0]
         assert canvas.itemcget(rect, "stipple") == "gray12"
+
+    def test_accepted_prediction_is_not_drawn(self, canvas):
+        s = make_state()
+        s.verdicts = {"h:0": {"action": "accepted"}}
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
+        kinds = [canvas.type(i) for i in canvas.find_all()]

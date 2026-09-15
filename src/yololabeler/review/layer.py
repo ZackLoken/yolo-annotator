@@ -8,6 +8,8 @@ from typing import Dict
 
 from yololabeler.rendering import halo_text
 
+_ANNOTATED_ACTIONS = ("accepted", "confirmed")
+
 
 @dataclass(frozen=True)
 class LayerStyle:
@@ -61,7 +63,10 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
         for p in state.predictions:
             if p.confidence < state.conf_threshold or p.id == focused_pred_id:
                 continue
-            reviewed = p.id in state.verdicts
+            verdict = state.verdicts.get(p.id)
+            if verdict and verdict.get("action") in _ANNOTATED_ACTIONS:
+                continue
+            reviewed = verdict is not None
             _draw_shape(canvas, to_canvas, p.kind, p.points,
                         outline=style.pred_color, width=style.line_w, dash=style.dash,
                         fill=style.pred_color if reviewed else "",
