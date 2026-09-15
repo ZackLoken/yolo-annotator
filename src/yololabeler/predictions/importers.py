@@ -185,7 +185,7 @@ def import_predictions(source_dir, image_folder, fmt, model_name, class_id, user
         if detect or segment:
             result.files_written += 1
     write_manifest(os.path.join(image_folder, "predictions"), {
-        "model": model_name, "source_format": fmt,
+        "model": model_name, "source_format": fmt, "source_dir": source_dir,
         "imported_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "imported_by": user, "class_id_default": class_id,
         "files": result.files_written,

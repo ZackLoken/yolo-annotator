@@ -198,9 +198,12 @@ All values are normalized 0-1, same as labels, with confidence in column two.
 dataset's predictions came from:
 
 ```json
-{"model": "nathan_v15", "source_format": "bur_detect_json", "imported_at": "...",
- "imported_by": "zack", "class_id_default": 0, "files": 340}
+{"model": "nathan_v15", "source_format": "bur_detect_json", "source_dir": "...",
+ "imported_at": "...", "imported_by": "zack", "class_id_default": 0, "files": 340}
 ```
+
+`source_dir` is the source folder that import read, so a dataset's predictions can
+be traced back to the folder they were converted from.
 
 When no manifest is present and prediction text files already exist (for example,
 a dataset from before this format existed), they are read as-is; the manifest is
@@ -230,6 +233,50 @@ matching image in the folder), and lines rejected. If any image in the folder
 carries an EXIF rotation, the summary adds a count of affected images, since
 Nathan's script does not transpose and the mismatch can otherwise land boxes
 rotated; coordinates are never transformed to correct for this automatically.
+
+### Batch import: `yololabeler-import`
+
+The toolbar form imports one source folder into the image folder that is open.
+When a collaborator hands over a whole tree of prediction folders mirroring a
+whole tree of image folders, `yololabeler-import` converts all of them in one
+pass. It is a separate console script with no Tk or CustomTkinter import, so it
+runs on a headless machine.
+
+```bash
+yololabeler-import /path/to/predictions /path/to/images \
+  --format bur_detect_json --model nathan_v15 --class-id 0 --user zack
+```
+
+That is a dry run: it writes nothing. Add `--write` to actually import. A real
+run is never the default, since a batch job touches every image folder at once.
+
+Folders pair strictly by their path relative to their own root:
+`predictions/Farm/Field/Mission3` imports into `images/Farm/Field/Mission3` and
+nowhere else. A leaf folder name that matches under a different parent is not a
+match, and source files are never indexed by stem across folders, so two missions
+holding a `DJI_0001` cannot cross over into each other.
+
+The dry run prints, before any write could happen:
+
+- the matched pairs, with each pair's source file count and image count
+- source folders with no image folder at the same relative path
+- image folders with no source folder at the same relative path
+- source stems found under more than one source folder
+
+Unpaired folders are reported, never guessed at or fuzzy-matched; resolving them
+is a decision for whoever knows the dataset. The stem list is the warning that
+matters most: when the same stem appears in several source folders, a mispairing
+writes plausible-looking boxes from the wrong flight and nothing errors.
+
+A `--write` run prints the same per-folder summary the toolbar form shows on the
+canvas, one line per pair, then a rollup of total images written, files skipped
+and lines rejected. `--class-id` is required for `bur_detect_json` and ignored by
+the other two formats, same as the form. The source root and the images root may
+not be the same folder or nested inside one another. Nothing is ever deleted
+from the source tree; removing it afterwards is a manual step.
+
+Reach for the toolbar form for a single folder you are about to annotate, and for
+`yololabeler-import` for a handover of many folders at once.
 
 ### `classes.json`
 

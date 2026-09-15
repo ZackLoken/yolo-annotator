@@ -27,6 +27,7 @@ Homepage = "https://github.com/ZackLoken/yolo-annotator"
 
 [project.scripts]
 yololabeler = "yololabeler:main"
+yololabeler-import = "yololabeler.predictions.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
