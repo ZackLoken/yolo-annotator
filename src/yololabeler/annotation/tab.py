@@ -1202,7 +1202,8 @@ class AnnotateTab:
 
         draw_prediction_layer(
             self.canvas, self.image_to_canvas, a, a.class_names, a.font_family,
-            label_size, show_gt=a._review_show_gt, show_pred=a._review_show_pred)
+            label_size, show_gt=a._review_show_gt, show_pred=a._review_show_pred,
+            class_color=a._get_class_color)
 
         help_y0 = 10
         if a.banner_text:

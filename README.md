@@ -314,7 +314,8 @@ viewport or leave unsaved work behind.
 - Multi-class support: dropdown selector, inline "Add" for new classes, per-class
   colors
 - Prediction layer: import model output, matched against ground truth by IoU, and
-  drawn as a dashed overlay with the focused item highlighted
+  drawn as a dashed overlay in a lightened tint of the class colour, with the
+  focused item highlighted
 - Accept in place: promote an unmatched prediction straight into an annotation
   with its geometry, class and provenance recorded, no separate review pass
 - Queue over every image: unmatched predictions, model misses and matches,

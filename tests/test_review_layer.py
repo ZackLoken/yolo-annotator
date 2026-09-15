@@ -7,7 +7,7 @@ import pytest
 from yololabeler.annotation.document import new_annotation
 from yololabeler.predictions.store import Prediction
 from yololabeler.review.engine import QueueItem
-from yololabeler.review.layer import LayerStyle, draw_prediction_layer
+from yololabeler.review.layer import LayerStyle, _tint, draw_prediction_layer
 from yololabeler.state import AppState
 
 
@@ -91,3 +91,35 @@ class TestDrawPredictionLayer:
         s.verdicts = {"h:0": {"action": "accepted"}}
         draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
         kinds = [canvas.type(i) for i in canvas.find_all()]
+        assert kinds.count("rectangle") == 0 and kinds.count("polygon") == 1
+
+    def test_class_colour_is_tinted_for_predictions(self, canvas):
+        s = make_state()
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
+                              LayerStyle(), lambda cid: "#FF0000")
+        rect = [i for i in canvas.find_all() if canvas.type(i) == "rectangle"][0]
+        assert canvas.itemcget(rect, "outline") == _tint("#FF0000", LayerStyle().pred_tint)
+
+    def test_without_a_class_colour_predictions_keep_the_fallback(self, canvas):
+        s = make_state()
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
+        rect = [i for i in canvas.find_all() if canvas.type(i) == "rectangle"][0]
+        assert canvas.itemcget(rect, "outline") == LayerStyle().pred_color
+
+
+# ── _tint ───────────────────────────────────────────────────────────────────
+
+class TestTint:
+    def test_zero_leaves_the_colour_unchanged(self):
+        assert _tint("#3366CC", 0) == "#3366CC"
+
+    def test_one_is_white(self):
+        assert _tint("#3366CC", 1) == "#FFFFFF"
+
+    def test_blends_each_channel_towards_white(self):
+        assert _tint("#000000", 0.5) == "#7F7F7F"
+
+    def test_a_malformed_colour_is_returned_unchanged(self):
+        assert _tint("red", 0.45) == "red"
+        assert _tint("#12345", 0.45) == "#12345"
+        assert _tint("#GGHHII", 0.45) == "#GGHHII"

@@ -13,8 +13,14 @@ _ANNOTATED_ACTIONS = ("accepted", "confirmed")
 
 @dataclass(frozen=True)
 class LayerStyle:
-    """Colours and widths from spec 8; do not add colours here."""
+    """Widths and the fixed colours from spec 8.
+
+    A prediction takes its colour from the annotation class colour, tinted by
+    pred_tint, whenever the caller supplies a class-colour lookup; pred_color is
+    only the fallback for when it does not.
+    """
     pred_color: str = "#00BFFF"
+    pred_tint: float = 0.45
     focused_gt_color: str = "#FFD700"
     reviewed_stipple: str = "gray12"
     line_w: int = 2
@@ -22,6 +28,17 @@ class LayerStyle:
     dash: tuple = (4, 3)
     badge_colors: Dict[str, str] = field(default_factory=lambda: {
         "tp": "#4CAF50", "fp": "#EF5350", "fn": "#FFA726"})
+
+
+def _tint(hex_color, amount):
+    """Blend a #RRGGBB colour towards white by amount (0 unchanged, 1 white)."""
+    if not isinstance(hex_color, str) or len(hex_color) != 7 or not hex_color.startswith("#"):
+        return hex_color
+    try:
+        channels = [int(hex_color[i:i + 2], 16) for i in (1, 3, 5)]
+    except ValueError:
+        return hex_color
+    return "#" + "".join(f"{int(c + (255 - c) * amount):02X}" for c in channels)
 
 
 def _canvas_points(to_canvas, points):
@@ -51,8 +68,13 @@ def _label_anchor(to_canvas, points):
 
 
 def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
-                          label_size, show_gt, show_pred, style=LayerStyle()):
-    """Draw predictions, the focused pair and the badge. Only the focus gets labels."""
+                          label_size, show_gt, show_pred, style=LayerStyle(),
+                          class_color=None):
+    """Draw predictions, the focused pair and the badge. Only the focus gets labels.
+
+    class_color, when given, maps a class id to that class's hex colour; each
+    prediction is then drawn in a tinted version of its own class colour.
+    """
     focused = None
     if state.queue and 0 <= state.queue_index < len(state.queue):
         focused = state.queue[state.queue_index]
@@ -67,20 +89,24 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
             if verdict and verdict.get("action") in _ANNOTATED_ACTIONS:
                 continue
             reviewed = verdict is not None
+            color = (_tint(class_color(p.class_id), style.pred_tint)
+                     if class_color else style.pred_color)
             _draw_shape(canvas, to_canvas, p.kind, p.points,
-                        outline=style.pred_color, width=style.line_w, dash=style.dash,
-                        fill=style.pred_color if reviewed else "",
+                        outline=color, width=style.line_w, dash=style.dash,
+                        fill=color if reviewed else "",
                         stipple=style.reviewed_stipple if reviewed else "",
                         tags="pred")
         if focused and focused.prediction is not None:
             p = focused.prediction
+            color = (_tint(class_color(p.class_id), style.pred_tint)
+                     if class_color else style.pred_color)
             _draw_shape(canvas, to_canvas, p.kind, p.points,
-                        outline=style.pred_color, width=style.focused_w, fill="",
+                        outline=color, width=style.focused_w, fill="",
                         tags="pred_focus")
             lx, ly = _label_anchor(to_canvas, p.points)
             name = class_names.get(p.class_id, str(p.class_id))
             halo_text(canvas, lx + 2, ly - 2, f"Pred {p.class_id}: {name} ({p.confidence:.2f})",
-                      style.pred_color, anchor="sw", font=font)
+                      color, anchor="sw", font=font)
 
     if show_gt and focused and focused.annotation is not None:
         a = focused.annotation
