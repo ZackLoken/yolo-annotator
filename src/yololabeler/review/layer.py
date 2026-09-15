@@ -15,7 +15,7 @@ class LayerStyle:
     pred_color: str = "#00BFFF"
     focused_gt_color: str = "#FFD700"
     reviewed_stipple: str = "gray12"
-    line_w: int = 1
+    line_w: int = 2
     focused_w: int = 3
     dash: tuple = (4, 3)
     badge_colors: Dict[str, str] = field(default_factory=lambda: {
