@@ -372,6 +372,21 @@ class TestStateFiles:
         assert backup.read_text(encoding="utf-8") == original
         assert not (folder / "labels" / "detect" / "a.txt").exists()
 
+    def test_opening_a_folder_repaints_the_colour_swatch(self, app, folder):
+        path = folder / "state" / "classes.json"
+        path.write_text(json.dumps({"0": {"name": "burr", "color": "#123456"}}),
+                        encoding="utf-8")
+        app._init_folder(str(folder))
+        assert app.color_btn.cget("bg") == "#123456"
+
+    def test_colour_without_a_name_survives_a_reload(self, app, folder):
+        app.class_names = {}
+        app.class_colors = {0: "#123456"}
+        app._save_classes_file()
+        app._init_folder(str(folder))
+        assert app.class_colors[0] == "#123456"
+        assert 0 not in app.class_names
+
     def test_construction_writes_no_classes_json_to_the_cwd(self, folder, monkeypatch):
         cwd = folder / "cwd"
         cwd.mkdir()

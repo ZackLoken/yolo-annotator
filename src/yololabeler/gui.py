@@ -689,6 +689,7 @@ class YoloLabeler:
         for cid, name in self._constructor_class_names.items():
             self.class_names.setdefault(cid, name)
         self._refresh_class_dropdown()
+        self._update_color_btn()
 
         self._load_stats()
         self._load_completed_from_stats()
@@ -1280,12 +1281,13 @@ class YoloLabeler:
             return
         classes_path = os.path.join(self.state_dir, "classes.json")
         data = {}
-        for cid in sorted(self.class_names.keys()):
-            data[str(cid)] = {
-                "name": self.class_names[cid],
-            }
+        for cid in sorted(set(self.class_names) | set(self.class_colors)):
+            entry = {}
+            if cid in self.class_names:
+                entry["name"] = self.class_names[cid]
             if cid in self.class_colors:
-                data[str(cid)]["color"] = self.class_colors[cid]
+                entry["color"] = self.class_colors[cid]
+            data[str(cid)] = entry
         try:
             with open(classes_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
@@ -1459,7 +1461,8 @@ class YoloLabeler:
                 cid = int(key)
             except ValueError:
                 continue
-            self.class_names[cid] = entry.get("name", f"class_{cid}")
+            if "name" in entry:
+                self.class_names[cid] = entry["name"]
             if "color" in entry:
                 self.class_colors[cid] = entry["color"]
         return moved
