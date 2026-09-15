@@ -6,7 +6,7 @@ import tempfile
 import pytest
 
 from yololabeler.annotation.document import Document, new_annotation
-from yololabeler.predictions.store import Prediction
+from yololabeler.predictions.store import Prediction, write_manifest
 from yololabeler.state import AppState
 from yololabeler.review.engine import (
     DEFAULT_CONF_THRESHOLD, QueueItem, ReviewEngine, apply_accept, apply_reject,
@@ -200,6 +200,25 @@ class TestVerdicts:
         engine.conf_threshold = 0.3
         engine.load_review_state()
         assert engine.conf_threshold == pytest.approx(0.3)
+
+    def test_conf_threshold_defaults_to_imported_min(self, engine, tmp_path):
+        engine.state.image_folder = str(tmp_path)
+        engine.state.state_dir = str(tmp_path / "state")
+        os.makedirs(engine.state.state_dir)
+        preds_dir = tmp_path / "predictions"
+        os.makedirs(preds_dir)
+        write_manifest(str(preds_dir), {"min_conf": 0.25})
+        assert engine.conf_threshold == pytest.approx(0.25)
+
+    def test_explicit_conf_threshold_overrides_imported_min(self, engine, tmp_path):
+        engine.state.image_folder = str(tmp_path)
+        engine.state.state_dir = str(tmp_path / "state")
+        os.makedirs(engine.state.state_dir)
+        preds_dir = tmp_path / "predictions"
+        os.makedirs(preds_dir)
+        write_manifest(str(preds_dir), {"min_conf": 0.25})
+        engine.conf_threshold = 0.6
+        assert engine.conf_threshold == pytest.approx(0.6)
 
     def test_corrupt_state_is_quarantined(self, engine, tmp_path):
         engine.state.image_folder = str(tmp_path)

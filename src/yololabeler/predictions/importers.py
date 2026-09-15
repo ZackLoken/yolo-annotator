@@ -75,14 +75,16 @@ def _convert_bur_json(path, class_id, w, h):
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     boxes, scores = data.get("boxes", []), data.get("scores", [])
+    pairs = list(zip(boxes, scores))
     lines = [_detect_line(class_id, float(score), x1, y1, x2, y2, w, h)
-             for (x1, y1, x2, y2), score in zip(boxes, scores)]
-    return lines, [], abs(len(boxes) - len(scores))
+             for (x1, y1, x2, y2), score in pairs]
+    confidences = [float(score) for _, score in pairs]
+    return lines, [], abs(len(boxes) - len(scores)), confidences
 
 
 def _convert_ultralytics(path, w, h):
     """Convert one Ultralytics save_txt(save_conf=True) file, moving confidence to column two."""
-    detect, segment, rejected = [], [], 0
+    detect, segment, rejected, confidences = [], [], 0, []
     with open(path, "r", encoding="utf-8") as f:
         for raw in f:
             parts = raw.split()
@@ -99,30 +101,34 @@ def _convert_ultralytics(path, w, h):
                 x1, y1 = (cx - bw / 2) * w, (cy - bh / 2) * h
                 x2, y2 = (cx + bw / 2) * w, (cy + bh / 2) * h
                 detect.append(_detect_line(class_id, conf, x1, y1, x2, y2, w, h))
+                confidences.append(conf)
             elif len(vals) >= 7 and len(vals) % 2 == 1:
                 conf = vals[-1]
                 pts = [(vals[i] * w, vals[i + 1] * h) for i in range(0, len(vals) - 1, 2)]
                 segment.append(_segment_line(class_id, conf, pts, w, h))
+                confidences.append(conf)
             else:
                 rejected += 1
-    return detect, segment, rejected
+    return detect, segment, rejected, confidences
 
 
 def _convert_yololabeler(source_dir, stem, w, h):
     """Re-format one stem's canonical-layout detect and segment prediction files."""
     out = {}
     rejected = 0
+    confidences = []
     for kind, sub in (("box", "detect"), ("polygon", "segment")):
         path = os.path.join(source_dir, sub, f"{stem}.txt")
         parsed = parse_label_file(path, kind, w, h, with_conf=True)
         rejected += len(parsed.rejected)
+        confidences.extend(r.confidence for r in parsed.rows)
         if kind == "box":
             out[sub] = [_detect_line(r.class_id, r.confidence, *r.points[0], *r.points[1], w, h)
                         for r in parsed.rows]
         else:
             out[sub] = [_segment_line(r.class_id, r.confidence, r.points, w, h)
                         for r in parsed.rows]
-    return out["detect"], out["segment"], rejected
+    return out["detect"], out["segment"], rejected, confidences
 
 
 def _source_stems(source_dir, fmt):
@@ -150,20 +156,22 @@ def import_predictions(source_dir, image_folder, fmt, model_name, class_id, user
     images = _image_index(image_folder)
     result = ImportResult(rotated_images=sum(1 for _, _, o in images.values() if o != 1))
     converted: Dict[str, Tuple[List[str], List[str]]] = {}
+    confidences: List[float] = []
     for stem, filename in _source_stems(source_dir, fmt):
         if stem not in images:
             result.files_skipped.append(filename)
             continue
         w, h, _ = images[stem]
         if fmt == "bur_detect_json":
-            detect, segment, rejected = _convert_bur_json(
+            detect, segment, rejected, confs = _convert_bur_json(
                 os.path.join(source_dir, filename), class_id, w, h)
         elif fmt == "ultralytics_txt":
-            detect, segment, rejected = _convert_ultralytics(
+            detect, segment, rejected, confs = _convert_ultralytics(
                 os.path.join(source_dir, filename), w, h)
         else:
-            detect, segment, rejected = _convert_yololabeler(source_dir, stem, w, h)
+            detect, segment, rejected, confs = _convert_yololabeler(source_dir, stem, w, h)
         result.lines_rejected += rejected
+        confidences.extend(confs)
         converted[stem] = (detect, segment)
     detect_dir = os.path.join(image_folder, "predictions", "detect")
     segment_dir = os.path.join(image_folder, "predictions", "segment")
@@ -181,5 +189,6 @@ def import_predictions(source_dir, image_folder, fmt, model_name, class_id, user
         "model": model_name, "source_format": fmt,
         "imported_at": datetime.datetime.now().isoformat(timespec="seconds"),
         "imported_by": user, "class_id_default": class_id,
-        "files": result.files_written})
+        "files": result.files_written,
+        "min_conf": min(confidences) if confidences else None})
     return result

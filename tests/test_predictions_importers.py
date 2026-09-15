@@ -42,6 +42,7 @@ class TestBurDetectJson:
         assert manifest["source_format"] == "bur_detect_json"
         assert manifest["imported_by"] == "zack"
         assert manifest["class_id_default"] == 0
+        assert manifest["min_conf"] == pytest.approx(0.875)
 
     def test_unpaired_boxes_are_rejected_not_truncated(self, tmp_path, folder):
         src = tmp_path / "src"
@@ -107,6 +108,8 @@ class TestUltralyticsTxt:
             ["0 0.900000 0.500000 0.500000 0.200000 0.200000"]
         assert read(folder / "predictions" / "segment" / "a.txt") == \
             ["2 0.700000 0.000000 0.000000 0.500000 0.000000 0.500000 0.500000"]
+        manifest = read_manifest(folder / "predictions")
+        assert manifest["min_conf"] == pytest.approx(0.7)
 
     def test_line_without_confidence_is_rejected(self, tmp_path, folder):
         src = tmp_path / "src"

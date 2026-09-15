@@ -13,13 +13,13 @@ from typing import List, Optional
 from yololabeler.annotation.document import new_annotation
 from yololabeler.label_io import write_json_atomic
 from yololabeler.matching import compute_matches
+from yololabeler.predictions.store import read_manifest
 from yololabeler.state import AppState
 from yololabeler.state_io import read_json_or_quarantine
 
 # Centre-match tolerance carried over from the original code, used by the migration.
 MATCH_TOLERANCE = 0.002
-# Default prediction confidence cutoff for the document-based queue (spec 4.3);
-# supersedes the old tab-level REVIEW_CONF_THRESHOLD constant.
+# Fallback cutoff (spec 4.3) used only until an import's own min_conf is known.
 DEFAULT_CONF_THRESHOLD = 0.50
 
 
@@ -157,9 +157,19 @@ class ReviewEngine:
 
     @property
     def conf_threshold(self):
-        """The persisted prediction confidence cutoff, DEFAULT_CONF_THRESHOLD if unset."""
+        """The persisted cutoff, else the imported set's min_conf, else the default."""
         settings = self.state._review_state.get("settings", {})
-        return float(settings.get("conf_threshold", DEFAULT_CONF_THRESHOLD))
+        if "conf_threshold" in settings:
+            return float(settings["conf_threshold"])
+        min_conf = self._imported_min_conf()
+        return float(min_conf) if min_conf is not None else DEFAULT_CONF_THRESHOLD
+
+    def _imported_min_conf(self):
+        """min_conf from predictions/manifest.json, or None if absent."""
+        if not self.state.image_folder:
+            return None
+        manifest = read_manifest(os.path.join(self.state.image_folder, "predictions"))
+        return manifest.get("min_conf") if manifest else None
 
     @conf_threshold.setter
     def conf_threshold(self, value):
