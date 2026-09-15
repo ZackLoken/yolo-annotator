@@ -8,6 +8,14 @@ from PIL import Image
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+
+
+def is_image_file(name):
+    """True for a real image by extension; false for a dotfile like macOS's ._name."""
+    return not name.startswith(".") and name.lower().endswith(IMAGE_EXTENSIONS)
+
+
 _CUSTOM_FONT_LOADED = False
 
 

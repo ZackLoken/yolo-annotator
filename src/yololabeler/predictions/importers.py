@@ -12,10 +12,9 @@ from yololabeler.label_io import (
     _write_label_lines, format_detect_line, format_segment_line, parse_label_file,
 )
 from yololabeler.predictions.store import write_manifest
-from yololabeler.utils import oriented_size
+from yololabeler.utils import is_image_file, oriented_size
 
 FORMATS = ("yololabeler", "ultralytics_txt", "bur_detect_json")
-IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 
 
 @dataclass
@@ -48,7 +47,7 @@ def _image_index(image_folder):
     """stem -> (width, height, orientation) for every image in the folder."""
     index: Dict[str, Tuple[int, int, int]] = {}
     for name in sorted(os.listdir(image_folder)):
-        if name.lower().endswith(IMAGE_EXTENSIONS):
+        if is_image_file(name):
             index[os.path.splitext(name)[0]] = oriented_size(os.path.join(image_folder, name))
     return index
 

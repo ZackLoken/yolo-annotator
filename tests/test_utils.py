@@ -4,7 +4,7 @@ import io
 
 from PIL import Image
 
-from yololabeler.utils import auto_orient_image, oriented_size
+from yololabeler.utils import auto_orient_image, is_image_file, oriented_size
 
 
 RED = (255, 0, 0)
@@ -142,3 +142,22 @@ class TestOrientedSize:
         exif[274] = 6
         Image.new("RGB", (40, 20)).save(p, exif=exif)
         assert oriented_size(p) == (20, 40, 6)
+
+
+# ── is_image_file ────────────────────────────────────────────────────────────
+
+class TestIsImageFile:
+    def test_accepts_known_extensions(self):
+        for name in ("a.png", "b.JPG", "c.jpeg", "d.bmp", "e.tif", "f.TIFF"):
+            assert is_image_file(name)
+
+    def test_rejects_other_extensions(self):
+        assert not is_image_file("readme.txt")
+        assert not is_image_file("notes.json")
+
+    def test_rejects_macos_appledouble_files(self):
+        assert not is_image_file("._IMG_0001.jpg")
+
+    def test_rejects_dotfiles(self):
+        assert not is_image_file(".DS_Store")
+        assert not is_image_file(".hidden.png")

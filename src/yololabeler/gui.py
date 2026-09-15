@@ -30,7 +30,7 @@ from yololabeler.review.engine import ReviewEngine, apply_accept, apply_reject
 from yololabeler.review.panel import ReviewPanel
 from yololabeler.utils import (
     suppress_tk_mac_warnings, _load_custom_fonts, _get_font_family,
-    ASSETS_DIR,
+    ASSETS_DIR, is_image_file,
 )
 
 # Lightweight event object for synthesised clicks
@@ -659,11 +659,7 @@ class YoloLabeler:
     # ──────────────────────────────────────────────────────────────────────────
     def _init_folder(self, folder):
         self.image_folder = folder
-        self.images = sorted([
-            f for f in os.listdir(folder)
-            if f.lower().endswith(
-                (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"))
-        ])
+        self.images = sorted([f for f in os.listdir(folder) if is_image_file(f)])
         print(f"[YoloLabeler] Opened folder: {folder} ({len(self.images)} images)")
         self.labels_dir = os.path.join(folder, "labels")
         self.detect_dir = os.path.join(self.labels_dir, "detect")
