@@ -462,7 +462,7 @@ class YoloLabeler:
             "toggle_stream": self._toggle_stream_key,
             "undo": self.undo, "redo": self.redo, "save": self.save_now,
             "click": self._click_at_cursor, "escape": self._on_escape,
-            "help": tab.toggle_help,
+            "help": tab.toggle_help, "rename_class": self._rename_class_dialog,
         }
         for n in range(10):
             actions[f"class_{n}"] = lambda n=n: self._select_class_by_id(n)
@@ -1261,6 +1261,37 @@ class YoloLabeler:
         print(f"[YoloLabeler] New class added: {next_id}: {name}")
         self._refresh_class_dropdown()
         self._update_color_btn()
+        self._save_classes_file()
+        self.update_title()
+
+    def _rename_class_dialog(self):
+        """Open a small dialog to rename the active class; a name another class holds is refused."""
+        if self.active_class not in self.class_names:
+            return
+        current = self.class_names[self.active_class]
+        dialog = ctk.CTkInputDialog(
+            text=f'Rename class {self.active_class} (currently "{current}"):',
+            title="Rename Class",
+            fg_color=BG_COLOR,
+            button_fg_color=ACCENT,
+            button_hover_color=ACCENT_HOVER,
+            entry_fg_color=ENTRY_BG,
+            entry_border_color=BORDER_COLOR,
+            button_text_color=FG_COLOR)
+        name = dialog.get_input()
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        for cid, cname in self.class_names.items():
+            if cid != self.active_class and cname.lower() == name.lower():
+                self.show_banner(
+                    f'Class {cid} is already named "{cname}". '
+                    f"Class {self.active_class} was not renamed.")
+                return
+        self.class_names[self.active_class] = name
+        print(f"[YoloLabeler] Class renamed: {self.active_class}: "
+              f"{current} -> {name}")
+        self._refresh_class_dropdown()
         self._save_classes_file()
         self.update_title()
 

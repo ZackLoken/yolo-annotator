@@ -41,6 +41,7 @@ KEY_BINDINGS = (
     _b("toggle_snap", ("s",), "s", "Toggle vertex snapping", "polygon"),
     _b("toggle_stream", ("v",), "v", "Toggle vertex streaming", "polygon"),
     *[_b(f"class_{n}", (str(n),), str(n), f"Select class {n}") for n in range(10)],
+    _b("rename_class", ("<Control-r>", "<Command-r>"), "Ctrl+R", "Rename the active class"),
     _b("undo", ("<Control-z>", "<Command-z>"), "Ctrl+Z", "Undo"),
     _b("redo", ("<Control-y>", "<Command-y>"), "Ctrl+Y", "Redo"),
     _b("save", ("<Control-s>", "<Command-s>"), "Ctrl+S", "Save now"),

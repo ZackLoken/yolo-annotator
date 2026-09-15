@@ -351,6 +351,72 @@ class TestOpenFolder:
                    for i in app.canvas.find_all() if app.canvas.type(i) == "text")
 
 
+# ── rename class ────────────────────────────────────────────────────────────
+
+def typed_name(monkeypatch, value):
+    """Make the next class dialog return value instead of opening a real modal."""
+    class Dialog:
+        def __init__(self, **kwargs):
+            pass
+
+        def get_input(self):
+            return value
+
+    monkeypatch.setattr(guimod.ctk, "CTkInputDialog", Dialog)
+
+
+def saved_names(folder):
+    """The class names classes.json holds on disk, keyed by class id."""
+    data = json.loads((folder / "state" / "classes.json").read_text(encoding="utf-8"))
+    return {int(k): v["name"] for k, v in data.items() if "name" in v}
+
+
+class TestRenameClass:
+    def test_rename_is_bound_to_a_key(self, app):
+        from yololabeler.keybindings import KEY_BINDINGS
+        actions = app.ACTIONS
+        for b in KEY_BINDINGS:
+            assert b.action in actions, b.action
+        assert actions["rename_class"] == app._rename_class_dialog
+
+    def test_rename_updates_the_registry_and_the_file(self, app, folder, monkeypatch):
+        app.class_names[0] = "burr"
+        app._select_class_by_id(0)
+        typed_name(monkeypatch, "catkin")
+        app._rename_class_dialog()
+        assert app.class_names[0] == "catkin"
+        assert saved_names(folder)[0] == "catkin"
+
+    def test_an_empty_name_changes_nothing(self, app, monkeypatch):
+        app.class_names[0] = "burr"
+        app._select_class_by_id(0)
+        typed_name(monkeypatch, "   ")
+        app._rename_class_dialog()
+        assert app.class_names[0] == "burr"
+
+    def test_a_name_another_class_holds_is_refused(self, app, monkeypatch):
+        app.class_names[0] = "burr"
+        app.class_names[1] = "bud"
+        app._select_class_by_id(0)
+        typed_name(monkeypatch, "BUD")
+        app._rename_class_dialog()
+        assert app.class_names == {0: "burr", 1: "bud"}
+        assert "Class 1 is already named" in app.banner_text
+
+    def test_renaming_to_its_own_name_is_allowed(self, app, monkeypatch):
+        app.class_names[0] = "burr"
+        app._select_class_by_id(0)
+        typed_name(monkeypatch, "Burr")
+        app._rename_class_dialog()
+        assert app.class_names[0] == "Burr"
+
+    def test_an_unnamed_active_class_is_a_no_op(self, app, monkeypatch):
+        app.class_names.clear()
+        typed_name(monkeypatch, "catkin")
+        app._rename_class_dialog()
+        assert app.class_names == {}
+
+
 # ── state files ─────────────────────────────────────────────────────────────
 
 class TestStateFiles:

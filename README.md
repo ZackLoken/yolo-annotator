@@ -96,6 +96,7 @@ for the same list, filtered to the current mode.
 | Toggle vertex snapping | `s` |
 | Toggle vertex streaming | `v` |
 | Select class by id | `0`-`9` |
+| Rename the active class | `Ctrl+R` |
 | Undo | `Ctrl+Z` |
 | Redo | `Ctrl+Y` |
 | Save now | `Ctrl+S` |
