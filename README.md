@@ -25,6 +25,13 @@ cd yolo-annotator
 pip install -e .
 ```
 
+To run the test suite:
+
+```bash
+pip install -e .[test]
+pytest -q
+```
+
 ### Requirements
 
 - Python 3.9+
