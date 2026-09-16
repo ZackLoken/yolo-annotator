@@ -532,14 +532,14 @@ class YoloLabeler:
         return result
 
     def _act_on_item(self, apply):
-        """Shared body of accept and reject: record the verdict, then advance."""
+        """Record the verdict, then focus the next item or fit the whole image."""
         item = self._review_panel.current_item()
         if item is None or self.predictions_blind:
             return
         self._apply_verdict(item, apply)
         self._review_panel.refresh(keep_focus=False)
         if self._filtered_sweep_complete():
-            self.go_to_image(self._annotate_tab.next_index(), reset_filters=False)
+            self._annotate_tab.fit_to_window()
         else:
             self._review_panel.focus_item(self._review_panel.first_unreviewed())
 
