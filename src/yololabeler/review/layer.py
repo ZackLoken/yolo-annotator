@@ -101,11 +101,14 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
     pred = focused.prediction if show_pred else None
     selected_id = getattr(state, "_selected_annotation_id", None)
     if pred is not None:
+        verdict = state.verdicts.get(pred.id)
+        rejected = verdict is not None and verdict.get("action") == "rejected"
         if ann is None:
             _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=style.focus_color,
                         width=halo_w, fill="", tags="focus_halo")
         _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=color_of(pred.class_id),
-                    width=line_w + 1, fill="", dash=style.dash, tags="pred_focus")
+                    width=line_w + 1, fill="",
+                    dash=style.rejected_dash if rejected else style.dash, tags="pred_focus")
     if ann is not None and ann.id != selected_id:
         color = color_of(ann.class_id)
         _draw_shape(canvas, to_canvas, ann.kind, ann.points, outline=style.focus_color,
