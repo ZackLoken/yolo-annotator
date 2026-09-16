@@ -193,6 +193,20 @@ class ReviewEngine:
             "by": user, "at": datetime.datetime.now().isoformat(timespec="seconds")}
         self.save_review_state()
 
+    def carry_verdict(self, img_name, item, old_verdict):
+        """Carry a prior verdict forward onto item's current key after a geometry
+        edit reclassified it (e.g. a confirmed match became a standalone miss).
+        Keeps the original reviewer and timestamp; refreshes only the fields
+        that describe the item's classification, since the edit changed those."""
+        verdicts = self.verdicts(img_name)
+        verdicts[item.key] = {
+            **old_verdict,
+            "kind": item.kind, "class_id": item.class_id,
+            "conf": item.prediction.confidence if item.prediction else None,
+            "iou": round(item.iou, 4) if item.iou is not None else None,
+        }
+        self.save_review_state()
+
     def remove_verdict(self, img_name, key):
         """Remove a recorded verdict, if present, and save."""
         self.verdicts(img_name).pop(key, None)

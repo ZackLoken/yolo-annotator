@@ -18,6 +18,7 @@ from yololabeler import keybindings
 from yololabeler.annotation.document import load_document
 from yololabeler.matching import point_to_segment_dist, point_in_polygon
 from yololabeler.rendering import place_label
+from yololabeler.review.engine import build_queue
 from yololabeler.review.layer import draw_prediction_layer
 from yololabeler.utils import auto_orient_image
 
@@ -728,6 +729,25 @@ class AnnotateTab:
     # ──────────────────────────────────────────────────────────────────────────
     #  Box mode
     # ──────────────────────────────────────────────────────────────────────────
+    def _refresh_review_after_edit(self, ann_id, img_name):
+        """Refresh the review queue after a GT geometry edit, and if the edit
+        demoted a verdicted match to a freshly-unverdicted item under a new
+        key, carry the prior verdict forward so the reviewer isn't asked to
+        re-confirm geometry they just fixed."""
+        a = self.app
+        item = a._review_panel.current_item()
+        if item is None or item.annotation is None or item.annotation.id != ann_id:
+            return
+        old_key, old_verdict = item.key, a.verdicts.get(item.key)
+        a._review_panel.refresh(keep_focus=True)
+        if old_verdict is None:
+            return
+        all_items = build_queue(a.document, a.predictions, a.matches, a.verdicts)
+        new_item = next((qi for qi in all_items
+                         if qi.annotation is not None and qi.annotation.id == ann_id), None)
+        if new_item is not None and new_item.key != old_key and new_item.key not in a.verdicts:
+            a._review.carry_verdict(img_name, new_item, old_verdict)
+
     def _clear_box_edit_state(self):
         a = self.app
         a._box_edit_mode = None
@@ -854,10 +874,7 @@ class AnnotateTab:
                         a._redo_stack.pop()
                 else:
                     a._mark_image_annotated()
-                    item = a._review_panel.current_item()
-                    if (item is not None and item.annotation is not None
-                            and item.annotation.id == sel_id):
-                        a._review_panel.refresh(keep_focus=True)
+                    self._refresh_review_after_edit(sel_id, a.images[a.index])
             self.display_image()
             a.update_title()
             return
@@ -1035,9 +1052,7 @@ class AnnotateTab:
             a._dragging_vertex = None
             a._drag_orig_pos = None
             self.canvas.config(cursor="cross")
-            item = a._review_panel.current_item()
-            if item is not None and item.annotation is not None and item.annotation.id == ann_id:
-                a._review_panel.refresh(keep_focus=True)
+            self._refresh_review_after_edit(ann_id, a.images[a.index])
 
     def _close_polygon(self):
         a = self.app

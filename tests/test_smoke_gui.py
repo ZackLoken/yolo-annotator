@@ -12,6 +12,7 @@ import customtkinter as ctk  # noqa: E402
 from yololabeler import gui as guimod  # noqa: E402
 from yololabeler.annotation.document import new_annotation  # noqa: E402
 from yololabeler.gui import YoloLabeler  # noqa: E402
+from yololabeler.review.engine import build_queue  # noqa: E402
 from yololabeler.review.layer import LayerStyle  # noqa: E402
 
 
@@ -704,6 +705,72 @@ class TestRightClickDelete:
         assert all(a.id != drawn.id for a in app.document.annotations)
         assert panel.current_item().key == key
         assert panel.current_item().annotation is not None
+
+
+# ── verdict carry-forward across a geometry edit ────────────────────────────
+
+def focus_kind(app, kind):
+    """Focus the first queue item of that kind and return it."""
+    panel = app._review_panel
+    panel.focus_item(next(i for i, q in enumerate(app.queue) if q.kind == kind))
+    return panel.current_item()
+
+
+def drag_box_to(tab, ann, ix, iy):
+    """Move an existing box annotation by dragging its centre to (ix, iy)."""
+    tab.select_annotation(ann.id)
+    tab.on_button_press(click_at(tab, *box_center(ann)))
+    tab.on_move_press(click_at(tab, ix, iy))
+    tab.on_button_release(click_at(tab, ix, iy))
+
+
+def unfiltered_item_for(app, ann_id):
+    """The queue item holding that annotation, ignoring every active filter."""
+    items = build_queue(app.document, app.predictions, app.matches, app.verdicts)
+    return next(q for q in items if q.annotation is not None and q.annotation.id == ann_id)
+
+
+class TestVerdictCarriesForward:
+    def test_accepted_match_keeps_its_verdict_when_the_box_moves_away(self, app, folder):
+        tab = app._annotate_tab
+        pred_key = focus_kind(app, "tp").key
+        app.accept_item()
+        assert app.verdicts[pred_key]["action"] == "accepted"
+        before_pred = dict(app.verdicts[pred_key])
+        ann = focus_kind(app, "tp").annotation
+        tab.fit_to_window()
+        drag_box_to(tab, ann, 576, 432)
+        moved = unfiltered_item_for(app, ann.id)
+        assert moved.kind == "fn" and moved.key == ann.id
+        assert app.verdicts[ann.id]["action"] == "accepted"
+        assert app.verdicts[ann.id]["kind"] == "fn"
+        assert app.verdicts[ann.id]["by"] == before_pred["by"]
+        assert app.verdicts[ann.id]["at"] == before_pred["at"]
+        assert app.verdicts[pred_key] == before_pred
+        assert disk_verdicts(folder)[ann.id]["action"] == "accepted"
+
+    def test_an_edit_that_stays_matched_adds_no_verdict(self, app):
+        tab = app._annotate_tab
+        pred_key = focus_kind(app, "tp").key
+        app.accept_item()
+        before = {k: dict(v) for k, v in app.verdicts.items()}
+        ann = focus_kind(app, "tp").annotation
+        tab.fit_to_window()
+        cx, cy = box_center(ann)
+        drag_box_to(tab, ann, cx + 4, cy + 3)
+        assert unfiltered_item_for(app, ann.id).kind == "tp"
+        assert app.verdicts == before
+        assert app._review_panel.current_item().key == pred_key
+
+    def test_an_unreviewed_edit_invents_no_verdict(self, app):
+        tab = app._annotate_tab
+        item = focus_kind(app, "tp")
+        ann = item.annotation
+        assert item.key not in app.verdicts
+        tab.fit_to_window()
+        drag_box_to(tab, ann, 576, 432)
+        assert unfiltered_item_for(app, ann.id).kind == "fn"
+        assert ann.id not in app.verdicts
 
 
 # ── auto-advance under filters ──────────────────────────────────────────────
