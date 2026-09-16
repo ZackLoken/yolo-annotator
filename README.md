@@ -110,7 +110,10 @@ for the same list, filtered to the current mode.
 | Pan up / down | Scroll | always |
 | Pan left / right | Shift+Scroll | always |
 | Pan | Middle-click drag | always |
-| Draw a box | Left-click drag | box |
+| Draw a box (on empty space) | Left-click drag | box |
+| Select it; does not start a new box | Click inside a box | box |
+| Resize; the opposite corner stays fixed (selected box) | Drag a corner | box |
+| Move the whole box (selected box) | Drag the body | box |
 | Delete box | Right-click | box |
 | Place vertex / select polygon | Left-click | polygon |
 | Close polygon | Double-click | polygon |
@@ -305,9 +308,13 @@ viewport or leave unsaved work behind.
 - Box + Polygon modes: toggle with `m` or the toolbar button
 - Vertex streaming and edge snapping: continuous vertex placement while moving the
   mouse (`v`), snapped to nearby edges (`s`)
-- Full vertex editing: drag, insert on an edge, right-click delete, on the
-  selected polygon; snapshot undo / redo (`Ctrl+Z` / `Ctrl+Y`) covers drawing,
-  accept, reject and edit alike
+- Full vertex editing: drag, insert on an edge, and right-click delete on the
+  selected polygon; boxes support drag-to-resize from a corner, drag-to-move
+  from the body, and click-to-select, a new capability where clicking inside
+  an existing box selects it instead of always starting a new rectangle on
+  top of it; right-click delete is unchanged for both shapes, and
+  insert-on-edge remains polygon-only; snapshot undo / redo (`Ctrl+Z` /
+  `Ctrl+Y`) covers drawing, accept, reject and edit alike
 - Multi-class support: dropdown selector, inline "Add" for new classes, per-class
   colors
 - Prediction layer: import model output, matched against ground truth by IoU, and
@@ -382,6 +389,11 @@ unlabelled outline.
 | Unmatched prediction | Insert an annotation with the prediction's geometry and class (`source: accepted`); verdict `accepted` | Verdict `rejected`; nothing else changes |
 | Match (prediction paired with an annotation) | Verdict `accepted`; annotation unchanged | Delete the annotation; verdict `rejected` |
 | Model miss (annotation with no prediction) | Verdict `accepted` | Delete the annotation; verdict `rejected` |
+
+Accepting an unmatched prediction does not advance the queue: the newly
+created annotation is selected immediately and stays focused, so the reviewer
+can drag its corners into place right away with no extra selection step, and
+no separate verdict is recorded for that edit.
 
 Press `e` to select the focused item's paired annotation for editing, moving or
 deleting its vertices without leaving the queue. Every accept, reject and edit is
