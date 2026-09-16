@@ -161,14 +161,15 @@ class ReviewPanel:
 
     # ── stepping ───────────────────────────────────────────────────────────
 
-    def focus_item(self, index, zoom=True):
-        """Focus a queue item, set class and mode to match it, and zoom to it (spec 4.4)."""
+    def focus_item(self, index, zoom=True, switch_class=True):
+        """Focus a queue item, set mode (and optionally class) to match it, zoom to it (spec 4.4)."""
         a = self.app
         if not a.queue:
             return
         a.queue_index = index % len(a.queue)
         item = a.queue[a.queue_index]
-        a._select_class_by_id(item.class_id)
+        if switch_class:
+            a._select_class_by_id(item.class_id)
         kind = item.prediction.kind if item.prediction else item.annotation.kind
         if a.mode != kind:
             a._set_mode(kind)

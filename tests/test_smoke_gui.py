@@ -483,6 +483,21 @@ class TestReviewPanel:
         assert canvas_x == pytest.approx(tab.canvas.winfo_width() / 2, abs=1.0)
         assert canvas_y == pytest.approx(tab.canvas.winfo_height() / 2, abs=1.0)
 
+    def test_load_image_keeps_the_active_class(self, app):
+        tab, panel = app._annotate_tab, app._review_panel
+        focused = app.queue[panel.first_unreviewed()]
+        other = next(q.class_id for q in app.queue if q.class_id != focused.class_id)
+        app._select_class_by_id(other)
+        tab.load_image()
+        assert app.active_class == other
+        assert tab.scale != 1.0
+
+    def test_manual_step_still_switches_the_active_class(self, app):
+        panel = app._review_panel
+        target = next(i for i, q in enumerate(app.queue) if q.class_id != app.active_class)
+        panel.focus_item(target)
+        assert app.active_class == app.queue[target].class_id
+
 
 class TestClassFilterMerge:
     def test_all_choice_sets_filter_and_leaves_active_class(self, app):
