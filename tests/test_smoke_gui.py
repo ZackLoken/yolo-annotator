@@ -260,8 +260,17 @@ class TestReviewPanel:
 
     def test_load_image_zooms_to_first_unreviewed(self, app):
         # No explicit focus_item/step call: load_image() alone must trigger the zoom.
-        app._annotate_tab.load_image()
-        assert app._annotate_tab.scale != 1.0
+        tab = app._annotate_tab
+        tab.load_image()
+        item = app.queue[app.queue_index]
+        shape = item.prediction or item.annotation
+        xs = [p[0] for p in shape.points]
+        ys = [p[1] for p in shape.points]
+        cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+        canvas_x, canvas_y = tab.image_to_canvas(cx, cy)
+        # Only zoom_to_bbox, not a plain fit_to_window, centers the focused item like this.
+        assert canvas_x == pytest.approx(tab.canvas.winfo_width() / 2, abs=1.0)
+        assert canvas_y == pytest.approx(tab.canvas.winfo_height() / 2, abs=1.0)
 
 
 # ── actions ─────────────────────────────────────────────────────────────────
