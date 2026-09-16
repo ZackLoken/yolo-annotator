@@ -4,7 +4,9 @@ import tkinter as tk
 
 import pytest
 
-from yololabeler.rendering import halo_text, place_label, _HALO_OFFSETS, _LABEL_NUDGE
+from yololabeler.rendering import (
+    halo_text, place_label, _cached_font, _font_cache, _HALO_OFFSETS, _LABEL_NUDGE,
+)
 
 
 @pytest.fixture(scope="module")
@@ -126,3 +128,28 @@ class TestPlaceLabel:
         assert canvas.coords(items[n - 1]) == [10.0, 10.0]
         assert canvas.coords(items[-1]) == [500.0, 500.0]
         assert len(placed) == 2
+
+
+# ── _cached_font ──────────────────────────────────────────────────────────
+
+class TestCachedFontStaleInterpreter:
+    """A cached Font is bound to the Tk interpreter live when it was built; a
+    stale one (its interpreter torn down) must be rebuilt, not raise."""
+
+    FONT = ("Arial", 11, "bold")
+
+    def test_rebuilds_when_the_cached_font_reports_a_destroyed_interpreter(self, tk_root, monkeypatch):
+        _font_cache.pop(self.FONT, None)
+        first = _cached_font(self.FONT)
+        first.metrics("linespace")  # sanity check: a real, working Font
+
+        def stale_metrics(*args, **kwargs):
+            raise tk.TclError('can\'t invoke "font" command: application has been destroyed')
+        monkeypatch.setattr(first, "metrics", stale_metrics)
+
+        second = _cached_font(self.FONT)  # must not raise despite the stale cache hit
+        assert second is not first
+        assert _font_cache[self.FONT] is second
+        assert second.metrics("linespace") > 0  # the rebuilt Font is real and usable
+
+        _font_cache.pop(self.FONT, None)
