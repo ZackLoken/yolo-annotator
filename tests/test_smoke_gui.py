@@ -44,6 +44,27 @@ def folder(tmp_path):
     return tmp_path
 
 
+@pytest.fixture
+def poly_folder(tmp_path):
+    """An image folder whose one polygon label is matched by one of two predictions.
+
+    The GT polygon is the pixel square (192,144)-(320,240) and the first
+    prediction is identical to it, so the queue is one fp (the far class-1
+    polygon) and one tp.
+    """
+    for name in ("a.jpg", "b.jpg"):
+        Image.new("RGB", (640, 480), "gray").save(tmp_path / name)
+    s = tmp_path / "labels" / "segment"
+    s.mkdir(parents=True)
+    (s / "a.txt").write_text("0 0.3 0.3 0.5 0.3 0.5 0.5 0.3 0.5\n", encoding="utf-8")
+    p = tmp_path / "predictions" / "segment"
+    p.mkdir(parents=True)
+    (p / "a.txt").write_text(
+        "0 0.9 0.3 0.3 0.5 0.3 0.5 0.5 0.3 0.5\n"
+        "1 0.8 0.75 0.75 0.875 0.75 0.875 0.9 0.75 0.9\n", encoding="utf-8")
+    return tmp_path
+
+
 def new_root():
     """A fresh Tk root, skipping the calling test when there is no display."""
     try:
@@ -60,6 +81,20 @@ def app(folder):
     app = YoloLabeler(root)
     root.update()
     app._init_folder(str(folder))
+    app._annotate_tab.load_image()
+    root.update()
+    yield app
+    app._quit()
+
+
+@pytest.fixture
+def poly_app(poly_folder):
+    """A live YoloLabeler on the polygon folder; skipped when Tk has no display."""
+    root = new_root()
+    root.geometry("900x600")
+    app = YoloLabeler(root)
+    root.update()
+    app._init_folder(str(poly_folder))
     app._annotate_tab.load_image()
     root.update()
     yield app
@@ -263,6 +298,63 @@ class TestActions:
         assert app.queue[app.queue_index].kind == "tp"
         app.reject_item()
         assert not (folder / "labels" / "detect" / "a.txt").exists()
+
+    def test_dragging_the_focused_vertex_refreshes_the_display_and_keeps_the_verdict(
+            self, poly_app):
+        app = poly_app
+        panel, tab = app._review_panel, app._annotate_tab
+        tp_index = next(i for i, q in enumerate(app.queue) if q.kind == "tp")
+        panel.focus_item(tp_index)
+        key = panel.current_item().key
+        app.accept_item()
+        before = dict(app.verdicts[key])
+        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.key == key))
+        app.edit_pair()
+        vx, vy = panel.current_item().annotation.points[0]
+        assert panel.item_label.cget("text").startswith("TP")
+        assert panel.counts_label.cget("text") == "TP 1  FP 1  FN 0"
+        tab.on_button_press(click_at(tab, vx, vy))
+        tab.on_move_press(click_at(tab, 10, 10))
+        tab.on_button_release(click_at(tab, 10, 10))
+        # The drag alone pulls the GT below the IoU threshold, and the strip says so.
+        assert panel.counts_label.cget("text") == "TP 0  FP 2  FN 1"
+        assert panel.item_label.cget("text").startswith("FP")
+        assert app.verdicts[key] == before
+
+    def test_drawing_an_unrelated_box_records_nothing_for_the_focused_item(self, app):
+        panel, tab = app._review_panel, app._annotate_tab
+        panel.focus_item(len(app.queue) - 1)
+        item = panel.current_item()
+        assert item.kind == "tp"
+        before = dict(app.verdicts)
+        tab.on_button_press(click_at(tab, 420, 360))
+        tab.on_button_release(click_at(tab, 520, 440))
+        assert len(app.document.annotations) == 2
+        assert app.verdicts == before and item.key not in app.verdicts
+        assert panel.current_item().key == item.key
+
+    def test_rejecting_a_tp_does_not_select_the_deleted_annotation(self, app):
+        panel = app._review_panel
+        panel.focus_item(len(app.queue) - 1)
+        item = panel.current_item()
+        assert item.kind == "tp"
+        ann_id = item.annotation.id
+        app.reject_item()
+        assert all(a.id != ann_id for a in app.document.annotations)
+        assert app._selected_annotation_id != ann_id
+
+    def test_accepting_an_fp_pauses_on_the_new_annotation(self, app):
+        panel = app._review_panel
+        panel.focus_item(0)
+        item = panel.current_item()
+        assert item.kind == "fp"
+        key = item.key
+        app.accept_item()
+        created = app.document.annotations[-1]
+        assert created.source == "accepted"
+        assert app._selected_annotation_id == created.id
+        after = panel.current_item()
+        assert after.key == key and after.kind == "tp"
 
 
 # ── undo/redo with no folder open ───────────────────────────────────────────

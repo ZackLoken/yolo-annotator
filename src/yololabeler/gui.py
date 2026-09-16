@@ -527,18 +527,29 @@ class YoloLabeler:
         self._review_panel.refresh()
 
     def _act_on_item(self, apply):
-        """Shared body of accept and reject: undo point, mutate, save, record, refresh."""
+        """Shared body of accept and reject: undo point, mutate, save, record, then
+        pause on a newly created annotation or advance past everything else."""
         item = self._review_panel.current_item()
         if item is None or self.predictions_blind:
             return
         self._engine.push_undo()
-        action, _ = apply(item)
+        action, result = apply(item)
         # Labels first, so a crash cannot leave a verdict for an unwritten change.
         self.save_current()
         self._review.record_verdict(self.images[self.index], item, action, self._current_user)
         self._mark_image_annotated()
+        # apply_reject's second element is the removed annotation, so an fp-accept
+        # is the only case that produced something new to select.
+        created = result if (action == "accepted" and item.kind == "fp") else None
+        if created is not None:
+            self._review_panel.refresh(keep_focus=True)
+            self._annotate_tab.select_annotation(created.id)
+            return
         self._review_panel.refresh(keep_focus=False)
-        self._review_panel.focus_item(self._review_panel.first_unreviewed())
+        if self.queue and all(qi.key in self.verdicts for qi in self.queue):
+            self.go_to_image(self.index + 1, reset_filters=False)
+        else:
+            self._review_panel.focus_item(self._review_panel.first_unreviewed())
 
     def accept_item(self):
         """Accept the focused queue item, promoting an fp prediction into an annotation."""

@@ -904,10 +904,14 @@ class AnnotateTab:
     def _poly_release(self, event):
         a = self.app
         if a._dragging_vertex is not None:
+            ann_id = a._dragging_vertex[0]
             a._mark_image_annotated()
             a._dragging_vertex = None
             a._drag_orig_pos = None
             self.canvas.config(cursor="cross")
+            item = a._review_panel.current_item()
+            if item is not None and item.annotation is not None and item.annotation.id == ann_id:
+                a._review_panel.refresh(keep_focus=True)
 
     def _close_polygon(self):
         a = self.app

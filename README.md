@@ -388,6 +388,10 @@ carries a label, everything else is an unlabelled outline.
 Press `e` to select the focused item's paired annotation for editing, moving or
 deleting its vertices without leaving the queue. Every accept, reject and edit is
 one undo step, covered the same way as drawing (`Ctrl+Z` / `Ctrl+Y`).
+Dragging the focused item's GT box updates its displayed classification, IoU and
+reviewed status immediately, with no separate action and no new verdict; how far
+an edited box has moved from the prediction it came from is read by comparing its
+geometry to that prediction (`prediction_id` in the sidecar), not from a verdict.
 
 ### Threshold
 
