@@ -6,7 +6,7 @@ import tkinter.font as tkFont
 from dataclasses import dataclass, field
 from typing import Dict
 
-from yololabeler.rendering import halo_text, place_label
+from yololabeler.rendering import place_label
 
 _ANNOTATED_ACTIONS = ("accepted", "confirmed")
 

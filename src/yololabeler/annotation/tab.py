@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 from yololabeler import keybindings
 from yololabeler.annotation.document import load_document
 from yololabeler.matching import point_to_segment_dist, point_in_polygon
-from yololabeler.rendering import halo_text, place_label
+from yololabeler.rendering import place_label
 from yololabeler.review.layer import draw_prediction_layer
 from yololabeler.utils import auto_orient_image
 
