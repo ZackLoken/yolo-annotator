@@ -198,6 +198,25 @@ class ReviewEngine:
         self.verdicts(img_name).pop(key, None)
         self.save_review_state()
 
+    def update_img_status(self, img_name):
+        """Recompute not_started/started/completed for img_name from every queue item, ignoring active filters."""
+        s = self.state
+        verdicts = self.verdicts(img_name)
+        if s.document is None or not s.matches:
+            total, reviewed = 0, 0
+        else:
+            all_items = build_queue(s.document, s.predictions, s.matches, verdicts)
+            total = len(all_items)
+            reviewed = sum(1 for item in all_items if item.key in verdicts)
+        entry = self._image_entry(img_name)
+        if reviewed == 0:
+            entry["img_status"] = "not_started"
+        elif total and reviewed >= total:
+            entry["img_status"] = "completed"
+        else:
+            entry["img_status"] = "started"
+        self.save_review_state()
+
     def migrate_centre_entries(self, img_name, predictions, width, height):
         """Re-key old centre-matched verdict entries by prediction id (spec 6.3)."""
         entry = self.state._review_state.get("image", {}).get(img_name)

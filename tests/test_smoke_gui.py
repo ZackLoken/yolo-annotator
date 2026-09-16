@@ -265,6 +265,18 @@ class TestActions:
         assert not (folder / "labels" / "detect" / "a.txt").exists()
 
 
+# ── undo/redo with no folder open ───────────────────────────────────────────
+
+class TestUndoRedoNoFolder:
+    def test_no_exception_with_no_folder_open(self):
+        root = new_root()
+        app = YoloLabeler(root)
+        root.update()
+        app.undo()
+        app.redo()
+        app._quit()
+
+
 # ── navigation and saving ───────────────────────────────────────────────────
 
 class TestNavigation:

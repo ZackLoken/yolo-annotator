@@ -137,6 +137,8 @@ class ReviewPanel:
         a = self.app
         if a.document is None or a.predictions_blind or not a.predictions:
             a.queue, a.matches = [], {}
+            if a.images:
+                self.engine.update_img_status(a.images[a.index])
             self.update_labels()
             return
         focused = self.current_item() if keep_focus else None
@@ -153,6 +155,8 @@ class ReviewPanel:
                     a.queue_index = i
                     break
         self.update_labels()
+        if a.images:
+            self.engine.update_img_status(a.images[a.index])
         a._annotate_tab.display_image()
 
     def first_unreviewed(self):

@@ -232,6 +232,50 @@ class TestVerdicts:
         assert engine.state._review_state == {}
 
 
+# ── update_img_status ───────────────────────────────────────────────────────
+
+class TestImgStatus:
+    def test_freshly_created_entry_is_not_started(self, engine):
+        engine.update_img_status("img_001.jpg")
+        assert engine.state._review_state["image"]["img_001.jpg"]["img_status"] == "not_started"
+
+    def test_one_verdict_of_several_gives_started(self, engine, scene):
+        doc, preds = scene
+        engine.state.document = doc
+        engine.state.predictions = preds
+        engine.state.matches = match_document(doc, preds, 0.6, 0.5)
+        queue = build_queue(doc, preds, engine.state.matches, {})
+        engine.record_verdict("img_001.jpg", queue[0], "rejected", "ren")
+        engine.update_img_status("img_001.jpg")
+        assert engine.state._review_state["image"]["img_001.jpg"]["img_status"] == "started"
+
+    def test_every_item_reviewed_gives_completed(self, engine, scene):
+        doc, preds = scene
+        engine.state.document = doc
+        engine.state.predictions = preds
+        engine.state.matches = match_document(doc, preds, 0.6, 0.5)
+        queue = build_queue(doc, preds, engine.state.matches, {})
+        for item in queue:
+            engine.record_verdict("img_001.jpg", item, "rejected", "ren")
+        engine.update_img_status("img_001.jpg")
+        assert engine.state._review_state["image"]["img_001.jpg"]["img_status"] == "completed"
+
+    def test_filtering_has_no_bearing_on_the_computed_status(self, engine, scene):
+        doc, preds = scene
+        engine.state.document = doc
+        engine.state.predictions = preds
+        engine.state.matches = match_document(doc, preds, 0.6, 0.5)
+        full_queue = build_queue(doc, preds, engine.state.matches, {})
+        engine.record_verdict("img_001.jpg", full_queue[0], "rejected", "ren")
+        verdicts = engine.verdicts("img_001.jpg")
+        # A "reviewed" filter would make this look 1-of-1 complete; update_img_status must not use it.
+        filtered = build_queue(doc, preds, engine.state.matches, verdicts,
+                               filter_status="reviewed")
+        assert len(filtered) == 1 and len(full_queue) == 3
+        engine.update_img_status("img_001.jpg")
+        assert engine.state._review_state["image"]["img_001.jpg"]["img_status"] == "started"
+
+
 # ── migrate_centre_entries ──────────────────────────────────────────────────
 
 class TestMigrateCentreEntries:
