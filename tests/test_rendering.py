@@ -4,7 +4,7 @@ import tkinter as tk
 
 import pytest
 
-from yololabeler.rendering import halo_text, _HALO_OFFSETS
+from yololabeler.rendering import halo_text, place_label, _HALO_OFFSETS, _LABEL_NUDGE
 
 
 @pytest.fixture(scope="module")
@@ -92,3 +92,37 @@ class TestHaloText:
     def test_empty_text_still_draws_items(self, canvas):
         halo_text(canvas, 10, 10, "", "white")
         assert len(canvas.find_all()) == len(_HALO_OFFSETS) + 1
+
+
+# ── place_label ───────────────────────────────────────────────────────────
+
+class TestPlaceLabel:
+    FONT = ("Arial", 10)
+
+    def test_first_label_is_not_nudged(self, canvas):
+        placed = []
+        place_label(canvas, placed, 50, 60, "hello", "white", font=self.FONT)
+        assert len(placed) == 1
+        last = canvas.find_all()[-1]
+        assert canvas.coords(last) == [50.0, 60.0]
+
+    def test_second_label_at_same_anchor_is_nudged_and_agrees_with_its_box(self, canvas):
+        placed = []
+        place_label(canvas, placed, 50, 60, "hello", "white", font=self.FONT)
+        place_label(canvas, placed, 50, 60, "hello", "white", font=self.FONT)
+        assert len(placed) == 2
+        last = canvas.find_all()[-1]
+        drawn_y = canvas.coords(last)[1]
+        assert drawn_y >= 60 + _LABEL_NUDGE
+        # anchor "sw": box_at sets y1 to the y actually drawn, so the two must agree
+        assert placed[1][3] == pytest.approx(drawn_y)
+
+    def test_two_labels_far_apart_are_both_unnudged(self, canvas):
+        placed = []
+        place_label(canvas, placed, 10, 10, "a", "white", font=self.FONT)
+        place_label(canvas, placed, 500, 500, "b", "white", font=self.FONT)
+        n = len(_HALO_OFFSETS) + 1
+        items = canvas.find_all()
+        assert canvas.coords(items[n - 1]) == [10.0, 10.0]
+        assert canvas.coords(items[-1]) == [500.0, 500.0]
+        assert len(placed) == 2

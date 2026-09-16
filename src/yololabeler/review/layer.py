@@ -6,7 +6,7 @@ import tkinter.font as tkFont
 from dataclasses import dataclass, field
 from typing import Dict
 
-from yololabeler.rendering import halo_text
+from yololabeler.rendering import halo_text, place_label
 
 _ANNOTATED_ACTIONS = ("accepted", "confirmed")
 
@@ -70,12 +70,17 @@ def _label_anchor(to_canvas, points):
 
 def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
                           label_size, show_gt, show_pred, style=LayerStyle(),
-                          class_color=None):
+                          class_color=None, placed_labels=None):
     """Draw predictions, the focused pair and the badge. Only the focus gets labels.
 
     class_color, when given, maps a class id to that class's hex colour; each
     prediction is then drawn in a tinted version of its own class colour.
+    placed_labels, when given, is the render pass's shared list of label boxes
+    for place_label collision avoidance; a fresh list is used when omitted, so
+    this module stays usable standalone.
     """
+    if placed_labels is None:
+        placed_labels = []
     focused = None
     if state.queue and 0 <= state.queue_index < len(state.queue):
         focused = state.queue[state.queue_index]
@@ -104,8 +109,9 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
                         tags="pred_focus")
             lx, ly = _label_anchor(to_canvas, p.points)
             name = class_names.get(p.class_id, str(p.class_id))
-            halo_text(canvas, lx + 2, ly - 2, f"Pred {p.class_id}: {name} ({p.confidence:.2f})",
-                      style.focused_pred_color, anchor="sw", font=font)
+            place_label(canvas, placed_labels, lx + 2, ly - 2,
+                        f"Pred {p.class_id}: {name} ({p.confidence:.2f})",
+                        style.focused_pred_color, anchor="sw", font=font)
 
     if show_gt and focused and focused.annotation is not None:
         a = focused.annotation
@@ -114,8 +120,9 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
                     tags="gt_focus")
         lx, ly = _label_anchor(to_canvas, a.points)
         name = class_names.get(a.class_id, str(a.class_id))
-        halo_text(canvas, lx + 2, ly + 2 + label_size * 2, f"GT {a.class_id}: {name}",
-                  style.focused_gt_color, anchor="nw", font=font)
+        place_label(canvas, placed_labels, lx + 2, ly + 2 + label_size * 2,
+                    f"GT {a.class_id}: {name}",
+                    style.focused_gt_color, anchor="nw", font=font)
 
     if focused and (show_gt or show_pred):
         verdict = state.verdicts.get(focused.key)

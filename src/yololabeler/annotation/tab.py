@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 from yololabeler import keybindings
 from yololabeler.annotation.document import load_document
 from yololabeler.matching import point_to_segment_dist, point_in_polygon
-from yololabeler.rendering import halo_text
+from yololabeler.rendering import halo_text, place_label
 from yololabeler.review.layer import draw_prediction_layer
 from yololabeler.utils import auto_orient_image
 
@@ -1104,9 +1104,10 @@ class AnnotateTab:
         label_size = max(7, min(int(9 * (0.6 + s * 0.4)), 18))
         dash_a = max(2, int(4 * (0.5 + s * 0.5)))
         dash_b = max(2, int(4 * (0.5 + s * 0.5)))
+        placed_labels = []
 
         def _halo(x, y, text, fill, **kw):
-            halo_text(canvas, x, y, text, fill, **kw)
+            place_label(canvas, placed_labels, x, y, text, fill, **kw)
 
         drag_canvas_pt = None
         if a._dragging_vertex is not None and a.snap_enabled:
@@ -1217,7 +1218,7 @@ class AnnotateTab:
         draw_prediction_layer(
             self.canvas, self.image_to_canvas, a, a.class_names, a.font_family,
             label_size, show_gt=a._review_show_gt, show_pred=a._review_show_pred,
-            class_color=a._get_class_color)
+            class_color=a._get_class_color, placed_labels=placed_labels)
 
         help_y0 = 10
         if a.banner_text:
