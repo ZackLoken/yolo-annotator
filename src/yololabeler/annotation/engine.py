@@ -77,11 +77,15 @@ class AnnotationEngine:
         return True
 
     def clear_drag_state(self):
-        """Reset in-progress vertex-drag and hover state."""
+        """Reset in-progress vertex-drag, box-edit and hover state."""
         s = self.state
         s._dragging_vertex = None
         s._drag_orig_pos = None
         s._hovered_annotation_id = None
+        s._box_edit_mode = None
+        s._box_edit_anchor = None
+        s._box_edit_origin = None
+        s._box_edit_dirty = False
 
     # ── CRUD ───────────────────────────────────────────────────────────────
 

@@ -141,6 +141,154 @@ class TestAnnotate:
         assert app._annotate_tab.visible_annotations() == []
 
 
+# ── box editing ─────────────────────────────────────────────────────────────
+
+def box_setup(app):
+    """The tab and the fixture's GT box, with its class active and the image in view."""
+    app._select_class_by_id(0)
+    tab = app._annotate_tab
+    tab.fit_to_window()
+    return tab, app.document.annotations[0]
+
+
+def image_point(tab, ix, iy):
+    """The image point a synthetic click at (ix, iy) lands on after pixel rounding."""
+    event = click_at(tab, ix, iy)
+    return tab.canvas_to_image(event.x, event.y)
+
+
+def flat(points):
+    """A point pair flattened for a single approx comparison."""
+    return [c for p in points for c in p]
+
+
+class TestBoxEditing:
+    def test_dragging_a_corner_leaves_the_opposite_corner_fixed(self, app):
+        tab, ann = box_setup(app)
+        (x1, y1), (x2, y2) = ann.points
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, x1, y1))
+        assert app._box_edit_mode == "resize"
+        assert app._box_edit_anchor == (x2, y2)
+        tab.on_move_press(click_at(tab, x1 + 40, y1 + 30))
+        tab.on_button_release(click_at(tab, x1 + 40, y1 + 30))
+        moved, fixed = app.document.get(ann.id).points
+        assert fixed == (x2, y2)
+        assert moved == pytest.approx(image_point(tab, x1 + 40, y1 + 30))
+        assert app._box_edit_mode is None and app._box_edit_dirty is False
+
+    def test_dragging_the_body_shifts_both_points_by_the_same_delta(self, app):
+        tab, ann = box_setup(app)
+        (x1, y1), (x2, y2) = ann.points
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, cx, cy))
+        assert app._box_edit_mode == "move"
+        sx, sy = image_point(tab, cx, cy)
+        tx, ty = image_point(tab, cx + 60, cy - 20)
+        tab.on_move_press(click_at(tab, cx + 60, cy - 20))
+        tab.on_button_release(click_at(tab, cx + 60, cy - 20))
+        dx, dy = tx - sx, ty - sy
+        assert flat(app.document.get(ann.id).points) == pytest.approx(
+            [x1 + dx, y1 + dy, x2 + dx, y2 + dy])
+
+    def test_dragging_the_body_past_an_edge_clamps_it_inside_the_image(self, app):
+        tab, ann = box_setup(app)
+        (x1, y1), (x2, y2) = ann.points
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, cx, cy))
+        tab.on_move_press(click_at(tab, x2 + 400, y2 + 400))
+        tab.on_button_release(click_at(tab, x2 + 400, y2 + 400))
+        assert flat(app.document.get(ann.id).points) == pytest.approx(
+            [app.img_width - (x2 - x1), app.img_height - (y2 - y1),
+             app.img_width, app.img_height])
+
+    def test_a_degenerate_resize_rolls_back_and_cannot_be_redone(self, app):
+        tab, ann = box_setup(app)
+        before = ann.points
+        (x1, y1), (x2, y2) = before
+        tab.select_annotation(ann.id)
+        undo_before, redo_before = len(app._undo_stack), len(app._redo_stack)
+        tab.on_button_press(click_at(tab, x1, y1))
+        tab.on_move_press(click_at(tab, x2 - 1, y2 - 1))
+        (dx1, dy1), (dx2, dy2) = app.document.get(ann.id).points
+        assert dx2 - dx1 < 3 and dy2 - dy1 < 3
+        tab.on_button_release(click_at(tab, x2 - 1, y2 - 1))
+        assert app.document.get(ann.id).points == before
+        assert len(app._undo_stack) == undo_before
+        assert len(app._redo_stack) == redo_before
+        app.redo()
+        assert app.document.get(ann.id).points == before
+
+    def test_a_click_with_no_drag_pushes_no_undo_and_keeps_the_redo_stack(self, app):
+        tab, ann = box_setup(app)
+        tab.on_button_press(click_at(tab, 40, 40))
+        tab.on_button_release(click_at(tab, 140, 140))
+        tab.undo_last()
+        assert (len(app._undo_stack), len(app._redo_stack)) == (0, 1)
+        tab.select_annotation(ann.id)
+        before = app.document.get(ann.id).points
+        (x1, y1), _ = before
+        tab.on_button_press(click_at(tab, x1, y1))
+        assert app._box_edit_mode == "resize"
+        tab.on_button_release(click_at(tab, x1, y1))
+        assert (len(app._undo_stack), len(app._redo_stack)) == (0, 1)
+        assert app.document.get(ann.id).points == before
+
+    def test_clicking_another_box_selects_it_without_starting_a_draw(self, app):
+        tab, ann = box_setup(app)
+        tab.on_button_press(click_at(tab, 40, 40))
+        tab.on_button_release(click_at(tab, 140, 140))
+        other = app.document.annotations[-1]
+        tab.select_annotation(other.id)
+        count = len(app.document.annotations)
+        (x1, y1), (x2, y2) = ann.points
+        tab.on_button_press(click_at(tab, (x1 + x2) / 2, (y1 + y2) / 2))
+        assert app._selected_annotation_id == ann.id
+        assert app.rect is None and app._box_edit_mode is None
+        tab.on_button_release(click_at(tab, (x1 + x2) / 2, (y1 + y2) / 2))
+        assert len(app.document.annotations) == count
+
+    def test_clicking_inside_a_box_with_nothing_selected_selects_it(self, app):
+        tab, ann = box_setup(app)
+        assert app._selected_annotation_id is None and app.mode == "box"
+        count = len(app.document.annotations)
+        (x1, y1), (x2, y2) = ann.points
+        tab.on_button_press(click_at(tab, (x1 + x2) / 2, (y1 + y2) / 2))
+        tab.on_button_release(click_at(tab, (x1 + x2) / 2, (y1 + y2) / 2))
+        assert app._selected_annotation_id == ann.id
+        assert app.rect is None
+        assert len(app.document.annotations) == count
+
+    def test_switching_mode_clears_an_in_progress_box_drag(self, app):
+        tab, ann = box_setup(app)
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, *ann.points[0]))
+        assert app._box_edit_mode == "resize"
+        app._set_mode("polygon")
+        app._set_mode("box")
+        assert app._box_edit_mode is None
+
+    def test_loading_an_image_clears_an_in_progress_box_drag(self, app):
+        tab, ann = box_setup(app)
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, *ann.points[0]))
+        assert app._box_edit_mode == "resize"
+        tab.load_image()
+        assert app._box_edit_mode is None
+
+    def test_undo_clears_an_in_progress_box_drag(self, app):
+        tab, ann = box_setup(app)
+        tab.on_button_press(click_at(tab, 40, 40))
+        tab.on_button_release(click_at(tab, 140, 140))
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, *ann.points[0]))
+        assert app._box_edit_mode == "resize"
+        tab.undo_last()
+        assert app._box_edit_mode is None
+
+
 # ── render ──────────────────────────────────────────────────────────────────
 
 def shapes_at(tab, points):

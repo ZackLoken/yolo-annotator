@@ -23,6 +23,8 @@ from yololabeler.utils import auto_orient_image
 
 # Interaction constants, carried over from the original implementation
 VERTEX_HANDLE_RADIUS = 4      # base vertex marker radius in canvas px
+BOX_CORNER_HIT_RADIUS = 8     # canvas px; matches _find_nearest_vertex's default tolerance
+MIN_BOX_SIDE = 3              # image px; the minimum box side enforced when drawing
 STREAM_MIN_DISTANCE = 6       # min image-px distance between streamed vertices
 SNAP_RADIUS = 15              # canvas-px radius for vertex/edge snapping
 SNAP_INDICATOR_RADIUS = 12    # canvas-px radius of the snap-target marker
@@ -144,6 +146,7 @@ class AnnotateTab:
         a._vertex_redo_stack = []
         a._dragging_vertex = None
         a._drag_orig_pos = None
+        self._clear_box_edit_state()
         self._poly_preview_line = None
         self._snap_indicator_item = None
         a._stream_active = False
@@ -720,8 +723,67 @@ class AnnotateTab:
     # ──────────────────────────────────────────────────────────────────────────
     #  Box mode
     # ──────────────────────────────────────────────────────────────────────────
+    def _clear_box_edit_state(self):
+        a = self.app
+        a._box_edit_mode = None
+        a._box_edit_anchor = None
+        a._box_edit_origin = None
+        a._box_edit_dirty = False
+
+    def _box_edit_hit(self, ann, cx, cy):
+        """Nearest-corner hit within tolerance (returns the fixed opposite corner),
+        else "move" if inside the box body, else None."""
+        (x1, y1), (x2, y2) = ann.points
+        corners = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+        opposite = [(x2, y2), (x1, y2), (x1, y1), (x2, y1)]
+        best_i, best_d = None, BOX_CORNER_HIT_RADIUS
+        for i, (px, py) in enumerate(corners):
+            pcx, pcy = self.image_to_canvas(px, py)
+            d = math.hypot(cx - pcx, cy - pcy)
+            if d < best_d:
+                best_d = d
+                best_i = i
+        if best_i is not None:
+            return opposite[best_i]
+        ix, iy = self.canvas_to_image(cx, cy)
+        if x1 <= ix <= x2 and y1 <= iy <= y2:
+            return "move"
+        return None
+
     def _box_press(self, event):
         a = self.app
+        # Dropped here so a press that starts no rectangle cannot commit one on release.
+        a.start_x = None
+        a.start_y = None
+        sel_id = a._selected_annotation_id
+        if sel_id is not None and self._alive(sel_id):
+            selected = a.document.get(sel_id)
+            if selected.kind == "box":
+                hit = self._box_edit_hit(selected, event.x, event.y)
+                if hit == "move":
+                    p1, p2 = selected.points
+                    ix, iy = self.canvas_to_image(event.x, event.y)
+                    a._box_edit_mode = "move"
+                    a._box_edit_origin = (p1, p2, ix, iy)
+                    a._box_edit_dirty = False
+                    self.canvas.config(cursor="fleur")
+                    return
+                if hit is not None:
+                    a._box_edit_mode = "resize"
+                    a._box_edit_anchor = hit
+                    a._box_edit_dirty = False
+                    self.canvas.config(cursor="fleur")
+                    return
+        ix, iy = self.canvas_to_image(event.x, event.y)
+        for ann in self.visible_annotations():
+            if ann.kind != "box":
+                continue
+            (x1, y1), (x2, y2) = ann.points
+            if x1 <= ix <= x2 and y1 <= iy <= y2:
+                self.select_annotation(ann.id)
+                return
+        if a._selected_annotation_id is not None:
+            self.select_annotation(None)
         a.start_x = event.x
         a.start_y = event.y
         color = a._get_class_color(a.active_class)
@@ -731,6 +793,37 @@ class AnnotateTab:
 
     def _box_drag(self, event):
         a = self.app
+        sel_id = a._selected_annotation_id
+        if a._box_edit_mode == "resize":
+            if not self._alive(sel_id):
+                self._clear_box_edit_state()
+                return
+            ax, ay = a._box_edit_anchor
+            ix, iy = self.canvas_to_image(event.x, event.y)
+            ix = max(0, min(a.img_width, ix))
+            iy = max(0, min(a.img_height, iy))
+            if not a._box_edit_dirty:
+                self._push_undo()
+                a._box_edit_dirty = True
+            self.engine.set_points(
+                sel_id, ((min(ax, ix), min(ay, iy)), (max(ax, ix), max(ay, iy))))
+            self.display_image()
+            return
+        if a._box_edit_mode == "move":
+            if not self._alive(sel_id):
+                self._clear_box_edit_state()
+                return
+            (ox1, oy1), (ox2, oy2), start_ix, start_iy = a._box_edit_origin
+            ix, iy = self.canvas_to_image(event.x, event.y)
+            dx = max(-ox1, min(a.img_width - ox2, ix - start_ix))
+            dy = max(-oy1, min(a.img_height - oy2, iy - start_iy))
+            if not a._box_edit_dirty:
+                self._push_undo()
+                a._box_edit_dirty = True
+            self.engine.set_points(
+                sel_id, ((ox1 + dx, oy1 + dy), (ox2 + dx, oy2 + dy)))
+            self.display_image()
+            return
         if (a.rect and a.start_x is not None
                 and a.start_y is not None):
             self.canvas.coords(
@@ -738,6 +831,28 @@ class AnnotateTab:
 
     def _box_release(self, event):
         a = self.app
+        if a._box_edit_mode is not None:
+            sel_id = a._selected_annotation_id
+            mode = a._box_edit_mode
+            dirty = a._box_edit_dirty
+            self._clear_box_edit_state()
+            self.canvas.config(cursor="cross")
+            if dirty and self._alive(sel_id):
+                (x1, y1), (x2, y2) = a.document.get(sel_id).points
+                if mode == "resize" and (x2 - x1 < MIN_BOX_SIDE or y2 - y1 < MIN_BOX_SIDE):
+                    # Roll the degenerate box back, then drop the snapshot undo_snapshot
+                    # pushed onto the redo stack so Ctrl+Y cannot restore it.
+                    if self.engine.undo_snapshot():
+                        a._redo_stack.pop()
+                else:
+                    a._mark_image_annotated()
+                    item = a._review_panel.current_item()
+                    if (item is not None and item.annotation is not None
+                            and item.annotation.id == sel_id):
+                        a._review_panel.refresh(keep_focus=True)
+            self.display_image()
+            a.update_title()
+            return
         if a.start_x is None or a.start_y is None:
             return
         ix1, iy1 = self.canvas_to_image(a.start_x, a.start_y)
@@ -748,7 +863,7 @@ class AnnotateTab:
         x2 = min(a.img_width, max(ix1, ix2))
         y2 = min(a.img_height, max(iy1, iy2))
 
-        if (x2 - x1) < 3 or (y2 - y1) < 3:
+        if (x2 - x1) < MIN_BOX_SIDE or (y2 - y1) < MIN_BOX_SIDE:
             if a.rect:
                 self.canvas.delete(a.rect)
             a.rect = None

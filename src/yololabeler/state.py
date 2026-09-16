@@ -64,6 +64,10 @@ class AppState:
         self._stream_mode = False
         self._stream_active = False
         self._last_stream_pos = None
+        self._box_edit_mode = None     # None | "resize" | "move", while dragging a selected box
+        self._box_edit_anchor = None   # (x, y) fixed opposite corner, image px, during a resize
+        self._box_edit_origin = None   # (p1, p2, start_ix, start_iy), during a move
+        self._box_edit_dirty = False   # True once a drag has actually changed geometry
 
         # ── Review data ──
         self.queue = []              # QueueItem list for the current image
