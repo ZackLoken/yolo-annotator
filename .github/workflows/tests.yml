@@ -17,4 +17,5 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e .[test]
-      - run: pytest -q
+      - run: sudo apt-get update && sudo apt-get install -y xvfb
+      - run: xvfb-run -a pytest -q
