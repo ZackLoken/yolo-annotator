@@ -280,14 +280,6 @@ class YoloLabeler:
             command=self._on_visible_toggled)
         self._visible_cb.pack(side="left", padx=(0, 4))
 
-        self._pred_var = tk.BooleanVar(value=self._review_show_pred)
-        self._pred_cb = ctk.CTkCheckBox(
-            _tb_g1, text="Predictions", variable=self._pred_var,
-            font=(self.font_family, 11), text_color=FG_COLOR,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
-            command=self._on_pred_toggled)
-        self._pred_cb.pack(side="left", padx=(0, 4))
-
         # ── Group 2: Mode | Stream | Snap ──
         self.mode_btn = ctk.CTkButton(
             _tb_g2, text="Mode: Polygon \u2b21", width=120,
@@ -310,7 +302,26 @@ class YoloLabeler:
             command=self._toggle_snap)
         self.snap_btn.pack(side="left", padx=(0, 4))
 
-        # ── Group 3: Complete | Status DD ──
+        # ── Group 3: Image status DD | Complete | Blind pass ──
+        ctk.CTkLabel(_tb_g3, text="Image status:",
+                     font=(self.font_family, 11),
+                     text_color=FG_COLOR).pack(side="left", padx=(4, 2))
+
+        self.filter_var = tk.StringVar(value="All")
+        self.filter_dropdown = ctk.CTkComboBox(
+            _tb_g3, variable=self.filter_var, width=130,
+            values=["All", "Complete", "Partial", "Unannotated"],
+            font=(self.font_family, 11),
+            dropdown_font=(self.font_family, 11),
+            fg_color=ENTRY_BG, border_color=BORDER_COLOR,
+            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR, dropdown_fg_color=BG_COLOR,
+            dropdown_text_color=FG_COLOR,
+            dropdown_hover_color=ACCENT,
+            state="readonly",
+            command=self._on_filter_changed)
+        self.filter_dropdown.pack(side="left", padx=(0, 8))
+
         self._complete_var = tk.BooleanVar(value=False)
         self.complete_cb = ctk.CTkCheckBox(
             _tb_g3, text="Complete",
@@ -329,25 +340,6 @@ class YoloLabeler:
             command=self._on_blind_toggled)
         self.blind_cb.pack(side="left", padx=(0, 4))
 
-        ctk.CTkLabel(_tb_g3, text="Status:",
-                     font=(self.font_family, 11),
-                     text_color=FG_COLOR).pack(side="left", padx=(4, 2))
-
-        self.filter_var = tk.StringVar(value="All")
-        self.filter_dropdown = ctk.CTkComboBox(
-            _tb_g3, variable=self.filter_var, width=130,
-            values=["All", "Complete", "Partial", "Unannotated"],
-            font=(self.font_family, 11),
-            dropdown_font=(self.font_family, 11),
-            fg_color=ENTRY_BG, border_color=BORDER_COLOR,
-            button_color=ACCENT, button_hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, dropdown_fg_color=BG_COLOR,
-            dropdown_text_color=FG_COLOR,
-            dropdown_hover_color=ACCENT,
-            state="readonly",
-            command=self._on_filter_changed)
-        self.filter_dropdown.pack(side="left", padx=(0, 4))
-
     def _toolbar_sep(self, parent):
         sep = ctk.CTkFrame(parent, width=1, height=28,
                            fg_color=BORDER_COLOR)
@@ -363,30 +355,39 @@ class YoloLabeler:
         self.status_bar.pack_propagate(False)
 
         si = ctk.CTkFrame(self.status_bar, fg_color="transparent")
-        si.pack(fill="x", padx=8, pady=2)
+        si.pack(fill="both", expand=True, padx=8, pady=2)
+        # Equal-weight side columns keep the middle column centred on the window.
+        si.grid_columnconfigure(0, weight=1, uniform="status_side")
+        si.grid_columnconfigure(2, weight=1, uniform="status_side")
+        si.grid_rowconfigure(0, weight=1)
+        left = ctk.CTkFrame(si, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="w")
+        centre = ctk.CTkFrame(si, fg_color="transparent")
+        centre.grid(row=0, column=1, padx=12)
+        right = ctk.CTkFrame(si, fg_color="transparent")
+        right.grid(row=0, column=2, sticky="ew")
 
         # ── Right side: Zoom | Time | User ──
-        # Packed before the strip so a narrow window squeezes the strip, not these.
         self.status_user = ctk.CTkLabel(
-            si, text=f"User: {self._current_user}",
+            right, text=f"User: {self._current_user}",
             font=(self.font_family, 11), text_color=FG_COLOR)
-        self.status_user.pack(side="right", padx=(6, 6))
+        self.status_user.pack(side="right", padx=(6, 0))
 
-        self._status_sep_right(si)
+        self._status_sep_right(right)
 
         self.status_time = ctk.CTkLabel(
-            si, text="Image time: 0:00", font=(self.font_family, 11),
+            right, text="Image time: 0:00", font=(self.font_family, 11),
             text_color=FG_COLOR)
         self.status_time.pack(side="right", padx=(6, 6))
 
-        self._status_sep_right(si)
+        self._status_sep_right(right)
 
         self.status_zoom = ctk.CTkLabel(
-            si, text="Zoom: 100%", font=(self.font_family, 11),
+            right, text="Zoom: 100%", font=(self.font_family, 11),
             text_color=FG_COLOR)
         self.status_zoom.pack(side="right", padx=(6, 6))
 
-        self._review_panel.build(si)
+        self._review_panel.build(left, centre, right)
 
     def _status_sep_right(self, parent):
         sep = ctk.CTkFrame(parent, width=1, height=20,
@@ -528,25 +529,22 @@ class YoloLabeler:
         self._annotate_tab.redo_last()
         self._review_panel.refresh()
 
-    def _act_on_item(self, apply):
-        """Shared body of accept and reject: undo point, mutate, save, record, then
-        pause on a newly created annotation or advance past everything else."""
-        item = self._review_panel.current_item()
-        if item is None or self.predictions_blind:
-            return
+    def _apply_verdict(self, item, apply):
+        """Undo point, mutate, save, then record the verdict; returns apply's second element."""
         self._engine.push_undo()
         action, result = apply(item)
         # Labels first, so a crash cannot leave a verdict for an unwritten change.
         self.save_current()
         self._review.record_verdict(self.images[self.index], item, action, self._current_user)
         self._mark_image_annotated()
-        # apply_reject's second element is the removed annotation, so an fp-accept
-        # is the only case that produced something new to select.
-        created = result if (action == "accepted" and item.kind == "fp") else None
-        if created is not None:
-            self._review_panel.refresh(keep_focus=True)
-            self._annotate_tab.select_annotation(created.id)
+        return result
+
+    def _act_on_item(self, apply):
+        """Shared body of accept and reject: record the verdict, then advance."""
+        item = self._review_panel.current_item()
+        if item is None or self.predictions_blind:
             return
+        self._apply_verdict(item, apply)
         self._review_panel.refresh(keep_focus=False)
         if self._filtered_sweep_complete():
             self.go_to_image(self._annotate_tab.next_index(), reset_filters=False)
@@ -576,11 +574,44 @@ class YoloLabeler:
         self._act_on_item(lambda item: apply_reject(self.document, item))
 
     def edit_pair(self):
-        """Select the focused item's annotation so its vertices can be edited (spec 5.3)."""
+        """Select the focused item's annotation for editing (spec 5.3).
+
+        An unmatched prediction has no annotation yet, so it is accepted first
+        and the annotation that creates is selected; focus stays on the item.
+        """
         item = self._review_panel.current_item()
-        if item is None or item.annotation is None:
+        if item is None or self.predictions_blind:
             return
-        self._annotate_tab.select_annotation(item.annotation.id)
+        if item.annotation is None:
+            created = self._apply_verdict(
+                item, lambda it: apply_accept(self.document, it, self._current_user))
+            self._review_panel.refresh(keep_focus=True)
+            ann_id = created.id
+        else:
+            ann_id = item.annotation.id
+        if not self._annotation_visible:
+            self._visible_var.set(True)
+            self._annotation_visible = True
+        self._annotate_tab.select_annotation(ann_id)
+        self.canvas.focus_set()
+
+    def accept_drawn_annotation(self, ann):
+        """Record an accepted verdict for the queue item a hand-drawn annotation forms.
+
+        A person drew it, so it is ground truth already and never waits in the
+        queue for a review action. Called after the annotation is added.
+        """
+        self._review_panel.refresh(keep_focus=True)
+        if self.predictions_blind or self.document is None or not self.matches:
+            return
+        items = build_queue(self.document, self.predictions, self.matches, self.verdicts)
+        item = next((qi for qi in items
+                     if qi.annotation is not None and qi.annotation.id == ann.id), None)
+        if item is None or item.key in self.verdicts:
+            return
+        self._review.record_verdict(self.images[self.index], item, "accepted",
+                                    self._current_user)
+        self._review_panel.refresh(keep_focus=True)
 
     def save_current(self):
         """Save the current image's document and stats. Returns None or an error message."""
@@ -619,6 +650,8 @@ class YoloLabeler:
         if reset_filters:
             self._review_filter_type = "all"
             self._review_status_filter = "all"
+            self._review_panel.type_var.set("All")
+            self._review_panel.status_var.set("All")
         self.index = index % len(self.images)
         self._annotate_tab.load_image()
         return True
@@ -802,6 +835,7 @@ class YoloLabeler:
         canvas.delete("all")
         self._annotate_tab._cached_scale = None
         self._annotate_tab._cached_tk_image = None
+        self._annotate_tab._legend_bbox = None
         cw = canvas.winfo_width() or 1200
         ch = canvas.winfo_height() or 800
         canvas.create_text(
@@ -873,6 +907,7 @@ class YoloLabeler:
         count = len(self.document.annotations) if self.document else 0
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Save failed")
+        self._apply_app_icon(dialog)
         dialog.configure(fg_color=BG_COLOR)
         dialog.transient(self.root)
         dialog.grab_set()
@@ -1211,10 +1246,25 @@ class YoloLabeler:
             button_fg_color=ACCENT, button_hover_color=ACCENT_HOVER,
             entry_fg_color=ENTRY_BG, entry_border_color=BORDER_COLOR,
             button_text_color=FG_COLOR)
-        dialog.iconphoto(True, self._app_icon_image)
-        if sys.platform.startswith("win"):
-            dialog.iconbitmap(os.path.join(ASSETS_DIR, "app_icon.ico"))
+        self._apply_app_icon(dialog)
         return dialog.get_input()
+
+    def _apply_app_icon(self, window):
+        """Give a pop-up window the app icon.
+
+        CTkToplevel schedules its own CustomTkinter icon 200 ms after it is built
+        (customtkinter/windows/ctk_toplevel.py), overwriting one set immediately,
+        so the icon is applied now and again once that timer has fired.
+        """
+        def apply():
+            try:
+                window.iconphoto(False, self._app_icon_image)
+                if sys.platform.startswith("win"):
+                    window.iconbitmap(os.path.join(ASSETS_DIR, "app_icon.ico"))
+            except tk.TclError:
+                pass  # the window closed before the timer fired
+        apply()
+        window.after(300, apply)
 
     def _add_class_dialog(self):
         """Open a small dialog to add a new class by name."""
@@ -1311,6 +1361,7 @@ class YoloLabeler:
         """Custom dark-themed color picker with SI palette as custom colors."""
         picker = ctk.CTkToplevel(self.root)
         picker.title(title)
+        self._apply_app_icon(picker)
         picker.configure(fg_color=BG_COLOR)
         picker.geometry("360x440")
         picker.resizable(False, False)

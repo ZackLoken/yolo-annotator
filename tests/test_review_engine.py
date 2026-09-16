@@ -220,6 +220,27 @@ class TestVerdicts:
         engine.conf_threshold = 0.6
         assert engine.conf_threshold == pytest.approx(0.6)
 
+    def test_reimport_resets_a_typed_threshold_to_the_new_min(self, engine, tmp_path):
+        engine.state.image_folder = str(tmp_path)
+        engine.state.state_dir = str(tmp_path / "state")
+        os.makedirs(engine.state.state_dir)
+        preds_dir = tmp_path / "predictions"
+        os.makedirs(preds_dir)
+        write_manifest(str(preds_dir), {"min_conf": 0.4, "imported_at": "2026-09-15T08:00:00"})
+        engine.conf_threshold = 0.6
+        write_manifest(str(preds_dir), {"min_conf": 0.25, "imported_at": "2026-09-16T08:00:00"})
+        assert engine.conf_threshold == pytest.approx(0.25)
+
+    def test_unstamped_saved_threshold_yields_to_imported_min(self, engine, tmp_path):
+        engine.state.image_folder = str(tmp_path)
+        engine.state.state_dir = str(tmp_path / "state")
+        os.makedirs(engine.state.state_dir)
+        preds_dir = tmp_path / "predictions"
+        os.makedirs(preds_dir)
+        write_manifest(str(preds_dir), {"min_conf": 0.25, "imported_at": "2026-09-16T08:00:00"})
+        engine.state._review_state = {"settings": {"conf_threshold": 0.5}}
+        assert engine.conf_threshold == pytest.approx(0.25)
+
     def test_corrupt_state_is_quarantined(self, engine, tmp_path):
         engine.state.image_folder = str(tmp_path)
         engine.state.state_dir = str(tmp_path / "state")

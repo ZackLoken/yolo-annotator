@@ -1,4 +1,10 @@
-"""Draw the prediction layer and the focused pair on the annotate canvas (spec 4.5)."""
+"""Draw the prediction layer and the focused pair on the annotate canvas (spec 4.5).
+
+A prediction is drawn dashed in its class colour, the same colour its accepted
+annotation is drawn solid in, so the dash alone tells the two apart. The review
+focus is marked by a highlighter-blue halo under the focused shape rather than
+by recolouring it. Needs a Tk canvas; not headless.
+"""
 
 from __future__ import annotations
 
@@ -8,38 +14,26 @@ from typing import Dict
 
 from yololabeler.rendering import place_label
 
-_ANNOTATED_ACTIONS = ("accepted", "confirmed")
+# Highlighter blue for focus and selection; the user chose it over yellow (2026-09-16).
+SELECTION_COLOR = "#00BFFF"
 
 
 @dataclass(frozen=True)
 class LayerStyle:
-    """Widths and the fixed colours from spec 8.
+    """The fixed colours and dash patterns of the prediction layer.
 
-    A prediction takes its colour from the annotation class colour, tinted by
-    pred_tint, whenever the caller supplies a class-colour lookup; pred_color is
-    only the fallback for when it does not.
+    pred_color is only the fallback for when the caller supplies no class-colour
+    lookup. Line widths are not here: the caller passes its own scale-dependent
+    width so predictions and annotations stay equally thick at every zoom.
     """
     pred_color: str = "#00BFFF"
-    pred_tint: float = 0.45
-    focused_gt_color: str = "#FFD700"
-    focused_pred_color: str = "#FF2ECC"  # distinct from focused_gt_color, pred_color and the badge colours
-    reviewed_stipple: str = "gray12"
-    line_w: int = 2
-    focused_w: int = 3
-    dash: tuple = (4, 3)
+    focus_color: str = SELECTION_COLOR
+    focus_halo_extra: int = 4
+    # Tk on Windows collapses numeric dash lists to one dotted look; these strings stay distinct.
+    dash: str = "_"
+    rejected_dash: str = "."
     badge_colors: Dict[str, str] = field(default_factory=lambda: {
         "tp": "#4CAF50", "fp": "#EF5350", "fn": "#FFA726"})
-
-
-def _tint(hex_color, amount):
-    """Blend a #RRGGBB colour towards white by amount (0 unchanged, 1 white)."""
-    if not isinstance(hex_color, str) or len(hex_color) != 7 or not hex_color.startswith("#"):
-        return hex_color
-    try:
-        channels = [int(hex_color[i:i + 2], 16) for i in (1, 3, 5)]
-    except ValueError:
-        return hex_color
-    return "#" + "".join(f"{int(c + (255 - c) * amount):02X}" for c in channels)
 
 
 def _canvas_points(to_canvas, points):
@@ -70,14 +64,13 @@ def _label_anchor(to_canvas, points):
 
 def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
                           label_size, show_gt, show_pred, style=LayerStyle(),
-                          class_color=None, placed_labels=None):
-    """Draw predictions, the focused pair and the badge. Only the focus gets labels.
+                          class_color=None, placed_labels=None, line_w=2):
+    """Draw predictions, the focused item and the badge. Only the focus gets a label.
 
-    class_color, when given, maps a class id to that class's hex colour; each
-    prediction is then drawn in a tinted version of its own class colour.
+    class_color, when given, maps a class id to that class's hex colour.
     placed_labels, when given, is the render pass's shared list of label boxes
-    for place_label collision avoidance; a fresh list is used when omitted, so
-    this module stays usable standalone.
+    for place_label collision avoidance. line_w is the outline width the caller
+    draws annotations with at the current zoom.
     """
     if placed_labels is None:
         placed_labels = []
@@ -86,45 +79,51 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
         focused = state.queue[state.queue_index]
     focused_pred_id = focused.prediction.id if focused and focused.prediction else None
     font = (font_family, label_size, "bold")
+    halo_w = line_w + style.focus_halo_extra
+
+    def color_of(class_id):
+        return class_color(class_id) if class_color else style.pred_color
 
     if show_pred:
         for p in state.predictions:
             if p.confidence < state.conf_threshold or p.id == focused_pred_id:
                 continue
             verdict = state.verdicts.get(p.id)
-            if verdict and verdict.get("action") in _ANNOTATED_ACTIONS:
-                continue
-            reviewed = verdict is not None
-            color = (_tint(class_color(p.class_id), style.pred_tint)
-                     if class_color else style.pred_color)
-            _draw_shape(canvas, to_canvas, p.kind, p.points,
-                        outline=color, width=style.line_w, dash=style.dash,
-                        fill=color if reviewed else "",
-                        stipple=style.reviewed_stipple if reviewed else "",
-                        tags="pred")
-        if focused and focused.prediction is not None:
-            p = focused.prediction
-            _draw_shape(canvas, to_canvas, p.kind, p.points,
-                        outline=style.focused_pred_color, width=style.focused_w, fill="",
-                        tags="pred_focus")
-            lx, ly = _label_anchor(to_canvas, p.points)
-            name = class_names.get(p.class_id, str(p.class_id))
-            place_label(canvas, placed_labels, lx + 2, ly - 2,
-                        f"Pred {p.class_id}: {name} ({p.confidence:.2f})",
-                        style.focused_pred_color, anchor="sw", font=font)
+            rejected = verdict is not None and verdict.get("action") == "rejected"
+            _draw_shape(canvas, to_canvas, p.kind, p.points, outline=color_of(p.class_id),
+                        width=line_w, fill="",
+                        dash=style.rejected_dash if rejected else style.dash, tags="pred")
 
-    if show_gt and focused and focused.annotation is not None:
-        a = focused.annotation
-        _draw_shape(canvas, to_canvas, a.kind, a.points,
-                    outline=style.focused_gt_color, width=style.focused_w, fill="",
-                    tags="gt_focus")
-        lx, ly = _label_anchor(to_canvas, a.points)
-        name = class_names.get(a.class_id, str(a.class_id))
-        place_label(canvas, placed_labels, lx + 2, ly + 2 + label_size * 2,
-                    f"GT {a.class_id}: {name}",
-                    style.focused_gt_color, anchor="nw", font=font)
+    if focused is None:
+        return
 
-    if focused and (show_gt or show_pred):
+    ann = focused.annotation if show_gt else None
+    pred = focused.prediction if show_pred else None
+    selected_id = getattr(state, "_selected_annotation_id", None)
+    if pred is not None:
+        if ann is None:
+            _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=style.focus_color,
+                        width=halo_w, fill="", tags="focus_halo")
+        _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=color_of(pred.class_id),
+                    width=line_w + 1, fill="", dash=style.dash, tags="pred_focus")
+    if ann is not None and ann.id != selected_id:
+        color = color_of(ann.class_id)
+        _draw_shape(canvas, to_canvas, ann.kind, ann.points, outline=style.focus_color,
+                    width=halo_w, fill="", tags="focus_halo")
+        _draw_shape(canvas, to_canvas, ann.kind, ann.points, outline=color,
+                    width=line_w, fill="", tags="gt_focus")
+
+    labelled = ann if ann is not None else pred
+    if labelled is not None and labelled.id != selected_id:
+        name = class_names.get(focused.class_id, str(focused.class_id))
+        text = f"{focused.class_id}: {name}"
+        if focused.prediction is not None:
+            text += f" ({focused.prediction.confidence:.2f})"
+        lx, ly = _label_anchor(to_canvas, labelled.points)
+        place_label(canvas, placed_labels, lx + 2, ly - 2, text,
+                    color_of(focused.class_id), anchor="sw", font=font)
+
+    if show_gt or show_pred:
         verdict = state.verdicts.get(focused.key)
         status = verdict["action"] if verdict else "not reviewed"
         text = f"{focused.kind.upper()}  {status}"

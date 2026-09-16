@@ -54,50 +54,56 @@ class ReviewPanel:
             hover_color=ACCENT_HOVER, text_color=FG_COLOR,
             font=(a.font_family, 11, "bold" if bold else "normal"))
 
-    def build(self, si):
-        """Create the strip inside the status bar's inner frame."""
+    def build(self, left, centre, right):
+        """Create the strip in the status bar's left, centre and right columns.
+
+        Left holds the prediction toggle, filters, threshold and counts; centre
+        holds Accept, Edit and Reject; right starts with the item stepper and its
+        "FP 2 / 16  not reviewed" readout, ahead of whatever the caller packs there.
+        """
         a = self.app
-        self.frame = ctk.CTkFrame(si, fg_color="transparent")
-        self.frame.pack(side="left", fill="x", expand=True)
-        left = ctk.CTkFrame(self.frame, fg_color="transparent")
-        left.pack(side="left")
-        centre = ctk.CTkFrame(self.frame, fg_color="transparent")
-        centre.pack(side="left")
-        right = ctk.CTkFrame(self.frame, fg_color="transparent")
-        right.pack(side="left")
+        a._pred_var = tk.BooleanVar(value=a._review_show_pred)
+        a._pred_cb = ctk.CTkCheckBox(
+            left, text="Predictions", variable=a._pred_var,
+            font=(a.font_family, 11), text_color=FG_COLOR,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
+            command=a._on_pred_toggled)
+        a._pred_cb.pack(side="left", padx=(0, 8))
 
         self._label(left, "Type").pack(side="left", padx=(0, 2))
         self.type_var = tk.StringVar(value="All")
         self.type_dd = self._combo(left, self.type_var, ["All", "FP", "FN", "TP"], 70,
                                    self.on_type_changed)
-        self.type_dd.pack(side="left", padx=(0, 4))
-        self._label(left, "Status").pack(side="left", padx=(0, 2))
+        self.type_dd.pack(side="left", padx=(0, 8))
+        self._label(left, "Review status").pack(side="left", padx=(0, 2))
         self.status_var = tk.StringVar(value="All")
         self.status_dd = self._combo(left, self.status_var,
                                      ["All", "Not reviewed", "Reviewed"], 110,
                                      self.on_status_changed)
-        self.status_dd.pack(side="left", padx=(0, 4))
-        self._label(left, "Conf").pack(side="left", padx=(4, 2))
+        self.status_dd.pack(side="left", padx=(0, 8))
+        self._label(left, "Conf").pack(side="left", padx=(0, 2))
         self.conf_entry = ctk.CTkEntry(left, width=50, font=(a.font_family, 11),
                                        fg_color=ENTRY_BG, border_color=BORDER_COLOR,
                                        text_color=FG_COLOR, justify="center")
-        self.conf_entry.pack(side="left", padx=(0, 2))
+        self.conf_entry.pack(side="left", padx=(0, 8))
         self.conf_entry.bind("<Return>", self._on_conf_enter)
         self.conf_entry.bind("<FocusOut>", lambda e: self._show_threshold())
+        self.counts_label = self._label(left, "TP 0  FP 0  FN 0")
+        self.counts_label.pack(side="left")
 
-        self.accept_btn = self._button(centre, "Accept (A)", 110, a.accept_item)
-        self.accept_btn.pack(side="left", padx=(0, 4))
-        self.reject_btn = self._button(centre, "Reject (R)", 110, a.reject_item)
-        self.reject_btn.pack(side="left", padx=(0, 4))
+        self.accept_btn = self._button(centre, "Accept (A)", 96, a.accept_item)
+        self.accept_btn.pack(side="left", padx=(0, 6))
+        self.edit_btn = self._button(centre, "Edit (E)", 84, a.edit_pair)
+        self.edit_btn.pack(side="left", padx=(0, 6))
+        self.reject_btn = self._button(centre, "Reject (R)", 96, a.reject_item)
+        self.reject_btn.pack(side="left")
 
-        self.item_label = self._label(right, "", width=150, anchor="w")
-        self.item_label.pack(side="left", padx=(0, 4))
         self.prev_item_btn = self._button(right, "◀", 30, lambda: self.step(-1), bold=False)
         self.prev_item_btn.pack(side="left")
         self.next_item_btn = self._button(right, "▶", 30, lambda: self.step(1), bold=False)
         self.next_item_btn.pack(side="left", padx=(2, 6))
-        self.counts_label = self._label(right, "TP 0  FP 0  FN 0")
-        self.counts_label.pack(side="left")
+        self.item_label = self._label(right, "", anchor="w")
+        self.item_label.pack(side="left")
         self._show_threshold()
 
     # ── loading and refresh ────────────────────────────────────────────────
@@ -230,12 +236,14 @@ class ReviewPanel:
         """Filter the queue by match type."""
         self.app._review_filter_type = choice.lower()
         self.refresh(keep_focus=False)
+        self.app.canvas.focus_set()
 
     def on_status_changed(self, choice):
         """Filter the queue by verdict presence."""
         mapping = {"All": "all", "Reviewed": "reviewed", "Not reviewed": "not_reviewed"}
         self.app._review_status_filter = mapping.get(choice, "all")
         self.refresh(keep_focus=False)
+        self.app.canvas.focus_set()
 
     # ── labels ─────────────────────────────────────────────────────────────
 
@@ -257,6 +265,7 @@ class ReviewPanel:
                 text=f"{item.kind.upper()} {a.queue_index + 1} / {len(a.queue)}  {status}")
             state = "normal"
         self.accept_btn.configure(state=state)
+        self.edit_btn.configure(state=state)
         self.reject_btn.configure(state=state)
         filter_state = "disabled" if a.predictions_blind else "readonly"
         control_state = "disabled" if a.predictions_blind else "normal"

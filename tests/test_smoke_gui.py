@@ -13,7 +13,7 @@ from yololabeler import gui as guimod  # noqa: E402
 from yololabeler.annotation.document import new_annotation  # noqa: E402
 from yololabeler.gui import YoloLabeler  # noqa: E402
 from yololabeler.review.engine import build_queue  # noqa: E402
-from yololabeler.review.layer import LayerStyle  # noqa: E402
+from yololabeler.review.layer import SELECTION_COLOR  # noqa: E402
 
 
 def click_at(tab, ix, iy):
@@ -352,7 +352,7 @@ class TestRenderSelection:
         drawn = shapes_at(tab, ann.points)
         assert [c for c, _ in drawn] == [app._get_class_color(ann.class_id)]
 
-    def test_selected_box_gets_a_white_halo(self, app):
+    def test_selected_box_is_drawn_in_the_selection_blue(self, app):
         tab = app._annotate_tab
         tab.fit_to_window()
         app.queue = []
@@ -360,10 +360,7 @@ class TestRenderSelection:
         ann = app.document.annotations[0]
         tab.select_annotation(ann.id)
         tab.render()
-        drawn = dict(shapes_at(tab, ann.points))
-        color = app._get_class_color(ann.class_id)
-        assert set(drawn) == {"white", color}
-        assert drawn["white"] == pytest.approx(drawn[color] + 2)
+        assert [c for c, _ in shapes_at(tab, ann.points)] == [SELECTION_COLOR]
 
     def test_selected_box_gets_four_corner_handles(self, app):
         tab = app._annotate_tab
@@ -410,40 +407,70 @@ class TestRenderSelection:
         drawn = shapes_at(tab, ann.points)
         assert [c for c, _ in drawn] == [app._get_class_color(ann.class_id)]
 
-    def test_selected_polygon_gets_a_white_halo(self, app):
+    def test_selected_polygon_is_drawn_in_the_selection_blue(self, app):
         tab = app._annotate_tab
         app.queue = []
         app._review_show_pred = False
         ann = add_polygon(app)
         tab.select_annotation(ann.id)
         tab.render()
-        drawn = dict(shapes_at(tab, ann.points))
-        color = app._get_class_color(ann.class_id)
-        assert set(drawn) == {"white", color}
-        assert drawn["white"] == pytest.approx(drawn[color] + 2)
+        assert [c for c, _ in shapes_at(tab, ann.points)] == [SELECTION_COLOR]
+
+    def test_selected_polygon_vertices_are_blue_with_a_white_rim(self, app):
+        tab = app._annotate_tab
+        app.queue = []
+        app._review_show_pred = False
+        ann = add_polygon(app)
+        tab.select_annotation(ann.id)
+        tab.render()
+        canvas = tab.canvas
+        ovals = [i for i in canvas.find_all() if canvas.type(i) == "oval"
+                 and canvas.itemcget(i, "fill") == SELECTION_COLOR]
+        assert len(ovals) == len(ann.points)
+        assert all(canvas.itemcget(i, "outline") == "white" for i in ovals)
+
+
+class TestLegend:
+    def test_legend_chip_opens_and_closes_without_drawing(self, app):
+        tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
+        tab.render()
+        count = len(app.document.annotations)
+        x0, y0, x1, y1 = tab._legend_bbox
+        chip = type("E", (), {"x": (x0 + x1) / 2, "y": y1 - 2})()
+        tab.on_button_press(chip)
+        tab.on_button_release(chip)
+        assert tab._legend_open
+        tab.on_button_press(chip)
+        tab.on_button_release(chip)
+        assert not tab._legend_open
+        assert len(app.document.annotations) == count and app.rect is None
 
 
 class TestRenderFocus:
-    def test_focused_annotation_is_drawn_only_in_the_focus_colour(self, app):
+    def test_focused_annotation_is_haloed_and_keeps_its_class_colour(self, app):
         tab = app._annotate_tab
         app._review_panel.focus_item(len(app.queue) - 1)
         ann = app.queue[app.queue_index].annotation
         assert ann is not None
         tab.render()
-        assert len(tab.canvas.find_withtag("gt_focus")) == 1
-        colors = [c for c, _ in shapes_at(tab, ann.points)]
-        assert colors.count(LayerStyle().focused_gt_color) == 1
-        assert app._get_class_color(ann.class_id) not in colors
+        canvas = tab.canvas
+        gt = canvas.find_withtag("gt_focus")
+        halo = canvas.find_withtag("focus_halo")
+        assert len(gt) == 1 and len(halo) == 1
+        assert canvas.itemcget(gt[0], "outline") == app._get_class_color(ann.class_id)
+        assert canvas.itemcget(halo[0], "outline") == SELECTION_COLOR
+        assert canvas.coords(halo[0]) == canvas.coords(gt[0])
 
-    def test_editing_the_focused_pair_keeps_the_class_coloured_shape(self, app):
+    def test_editing_the_focused_pair_draws_it_as_selected(self, app):
         tab = app._annotate_tab
         app._review_panel.focus_item(len(app.queue) - 1)
         ann = app.queue[app.queue_index].annotation
         app.edit_pair()
         tab.render()
-        colors = [c for c, _ in shapes_at(tab, ann.points)]
-        assert app._get_class_color(ann.class_id) in colors
-        assert "white" in colors
+        assert tab.canvas.find_withtag("gt_focus") == ()
+        assert tab.canvas.find_withtag("focus_halo") == ()
+        assert SELECTION_COLOR in [c for c, _ in shapes_at(tab, ann.points)]
 
 
 # ── review panel ────────────────────────────────────────────────────────────
@@ -637,12 +664,32 @@ class TestActions:
         panel.focus_item(len(app.queue) - 1)
         item = panel.current_item()
         assert item.kind == "tp"
-        before = dict(app.verdicts)
         tab.on_button_press(click_at(tab, 420, 360))
         tab.on_button_release(click_at(tab, 520, 440))
         assert len(app.document.annotations) == 2
-        assert app.verdicts == before and item.key not in app.verdicts
+        assert item.key not in app.verdicts
         assert panel.current_item().key == item.key
+
+    def test_a_hand_drawn_box_is_accepted_without_a_review_action(self, app, folder):
+        tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
+        tab.on_button_press(click_at(tab, 420, 360))
+        tab.on_button_release(click_at(tab, 520, 440))
+        drawn = app.document.annotations[-1]
+        assert app.verdicts[drawn.id]["action"] == "accepted"
+        assert disk_verdicts(folder)[drawn.id]["action"] == "accepted"
+        items = build_queue(app.document, app.predictions, app.matches, app.verdicts,
+                            filter_status="not_reviewed")
+        assert all(q.key != drawn.id for q in items)
+
+    def test_undoing_a_hand_drawn_box_drops_its_verdict(self, app):
+        tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
+        tab.on_button_press(click_at(tab, 420, 360))
+        tab.on_button_release(click_at(tab, 520, 440))
+        drawn = app.document.annotations[-1]
+        app.undo()
+        assert drawn.id not in app.verdicts
 
     def test_rejecting_a_tp_does_not_select_the_deleted_annotation(self, app):
         panel = app._review_panel
@@ -654,7 +701,7 @@ class TestActions:
         assert all(a.id != ann_id for a in app.document.annotations)
         assert app._selected_annotation_id != ann_id
 
-    def test_accepting_an_fp_pauses_on_the_new_annotation(self, app):
+    def test_accepting_an_fp_moves_on_without_selecting_anything(self, app):
         panel = app._review_panel
         panel.focus_item(0)
         item = panel.current_item()
@@ -663,9 +710,41 @@ class TestActions:
         app.accept_item()
         created = app.document.annotations[-1]
         assert created.source == "accepted"
-        assert app._selected_annotation_id == created.id
+        assert app._selected_annotation_id is None
         after = panel.current_item()
-        assert after.key == key and after.kind == "tp"
+        assert after.key != key and after.key not in app.verdicts
+
+    def test_edit_on_an_fp_accepts_it_and_selects_the_new_annotation(self, app):
+        panel = app._review_panel
+        panel.focus_item(0)
+        item = panel.current_item()
+        assert item.kind == "fp"
+        app.edit_pair()
+        created = app.document.annotations[-1]
+        assert created.source == "accepted" and created.prediction_id == item.key
+        assert app.verdicts[item.key]["action"] == "accepted"
+        assert app._selected_annotation_id == created.id
+        assert panel.current_item().key == item.key
+
+    def test_edit_turns_labels_back_on(self, app):
+        panel = app._review_panel
+        panel.focus_item(len(app.queue) - 1)
+        app._visible_var.set(False)
+        app._on_visible_toggled()
+        app.edit_pair()
+        assert app._annotation_visible and app._visible_var.get()
+        assert app._selected_annotation_id == panel.current_item().annotation.id
+
+    def test_accepted_fp_prediction_stays_drawn_after_moving_on(self, app):
+        panel, tab = app._review_panel, app._annotate_tab
+        panel.focus_item(0)
+        pred = panel.current_item().prediction
+        app.accept_item()
+        assert panel.current_item().key != pred.id
+        tab.render()
+        assert any(tab.canvas.coords(i) == pytest.approx(
+                       [*tab.image_to_canvas(*pred.points[0]), *tab.image_to_canvas(*pred.points[1])])
+                   for i in tab.canvas.find_withtag("pred") + tab.canvas.find_withtag("pred_focus"))
 
 
 # ── right-click delete while an item is focused ─────────────────────────────
@@ -685,8 +764,7 @@ class TestRightClickDelete:
         tab.on_right_click(click_at(tab, *box_center(ann)))
         assert all(a.id != ann.id for a in app.document.annotations)
         assert all(q.annotation is None or q.annotation.id != ann.id for q in app.queue)
-        colors = [c for c, _ in shapes_at(tab, ann.points)]
-        assert LayerStyle().focused_gt_color not in colors
+        assert tab.canvas.find_withtag("gt_focus") == ()
         # Both of these read the focused item's annotation and used to raise KeyError.
         app.edit_pair()
         app.reject_item()
@@ -975,6 +1053,9 @@ def typed_name(monkeypatch, value):
             pass
 
         def iconbitmap(self, *a, **k):
+            pass
+
+        def after(self, *a, **k):
             pass
 
     monkeypatch.setattr(guimod.ctk, "CTkInputDialog", Dialog)

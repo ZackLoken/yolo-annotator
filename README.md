@@ -89,7 +89,7 @@ for the same list, filtered to the current mode.
 | Next queue item | `Down` |
 | Accept focused item (an unmatched prediction becomes a new annotation) | `a` |
 | Reject focused item (deletes its annotation, if any) | `r` |
-| Select the focused item's annotation for editing | `e` |
+| Edit focused item (an unmatched prediction is accepted first) | `e` |
 | Fit image to window | `f` |
 | Zoom to focused item | `z` |
 | Toggle box / polygon mode | `m` |
@@ -120,6 +120,7 @@ for the same list, filtered to the current mode.
 | Move vertex (selected polygon) | Drag vertex | polygon |
 | Insert vertex (selected polygon) | Click edge | polygon |
 | Delete vertex / polygon | Right-click | polygon |
+| Open / close the symbology legend (lower left) | Click Legend | always |
 <!-- controls:end -->
 
 Vertex streaming (`v`) places vertices continuously as the mouse moves instead of
@@ -363,9 +364,12 @@ greedily, highest-IoU first, so each annotation and each prediction participates
 in at most one match. The queue is the flattened result, in this fixed order:
 unmatched predictions, then model misses (a ground-truth annotation no
 prediction matched), then matches. Class selection lives in the top toolbar
-alongside the drawing controls, with an "All" option; Type and Status stay as
-dropdowns in the status bar. Status filters on verdict presence, so "Not
-reviewed" means no verdict yet, whatever the type. True-positive,
+alongside the drawing controls, with an "All" option; Type and Review status are
+dropdowns in the status bar. Review status filters on verdict presence, so "Not
+reviewed" means no verdict yet, whatever the type. (Image status, in the top
+toolbar, is the separate per-image Complete / Partial / Unannotated filter.) An
+annotation you draw yourself is recorded as `accepted` the moment it is added,
+so it never waits in the queue for a review action. True-positive,
 false-positive and false-negative counts for the current image are shown in
 the status bar.
 
@@ -375,12 +379,20 @@ the status bar.
 Stepping sets the active class and mode (box or polygon) to match the focused
 item, so it is always drawn under the same visibility rule the canvas already
 uses, then zooms so the item fills roughly one third of the canvas. `z` re-zooms
-to the current item without moving the focus. The Labels and Predictions
-checkboxes on the top toolbar toggle the annotation and prediction overlays
-independently; Labels also gates the focused item's gold highlight, so turning
-it off hides every annotation shape, focused or not, with no separate GT
-control. Only the focused item carries a label, everything else is an
-unlabelled outline.
+to the current item without moving the focus. The Labels checkbox on the top
+toolbar and the Predictions checkbox in the status bar toggle the annotation and
+prediction overlays independently; turning Labels off hides every annotation
+shape, focused or not. The step arrows sit in the status bar right of Accept /
+Edit / Reject, followed by the focused item's type, position and verdict (e.g.
+"FP 2 / 16  not reviewed").
+
+Annotations are solid and predictions dashed, both in their class colour at the
+same zoom-scaled width; a rejected prediction is dotted. The focused item is
+marked by a highlighter-blue glow under it, and the one thing that is selected
+for editing is drawn in that blue with vertex or corner handles. Only the focused
+item carries a label, a single "class: name (confidence)" on its annotation when
+it has one, otherwise on its prediction. The Legend chip in the lower left of
+the canvas opens a key to all of this; click it again to close it.
 
 ### Accept and reject
 
@@ -390,13 +402,13 @@ unlabelled outline.
 | Match (prediction paired with an annotation) | Verdict `accepted`; annotation unchanged | Delete the annotation; verdict `rejected` |
 | Model miss (annotation with no prediction) | Verdict `accepted` | Delete the annotation; verdict `rejected` |
 
-Accepting an unmatched prediction does not advance the queue: the newly
-created annotation is selected immediately and stays focused, so the reviewer
-can drag its corners into place right away with no extra selection step, and
-no separate verdict is recorded for that edit.
+Accept and reject both move straight on to the next item without a review
+action; the accepted prediction stays drawn, dashed, under its new annotation.
 
-Press `e` to select the focused item's paired annotation for editing, moving or
-deleting its vertices without leaving the queue. Every accept, reject and edit is
+Edit (`e`, or the Edit button between Accept and Reject) selects the focused
+item's annotation for editing, moving or deleting its vertices without leaving
+the queue. An unmatched prediction has no annotation yet, so Edit accepts it
+first and selects the annotation that creates, keeping the focus on it. Every accept, reject and edit is
 one undo step, covered the same way as drawing (`Ctrl+Z` / `Ctrl+Y`).
 Dragging the focused item's GT box updates its displayed classification, IoU and
 reviewed status immediately, with no separate action and no new verdict; how far
@@ -406,16 +418,19 @@ geometry to that prediction (`prediction_id` in the sidecar), not from a verdict
 ### Threshold
 
 Predictions below the confidence threshold are neither drawn nor matched. It
-defaults to 0.50, is stored per dataset in `state/review_stats.json`, and is
-shown and edited in the status bar's Conf entry; press Enter to apply, an
-out-of-range or non-numeric value reverts to the stored one. The IoU threshold is
+defaults to the lowest confidence in the imported set (`min_conf` in
+`predictions/manifest.json`, which `yololabeler-import` writes), and to 0.50 only
+when there is no manifest. It is shown and edited in the status bar's Conf entry;
+press Enter to apply, an out-of-range or non-numeric value reverts to the stored
+one. A typed value is stored in `state/review_stats.json` with the manifest's
+`imported_at`, so re-running the import resets it to the new set's minimum. The IoU threshold is
 a fixed 0.50, neither shown nor editable in the UI.
 
 ### Blind images
 
 Ticking Blind pass on an image stops its prediction files from being read: the
-strip shows "Blind" in place of the queue and counts, and Accept / Reject are
-disabled. The Type/Status filters, Conf entry, and the step buttons are greyed
+strip shows "Blind" in place of the queue and counts, and Accept / Edit / Reject
+are disabled. The Type/Review status filters, Conf entry, and the step buttons are greyed
 out for the same reason: none of them do anything until predictions are back.
 Ticking Complete on a blind image records the completion with `blind: true`;
 predictions load normally afterward, and any later accept still carries
@@ -432,7 +447,8 @@ blocked on it.
 
 ### What is written where
 
-`state/review_stats.json`: `settings.conf_threshold`; per image, a `verdicts`
+`state/review_stats.json`: `settings.conf_threshold` and `settings.conf_for_import`
+(the manifest `imported_at` it was typed against); per image, a `verdicts`
 dict keyed by prediction id (a model miss is keyed by its annotation's id
 instead), each verdict recording `action` (`accepted` / `rejected`),
 `kind` (`fp` / `fn` / `tp`), `class_id`, `conf`, `iou`, `by` and `at`;

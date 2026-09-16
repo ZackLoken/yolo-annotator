@@ -157,23 +157,33 @@ class ReviewEngine:
 
     @property
     def conf_threshold(self):
-        """The persisted cutoff, else the imported set's min_conf, else the default."""
+        """The cutoff typed for the current import, else that import's min_conf, else the default.
+
+        A typed cutoff is stored with the imported_at of the manifest it was typed
+        against, so re-running the import resets the cutoff to the new set's own
+        minimum instead of keeping a value chosen for older predictions. A cutoff
+        saved before this stamp existed carries none and yields to min_conf.
+        """
         settings = self.state._review_state.get("settings", {})
-        if "conf_threshold" in settings:
+        manifest = self._manifest() or {}
+        if ("conf_threshold" in settings
+                and settings.get("conf_for_import") == manifest.get("imported_at")):
             return float(settings["conf_threshold"])
-        min_conf = self._imported_min_conf()
+        min_conf = manifest.get("min_conf")
         return float(min_conf) if min_conf is not None else DEFAULT_CONF_THRESHOLD
 
-    def _imported_min_conf(self):
-        """min_conf from predictions/manifest.json, or None if absent."""
+    def _manifest(self):
+        """predictions/manifest.json for the open folder, or None if absent."""
         if not self.state.image_folder:
             return None
-        manifest = read_manifest(os.path.join(self.state.image_folder, "predictions"))
-        return manifest.get("min_conf") if manifest else None
+        return read_manifest(os.path.join(self.state.image_folder, "predictions"))
 
     @conf_threshold.setter
     def conf_threshold(self, value):
-        self.state._review_state.setdefault("settings", {})["conf_threshold"] = float(value)
+        manifest = self._manifest() or {}
+        settings = self.state._review_state.setdefault("settings", {})
+        settings["conf_threshold"] = float(value)
+        settings["conf_for_import"] = manifest.get("imported_at")
         self.save_review_state()
 
     def _image_entry(self, img_name):

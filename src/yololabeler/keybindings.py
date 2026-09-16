@@ -34,7 +34,7 @@ KEY_BINDINGS = (
     _b("next_item", ("<Down>",), "Down", "Next queue item", "queue"),
     _b("accept", ("a",), "a", "Accept focused item (an unmatched prediction becomes a new annotation)", "queue"),
     _b("reject", ("r",), "r", "Reject focused item (deletes its annotation, if any)", "queue"),
-    _b("edit_pair", ("e",), "e", "Select the focused item's annotation for editing", "paired"),
+    _b("edit_pair", ("e",), "e", "Edit focused item (an unmatched prediction is accepted first)", "queue"),
     _b("fit", ("f",), "f", "Fit image to window"),
     _b("zoom_item", ("z",), "z", "Zoom to focused item", "queue"),
     _b("toggle_mode", ("m",), "m", "Toggle box / polygon mode"),
@@ -65,6 +65,7 @@ MOUSE_HELP = (
     ("Drag vertex", "Move vertex (selected polygon)", "polygon"),
     ("Click edge", "Insert vertex (selected polygon)", "polygon"),
     ("Right-click", "Delete vertex / polygon", "polygon"),
+    ("Click Legend", "Open / close the symbology legend (lower left)", "always"),
 )
 
 

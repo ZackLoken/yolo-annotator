@@ -19,7 +19,7 @@ from yololabeler.annotation.document import load_document
 from yololabeler.matching import point_to_segment_dist, point_in_polygon
 from yololabeler.rendering import place_label
 from yololabeler.review.engine import build_queue
-from yololabeler.review.layer import draw_prediction_layer
+from yololabeler.review.layer import SELECTION_COLOR, LayerStyle, draw_prediction_layer
 from yololabeler.utils import auto_orient_image
 
 # Interaction constants, carried over from the original implementation
@@ -32,6 +32,8 @@ SNAP_INDICATOR_RADIUS = 12    # canvas-px radius of the snap-target marker
 SNAP_INDICATOR_COLOR = "#FFE7B1"
 FG_COLOR = "#E0E0E0"
 CANVAS_BG = "#2D2D2D"
+LEGEND_BG = "#1A1A1A"
+LEGEND_BORDER = "#444444"
 
 
 class AnnotateTab:
@@ -72,6 +74,11 @@ class AnnotateTab:
         self._mouse_canvas_y = 0
         self._poly_preview_line = None
         self._snap_indicator_item = None
+
+        # Legend chip in the lower left of the canvas
+        self._legend_open = False
+        self._legend_bbox = None
+        self._legend_press = False
 
     def build(self, parent):
         """Create the annotate canvas and bind events."""
@@ -621,19 +628,34 @@ class AnnotateTab:
     # ──────────────────────────────────────────────────────────────────────────
     #  Mouse event dispatch
     # ──────────────────────────────────────────────────────────────────────────
+    def _in_legend(self, event):
+        """True when a canvas point falls on the drawn legend chip or panel."""
+        box = self._legend_bbox
+        return box is not None and box[0] <= event.x <= box[2] and box[1] <= event.y <= box[3]
+
     def on_button_press(self, event):
+        self._legend_press = self._in_legend(event)
+        if self._legend_press:
+            self._legend_open = not self._legend_open
+            self.display_image()
+            return
         if self.app.mode == "box":
             self._box_press(event)
         else:
             self._poly_press(event)
 
     def on_move_press(self, event):
+        if self._legend_press:
+            return
         if self.app.mode == "box":
             self._box_drag(event)
         else:
             self._poly_drag(event)
 
     def on_button_release(self, event):
+        if self._legend_press:
+            self._legend_press = False
+            return
         if self.app.mode == "box":
             self._box_release(event)
         else:
@@ -641,7 +663,7 @@ class AnnotateTab:
 
     def _on_double_click(self, event):
         a = self.app
-        if a.mode != "polygon":
+        if a.mode != "polygon" or self._in_legend(event):
             return
         if a.current_polygon:
             a._stream_active = False
@@ -656,6 +678,8 @@ class AnnotateTab:
 
     def on_right_click(self, event):
         a = self.app
+        if self._in_legend(event):
+            return
         if a.mode == "polygon" and a.current_polygon:
             a.current_polygon = []
             a._stream_active = False
@@ -895,11 +919,11 @@ class AnnotateTab:
             return
 
         self._push_undo()
-        self.engine.add_box(x1, y1, x2, y2)
+        added = self.engine.add_box(x1, y1, x2, y2)
         a._mark_image_annotated()
         a._record_annotation_added()
         a.rect = None
-        self.display_image()
+        a.accept_drawn_annotation(added)
         a.update_title()
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -1063,7 +1087,7 @@ class AnnotateTab:
         a._mark_image_annotated()
         a._record_annotation_added()
         self._poly_preview_line = None
-        self.display_image()
+        a.accept_drawn_annotation(added)
         a.update_title()
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -1246,7 +1270,7 @@ class AnnotateTab:
         line_w = max(1, min(2 + s * 0.5, 6))
         poly_w = max(1, min(2.5 + s * 0.5, 7))
         vert_r = max(3, min(VERTEX_HANDLE_RADIUS * (1.6 - s * 0.2), 12))
-        sel_vert_r = max(vert_r + 2,
+        sel_vert_r = max(vert_r + 2, 7,
                          min(VERTEX_HANDLE_RADIUS * (2.2 - s * 0.2), 16))
         label_size = max(7, min(int(9 * (0.6 + s * 0.4)), 18))
         dash_a = max(2, int(4 * (0.5 + s * 0.5)))
@@ -1269,6 +1293,13 @@ class AnnotateTab:
         gold_ann_id = (focus_ann.id if focus_ann is not None and a._annotation_visible
                        else None)
 
+        # Predictions go down first so a solid annotation and its selection handles sit on top.
+        draw_prediction_layer(
+            self.canvas, self.image_to_canvas, a, a.class_names, a.font_family,
+            label_size, show_gt=a._annotation_visible, show_pred=a._review_show_pred,
+            class_color=a._get_class_color, placed_labels=placed_labels,
+            line_w=line_w)
+
         for ann in self.visible_annotations():
             class_id = ann.class_id
             is_selected = (ann.id == a._selected_annotation_id)
@@ -1282,17 +1313,15 @@ class AnnotateTab:
                     continue
                 cx1, cy1 = self.image_to_canvas(x1, y1)
                 cx2, cy2 = self.image_to_canvas(x2, y2)
+                canvas.create_rectangle(
+                    cx1, cy1, cx2, cy2, outline=SELECTION_COLOR if is_selected else color,
+                    width=line_w + 1 if is_selected else line_w)
                 if is_selected:
-                    canvas.create_rectangle(
-                        cx1, cy1, cx2, cy2, outline="white", fill="",
-                        width=line_w + 2)
                     r = sel_vert_r
                     for hx, hy in ((cx1, cy1), (cx2, cy1), (cx2, cy2), (cx1, cy2)):
                         canvas.create_rectangle(
                             hx - r, hy - r, hx + r, hy + r,
-                            fill=color, outline="white", width=1)
-                canvas.create_rectangle(
-                    cx1, cy1, cx2, cy2, outline=color, width=line_w)
+                            fill="white", outline=SELECTION_COLOR, width=2)
                 _halo(cx1 + 2, cy1 - 2, anchor="sw",
                       text=f"{class_id}: {class_name}",
                       fill=color,
@@ -1311,13 +1340,9 @@ class AnnotateTab:
                 cx, cy = self.image_to_canvas(px, py)
                 canvas_pts.extend([cx, cy])
             if len(canvas_pts) >= 6:
-                if is_selected:
-                    canvas.create_polygon(
-                        *canvas_pts, outline="white", fill="",
-                        width=poly_w + 2)
                 canvas.create_polygon(
-                    *canvas_pts, outline=color, fill="",
-                    width=poly_w)
+                    *canvas_pts, outline=SELECTION_COLOR if is_selected else color,
+                    fill="", width=poly_w + 1 if is_selected else poly_w)
             show_verts = (
                 is_selected
                 or ann.id == a._hovered_annotation_id
@@ -1333,11 +1358,12 @@ class AnnotateTab:
                         break
             if show_verts:
                 r = sel_vert_r if is_selected else vert_r
+                fill = SELECTION_COLOR if is_selected else color
                 for px, py in points:
                     cx, cy = self.image_to_canvas(px, py)
                     canvas.create_oval(
                         cx - r, cy - r, cx + r, cy + r,
-                        fill=color, outline="white", width=1)
+                        fill=fill, outline="white", width=2 if is_selected else 1)
             if points:
                 lx, ly = self.image_to_canvas(*points[0])
                 _halo(lx + 2, ly - 2, anchor="sw",
@@ -1367,16 +1393,87 @@ class AnnotateTab:
                 fill=color, width=max(1, line_w * 0.5),
                 dash=(dash_a // 2 or 1, dash_b))
 
-        draw_prediction_layer(
-            self.canvas, self.image_to_canvas, a, a.class_names, a.font_family,
-            label_size, show_gt=a._annotation_visible, show_pred=a._review_show_pred,
-            class_color=a._get_class_color, placed_labels=placed_labels)
-
         help_y0 = 10
         if a.banner_text:
             banner_h = self._draw_block(a.banner_text.split("\n"), y0=10)
             help_y0 = 10 + banner_h + 10
         self.render_help(help_y0)
+        self.render_legend()
+
+    def _legend_classes(self):
+        """Class ids drawn on this image, from its annotations and predictions."""
+        a = self.app
+        ids = {ann.class_id for ann in a.document.annotations} if a.document else set()
+        if a._review_show_pred and not a.predictions_blind:
+            ids |= {p.class_id for p in a.predictions if p.confidence >= a.conf_threshold}
+        return sorted(ids)
+
+    def render_legend(self):
+        """Draw the symbology legend in the lower left: a chip, or the open panel above it."""
+        a = self.app
+        canvas = self.canvas
+        ch = canvas.winfo_height() or 800
+        font = (a.font_family, 12)
+        fnt = tkFont.Font(family=a.font_family, size=12)
+        line_h = fnt.metrics("linespace") + 8
+        pad, swatch_w, x0 = 10, 40, 10
+        chip = "Legend ▾" if self._legend_open else "Legend ▴"
+        chip_w = fnt.measure(chip) + pad * 2
+        chip_y1 = ch - 10
+        chip_y0 = chip_y1 - line_h
+        canvas.create_rectangle(x0, chip_y0, x0 + chip_w, chip_y1, fill=LEGEND_BG,
+                                outline=LEGEND_BORDER, width=1, tags="legend")
+        canvas.create_text(x0 + pad, (chip_y0 + chip_y1) / 2, anchor="w", text=chip,
+                           fill=FG_COLOR, font=font, tags="legend")
+        if not self._legend_open:
+            self._legend_bbox = (x0, chip_y0, x0 + chip_w, chip_y1)
+            return
+
+        style = LayerStyle()
+        rows = [(("class", a._get_class_color(cid)),
+                 f"{cid}: {a.class_names.get(cid, cid)}") for cid in self._legend_classes()]
+        rows += [
+            (("line", FG_COLOR, None), "Solid: annotation (ground truth)"),
+            (("line", FG_COLOR, style.dash), "Dashed: prediction"),
+            (("line", FG_COLOR, style.rejected_dash), "Dotted: rejected prediction"),
+            (("halo",), "Blue glow: item in review focus"),
+            (("selected",), "Blue with handles: selected for editing"),
+        ]
+        text_w = max(fnt.measure(text) for _, text in rows)
+        panel_w = pad * 3 + swatch_w + text_w
+        panel_y1 = chip_y0 - 4
+        panel_y0 = panel_y1 - pad * 2 - line_h * len(rows)
+        canvas.create_rectangle(x0, panel_y0, x0 + panel_w, panel_y1, fill=LEGEND_BG,
+                                outline=LEGEND_BORDER, width=1, tags="legend")
+        for i, (swatch, text) in enumerate(rows):
+            cy = panel_y0 + pad + line_h * i + line_h / 2
+            sx0, sx1 = x0 + pad, x0 + pad + swatch_w
+            kind = swatch[0]
+            if kind == "class":
+                canvas.create_rectangle(sx0, cy - 5, sx1, cy + 5, outline=swatch[1],
+                                        width=3, fill="", tags="legend")
+            elif kind == "line":
+                canvas.create_line(sx0, cy, sx1, cy, fill=swatch[1], width=3,
+                                   dash=swatch[2] or "", tags="legend")
+            elif kind == "halo":
+                canvas.create_line(sx0, cy, sx1, cy, fill=SELECTION_COLOR, width=7,
+                                   tags="legend")
+                canvas.create_line(sx0, cy, sx1, cy, fill=FG_COLOR, width=2, tags="legend")
+            elif kind == "selected":
+                canvas.create_line(sx0, cy, sx1, cy, fill=SELECTION_COLOR, width=3,
+                                   tags="legend")
+                for hx in (sx0 + 3, sx1 - 3):
+                    canvas.create_oval(hx - 4, cy - 4, hx + 4, cy + 4, fill=SELECTION_COLOR,
+                                       outline="white", width=2, tags="legend")
+            else:
+                mid = (sx0 + sx1) / 2
+                canvas.create_oval(mid - SNAP_INDICATOR_RADIUS, cy - SNAP_INDICATOR_RADIUS,
+                                   mid + SNAP_INDICATOR_RADIUS, cy + SNAP_INDICATOR_RADIUS,
+                                   outline=SNAP_INDICATOR_COLOR, width=2, dash=(3, 3),
+                                   tags="legend")
+            canvas.create_text(sx1 + pad, cy, anchor="w", text=text, fill=FG_COLOR,
+                               font=font, tags="legend")
+        self._legend_bbox = (x0, panel_y0, x0 + max(panel_w, chip_w), chip_y1)
 
     def _draw_block(self, lines, y0):
         """Draw a padded text block at x 10, y0, shared by the banner and the help overlay; returns its height."""
