@@ -87,8 +87,8 @@ for the same list, filtered to the current mode.
 | Next image | `Right` |
 | Previous queue item | `Up` |
 | Next queue item | `Down` |
-| Accept focused item | `a` |
-| Reject focused item | `r` |
+| Accept focused item (an unmatched prediction becomes a new annotation) | `a` |
+| Reject focused item (deletes its annotation, if any) | `r` |
 | Select the focused item's annotation for editing | `e` |
 | Fit image to window | `f` |
 | Zoom to focused item | `z` |
