@@ -576,14 +576,22 @@ class YoloLabeler:
         """Save the current image on demand (Ctrl+S)."""
         self.save_current()
 
-    def go_to_image(self, index):
-        """Save, then load another image (spec 5.2). Returns False when the save failed."""
+    def go_to_image(self, index, reset_filters=True):
+        """Save, then load another image (spec 5.2). Returns False when the save failed.
+
+        reset_filters resets the review Type/Status filters to "all" for a
+        manual navigation step; the class filter is left untouched since it is
+        sticky across pages.
+        """
         if not self.images:
             return False
         if self.save_current():
             return False
         self._record_image_time()
         self.banner_text = None
+        if reset_filters:
+            self._review_filter_type = "all"
+            self._review_status_filter = "all"
         self.index = index % len(self.images)
         self._annotate_tab.load_image()
         return True

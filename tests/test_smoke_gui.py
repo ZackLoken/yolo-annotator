@@ -314,6 +314,22 @@ class TestNavigation:
         app.save_now()
         assert app.banner_text is None
 
+    def test_manual_navigation_resets_type_status_filters_not_class(self, app):
+        app._review_filter_type = "fp"
+        app._review_filter_class = 3
+        app.go_to_image(1)
+        assert app._review_filter_type == "all"
+        assert app._review_filter_class == 3
+
+    def test_reset_filters_false_preserves_filters(self, app):
+        app._review_filter_type = "fp"
+        app._review_filter_class = 3
+        app._review_status_filter = "reviewed"
+        app.go_to_image(1, reset_filters=False)
+        assert app._review_filter_type == "fp"
+        assert app._review_filter_class == 3
+        assert app._review_status_filter == "reviewed"
+
 
 # ── open folder ─────────────────────────────────────────────────────────────
 
