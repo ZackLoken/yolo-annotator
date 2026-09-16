@@ -116,8 +116,10 @@ for the same list, filtered to the current mode.
 | Move the whole box (selected box) | Drag the body | box |
 | Delete box | Right-click | box |
 | Place vertex / select polygon | Left-click | polygon |
+| Start / pause laying vertices as the pointer moves | Left-click (Stream on) | polygon |
 | Close polygon | Double-click | polygon |
 | Move vertex (selected polygon) | Drag vertex | polygon |
+| Start a new polygon on it (selected polygon) | Click vertex | polygon |
 | Insert vertex (selected polygon) | Click edge | polygon |
 | Delete vertex / polygon | Right-click | polygon |
 | Open / close the symbology legend (lower left) | Click Legend | always |
@@ -126,8 +128,13 @@ for the same list, filtered to the current mode.
 Vertex streaming (`v`) places vertices continuously as the mouse moves instead of
 one per click: click to start streaming, move the mouse to trace the outline, click
 again to pause, and double-click to finish the polygon; `Escape` cancels it instead.
-Toggle edge snapping (`s`) at the same time to pull streamed vertices onto nearby
-existing edges.
+A new vertex is laid each time the pointer moves 6 screen pixels, so the spacing
+looks the same at every zoom. Snapping (`s`) pulls a placed or streamed vertex onto
+an existing vertex within 15 screen pixels, never onto a point along an edge, so a
+shared boundary reuses the neighbour's own vertices; a dashed ring marks the vertex
+a click would snap to. With snapping on, a click that snaps to a vertex starts a
+new polygon there rather than selecting the polygon under it, and clicking (not
+dragging) a vertex of the selected polygon does the same.
 
 ---
 
@@ -307,8 +314,8 @@ One workspace: annotate and review on the same canvas, no tab switch to lose a
 viewport or leave unsaved work behind.
 
 - Box + Polygon modes: toggle with `m` or the toolbar button
-- Vertex streaming and edge snapping: continuous vertex placement while moving the
-  mouse (`v`), snapped to nearby edges (`s`)
+- Vertex streaming and vertex snapping: continuous vertex placement while moving the
+  mouse (`v`), snapped to nearby existing vertices (`s`)
 - Full vertex editing: drag, insert on an edge, and right-click delete on the
   selected polygon; boxes support drag-to-resize from a corner, drag-to-move
   from the body, and click-to-select, a new capability where clicking inside

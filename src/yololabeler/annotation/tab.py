@@ -26,10 +26,12 @@ from yololabeler.utils import auto_orient_image
 VERTEX_HANDLE_RADIUS = 4      # base vertex marker radius in canvas px
 BOX_CORNER_HIT_RADIUS = 8     # canvas px; matches _find_nearest_vertex's default tolerance
 MIN_BOX_SIDE = 3              # image px; the minimum box side enforced when drawing
-STREAM_MIN_DISTANCE = 6       # min image-px distance between streamed vertices
-SNAP_RADIUS = 15              # canvas-px radius for vertex/edge snapping
-SNAP_INDICATOR_RADIUS = 12    # canvas-px radius of the snap-target marker
+# Streaming and snapping values taken from TCIP Agent's AnnotateTab.tsx
+STREAM_MIN_DISTANCE = 6       # canvas px the pointer moves before the next streamed vertex
+SNAP_RADIUS = 15              # canvas px radius for snapping to an existing vertex
+SNAP_INDICATOR_RADIUS = 7     # canvas px radius of the dashed snap-target ring
 SNAP_INDICATOR_COLOR = "#FFE7B1"
+CLICK_SLOP = 3                # canvas px a press may move and still count as a click; provisional
 FG_COLOR = "#E0E0E0"
 CANVAS_BG = "#2D2D2D"
 LEGEND_BG = "#1A1A1A"
@@ -79,6 +81,10 @@ class AnnotateTab:
         self._legend_open = False
         self._legend_bbox = None
         self._legend_press = False
+
+        # A press on a selected polygon's vertex: a drag moves it, a click starts a polygon there
+        self._vertex_press = None
+        self._vertex_drag_started = False
 
     def build(self, parent):
         """Create the annotate canvas and bind events."""
@@ -450,23 +456,14 @@ class AnnotateTab:
         self._mouse_canvas_x = event.x
         self._mouse_canvas_y = event.y
 
-        # Streaming: auto-place vertices as mouse moves
+        # Streaming: between the start and pause clicks, lay a vertex each time the
+        # pointer has moved STREAM_MIN_DISTANCE screen pixels from the last one.
         if (a.mode == "polygon" and a._stream_mode
                 and a._stream_active and a.current_polygon):
-            ix, iy = self.canvas_to_image(event.x, event.y)
-            ix = max(0, min(a.img_width, ix))
-            iy = max(0, min(a.img_height, iy))
-            snapped_ix, snapped_iy = self._snap_to_edge(ix, iy)
-            if (snapped_ix, snapped_iy) != (ix, iy):
-                if (a.current_polygon[-1] != (snapped_ix, snapped_iy)):
-                    a.current_polygon.append((snapped_ix, snapped_iy))
-                    a._last_stream_pos = (snapped_ix, snapped_iy)
-                    self.display_image()
-            elif a._last_stream_pos:
-                dist = math.hypot(
-                    ix - a._last_stream_pos[0],
-                    iy - a._last_stream_pos[1])
-                if dist >= STREAM_MIN_DISTANCE:
+            last_cx, last_cy = self.image_to_canvas(*a.current_polygon[-1])
+            if math.hypot(event.x - last_cx, event.y - last_cy) >= STREAM_MIN_DISTANCE:
+                ix, iy = self._clamp(*self._maybe_snap(*self.canvas_to_image(event.x, event.y)))
+                if a.current_polygon[-1] != (ix, iy):
                     a.current_polygon.append((ix, iy))
                     a._last_stream_pos = (ix, iy)
                     self.display_image()
@@ -475,16 +472,8 @@ class AnnotateTab:
         now = time.monotonic()
         _motion_throttled = (now - self._motion_last_time) < 0.016
 
-        # Update snap indicator
-        if not _motion_throttled and a.mode == "polygon" and a.snap_enabled:
-            ix, iy = self.canvas_to_image(event.x, event.y)
-            snapped = self._maybe_snap(ix, iy)
-            if snapped != (ix, iy):
-                self._show_snap_indicator(*self.image_to_canvas(*snapped))
-            else:
-                self._hide_snap_indicator()
-        elif not (a.mode == "polygon" and a.snap_enabled):
-            self._hide_snap_indicator()
+        if not _motion_throttled:
+            self._update_snap_indicator()
 
         # Polygon hover detection
         if not _motion_throttled and a.mode == "polygon":
@@ -530,19 +519,38 @@ class AnnotateTab:
     # ──────────────────────────────────────────────────────────────────────────
     #  Vertex snapping
     # ──────────────────────────────────────────────────────────────────────────
+    def _clamp(self, ix, iy):
+        """Clamp an image point to the image bounds."""
+        a = self.app
+        return max(0, min(a.img_width, ix)), max(0, min(a.img_height, iy))
+
+    def _update_snap_indicator(self):
+        """Ring the vertex a click at the pointer would snap to, or hide the ring."""
+        a = self.app
+        if a.mode != "polygon" or not a.snap_enabled or a.original_image is None:
+            self._hide_snap_indicator()
+            return
+        ix, iy = self.canvas_to_image(self._mouse_canvas_x, self._mouse_canvas_y)
+        exclude = a._dragging_vertex if self._vertex_drag_started else None
+        snapped = self._maybe_snap(ix, iy, exclude=exclude)
+        if snapped != (ix, iy):
+            self._show_snap_indicator(*self.image_to_canvas(*snapped))
+        else:
+            self._hide_snap_indicator()
+
     def _show_snap_indicator(self, sx, sy):
-        """Place (or move) the snap-target marker at canvas point (sx, sy)."""
+        """Place (or move) the dashed snap-target ring at canvas point (sx, sy)."""
         bbox = (sx - SNAP_INDICATOR_RADIUS, sy - SNAP_INDICATOR_RADIUS,
                 sx + SNAP_INDICATOR_RADIUS, sy + SNAP_INDICATOR_RADIUS)
         if self._snap_indicator_item:
             try:
                 self.canvas.coords(self._snap_indicator_item, *bbox)
+                self.canvas.tag_raise(self._snap_indicator_item)
                 return
             except tk.TclError:
                 self._snap_indicator_item = None
         self._snap_indicator_item = self.canvas.create_oval(
-            *bbox, outline=SNAP_INDICATOR_COLOR, fill=SNAP_INDICATOR_COLOR,
-            width=2, stipple="gray50")
+            *bbox, outline=SNAP_INDICATOR_COLOR, fill="", width=2, dash=(3, 3))
 
     def _hide_snap_indicator(self):
         if self._snap_indicator_item:
@@ -553,6 +561,12 @@ class AnnotateTab:
             self._snap_indicator_item = None
 
     def _maybe_snap(self, ix, iy, exclude=None):
+        """The nearest visible polygon vertex within SNAP_RADIUS screen px, else the point itself.
+
+        Vertices only, never a point along an edge, so a shared boundary reuses
+        the neighbour's own vertices. exclude is an (annotation id, vertex index)
+        to skip, the vertex being dragged.
+        """
         a = self.app
         if not a.snap_enabled:
             return (ix, iy)
@@ -578,49 +592,6 @@ class AnnotateTab:
                 if dist < best_dist:
                     best_dist = dist
                     best_pt = (px, py)
-        if best_pt:
-            return best_pt
-        return (ix, iy)
-
-    def _snap_to_edge(self, ix, iy):
-        """Snap to the nearest polygon edge in canvas space."""
-        a = self.app
-        if not a.snap_enabled:
-            return (ix, iy)
-        self._ensure_poly_bboxes()
-        cx, cy = self.image_to_canvas(ix, iy)
-        img_thr = SNAP_RADIUS / self.scale if self.scale > 0 else 1e9
-        best_dist = SNAP_RADIUS
-        best_pt = None
-        for ann in self.visible_annotations():
-            if ann.kind != "polygon":
-                continue
-            bbox = a._poly_bboxes.get(ann.id)
-            if bbox is not None:
-                bx1, by1, bx2, by2 = bbox
-                if (ix + img_thr < bx1 or ix - img_thr > bx2
-                        or iy + img_thr < by1 or iy - img_thr > by2):
-                    continue
-            points = ann.points
-            n = len(points)
-            for ei in range(n):
-                ax, ay = self.image_to_canvas(*points[ei])
-                bx, by = self.image_to_canvas(*points[(ei + 1) % n])
-                dx, dy = bx - ax, by - ay
-                len_sq = dx * dx + dy * dy
-                if len_sq == 0:
-                    continue
-                t = max(0.0, min(1.0,
-                        ((cx - ax) * dx + (cy - ay) * dy) / len_sq))
-                proj_cx = ax + t * dx
-                proj_cy = ay + t * dy
-                dist = math.hypot(cx - proj_cx, cy - proj_cy)
-                if dist < best_dist:
-                    best_dist = dist
-                    pix, piy = self.canvas_to_image(proj_cx, proj_cy)
-                    pix = max(0, min(a.img_width, pix))
-                    piy = max(0, min(a.img_height, piy))
-                    best_pt = (pix, piy)
         if best_pt:
             return best_pt
         return (ix, iy)
@@ -971,10 +942,12 @@ class AnnotateTab:
                         best_vd = d
                         best_vi = vi
                 if best_vi is not None:
-                    self._push_undo()
+                    # Undo is pushed once the pointer actually moves; a release
+                    # without movement starts a new polygon on this vertex instead.
                     a._dragging_vertex = (sel_id, best_vi)
                     a._drag_orig_pos = pts_sel[best_vi]
-                    self.canvas.config(cursor="fleur")
+                    self._vertex_press = (event.x, event.y)
+                    self._vertex_drag_started = False
                     return
                 best_ei, best_ed, best_ept = None, 6, None
                 n_sel = len(pts_sel)
@@ -1012,37 +985,40 @@ class AnnotateTab:
         else:
             just_deselected = False
 
-        if not a.snap_enabled:
-            vhit = self._find_nearest_vertex(event.x, event.y, threshold=15)
-            if vhit:
-                a._selected_annotation_id = vhit[0]
-                self.display_image()
-                return
-        for ann in self.visible_annotations():
-            if ann.kind != "polygon":
-                continue
-            if self._point_in_polygon(ix, iy, ann.points):
-                a._selected_annotation_id = ann.id
+        # With snapping on, a click that snaps to a vertex means "start here", not "select".
+        snaps_to_vertex = self._maybe_snap(ix, iy) != (ix, iy)
+        if not snaps_to_vertex:
+            if not a.snap_enabled:
+                vhit = self._find_nearest_vertex(event.x, event.y, threshold=15)
+                if vhit:
+                    a._selected_annotation_id = vhit[0]
+                    self.display_image()
+                    return
+            for ann in self.visible_annotations():
+                if ann.kind != "polygon":
+                    continue
+                if self._point_in_polygon(ix, iy, ann.points):
+                    a._selected_annotation_id = ann.id
+                    self.display_image()
+                    return
+
+            if just_deselected:
                 self.display_image()
                 return
 
-        if just_deselected:
-            self.display_image()
-            return
+        self._start_polygon(ix, iy)
 
+    def _start_polygon(self, ix, iy):
+        """Start a new polygon at an image point, snapped, and begin streaming if Stream is on."""
+        a = self.app
         if a._review_filter_class == "all":
             a.show_banner("Select a class before drawing.")
             return
-
-        ix, iy = self._maybe_snap(ix, iy)
-        ix = max(0, min(a.img_width, ix))
-        iy = max(0, min(a.img_height, iy))
+        ix, iy = self._clamp(*self._maybe_snap(ix, iy))
         a.current_polygon = [(ix, iy)]
-
         if a._stream_mode:
             a._stream_active = True
             a._last_stream_pos = (ix, iy)
-
         self.display_image()
 
     def _poly_drag(self, event):
@@ -1052,7 +1028,15 @@ class AnnotateTab:
         ann_id, vi = a._dragging_vertex
         if not self._alive(ann_id) or ann_id != a._selected_annotation_id:
             self._clear_drag_state()
+            self._vertex_press = None
             return
+        if not self._vertex_drag_started and self._vertex_press is not None:
+            px, py = self._vertex_press
+            if math.hypot(event.x - px, event.y - py) < CLICK_SLOP:
+                return
+            self._push_undo()
+            self._vertex_drag_started = True
+            self.canvas.config(cursor="fleur")
         raw_ix, raw_iy = self.canvas_to_image(event.x, event.y)
         ix, iy = self._maybe_snap(raw_ix, raw_iy, exclude=(ann_id, vi))
         did_snap = (ix, iy) != (raw_ix, raw_iy)
@@ -1070,6 +1054,18 @@ class AnnotateTab:
 
     def _poly_release(self, event):
         a = self.app
+        if a._dragging_vertex is not None and self._vertex_press is not None \
+                and not self._vertex_drag_started:
+            ann_id, vi = a._dragging_vertex
+            self._vertex_press = None
+            self._clear_drag_state()
+            if self._alive(ann_id):
+                vx, vy = a.document.get(ann_id).points[vi]
+                a._selected_annotation_id = None
+                self._start_polygon(vx, vy)
+            return
+        self._vertex_press = None
+        self._vertex_drag_started = False
         if a._dragging_vertex is not None:
             ann_id = a._dragging_vertex[0]
             a._mark_image_annotated()
@@ -1399,6 +1395,7 @@ class AnnotateTab:
             help_y0 = 10 + banner_h + 10
         self.render_help(help_y0)
         self.render_legend()
+        self._update_snap_indicator()
 
     def _legend_classes(self):
         """Class ids drawn on this image, from its annotations and predictions."""
@@ -1438,6 +1435,7 @@ class AnnotateTab:
             (("line", FG_COLOR, style.rejected_dash), "Dotted: rejected prediction"),
             (("halo",), "Blue glow: item in review focus"),
             (("selected",), "Blue with handles: selected for editing"),
+            (("snap",), "Dashed ring: snap target"),
         ]
         text_w = max(fnt.measure(text) for _, text in rows)
         panel_w = pad * 3 + swatch_w + text_w

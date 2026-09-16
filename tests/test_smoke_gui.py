@@ -430,6 +430,57 @@ class TestRenderSelection:
         assert all(canvas.itemcget(i, "outline") == "white" for i in ovals)
 
 
+def polygon_setup(app, scale=1.0):
+    """Polygon mode, class 0 active, an unshifted view at scale, and one polygon added."""
+    tab = app._annotate_tab
+    app._select_class_for_filter_and_draw(0)
+    app._set_mode("polygon")
+    tab.scale, tab.offset_x, tab.offset_y = scale, 0.0, 0.0
+    return tab, add_polygon(app)
+
+
+def motion_at(tab, ix, iy):
+    """A synthetic pointer-motion event over image pixel (ix, iy)."""
+    cx, cy = tab.image_to_canvas(ix, iy)
+    return type("E", (), {"x": cx, "y": cy})()
+
+
+class TestPolygonInteraction:
+    def test_clicking_a_selected_polygons_vertex_starts_a_polygon_there(self, app):
+        tab, ann = polygon_setup(app)
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, 100, 100))
+        tab.on_button_release(click_at(tab, 100, 100))
+        assert app._selected_annotation_id is None
+        assert app.current_polygon == [(100, 100)]
+        assert app.document.get(ann.id).points == ann.points
+
+    def test_dragging_a_selected_polygons_vertex_moves_it(self, app):
+        tab, ann = polygon_setup(app)
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, 100, 100))
+        tab.on_move_press(click_at(tab, 130, 120))
+        tab.on_button_release(click_at(tab, 130, 120))
+        assert app.document.get(ann.id).points[0] == (130, 120)
+        assert app.current_polygon == []
+
+    def test_snap_goes_to_vertices_never_to_edges(self, app):
+        tab, _ = polygon_setup(app)
+        app.snap_enabled = True
+        assert tab._maybe_snap(150, 102) == (150, 102)
+        assert tab._maybe_snap(103, 102) == (100, 100)
+
+    def test_stream_spacing_is_measured_in_screen_pixels(self, app):
+        tab, _ = polygon_setup(app, scale=4.0)
+        app._stream_mode = True
+        app.current_polygon = [(10, 10)]
+        app._stream_active = True
+        tab._on_motion(motion_at(tab, 11, 10))
+        assert len(app.current_polygon) == 1
+        tab._on_motion(motion_at(tab, 12, 10))
+        assert app.current_polygon == [(10, 10), (12, 10)]
+
+
 class TestLegend:
     def test_legend_chip_opens_and_closes_without_drawing(self, app):
         tab = app._annotate_tab
