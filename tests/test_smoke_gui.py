@@ -273,6 +273,31 @@ class TestReviewPanel:
         assert canvas_y == pytest.approx(tab.canvas.winfo_height() / 2, abs=1.0)
 
 
+class TestClassFilterMerge:
+    def test_all_choice_sets_filter_and_leaves_active_class(self, app):
+        before = app.active_class
+        app._on_class_selected("All")
+        assert app._review_filter_class == "all"
+        assert app.active_class == before
+
+    def test_specific_choice_sets_both_and_dropdown_shows_it(self, app):
+        # Regression guard: _review_filter_class must be set before
+        # _select_class_by_id runs, or _refresh_class_dropdown snaps back to "All".
+        count = app._count_class_annotations().get(0, 0)
+        choice = f"0: {app.class_names[0]} ({count})"
+        app._on_class_selected(choice)
+        assert app.active_class == 0
+        assert app._review_filter_class == 0
+        assert app.class_dropdown.get() == choice
+
+    def test_all_filter_survives_focus_item_on_other_class(self, app):
+        app._on_class_selected("All")
+        other = next(i for i, q in enumerate(app.queue) if q.class_id != app.active_class)
+        app._review_panel.focus_item(other)
+        assert app.active_class == app.queue[other].class_id
+        assert app.class_dropdown.get() == "All"
+
+
 # ── actions ─────────────────────────────────────────────────────────────────
 
 class TestActions:

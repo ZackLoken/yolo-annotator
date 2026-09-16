@@ -1251,12 +1251,15 @@ class YoloLabeler:
 
     def _refresh_class_dropdown(self):
         counts = self._count_class_annotations()
-        items = []
+        items = ["All"]
         for cid, name in sorted(self.class_names.items()):
             c = counts.get(cid, 0)
             items.append(f"{cid}: {name} ({c})")
         items.append("<New Class>")
         self.class_dropdown.configure(values=items)
+        if self._review_filter_class == "all":
+            self.class_dropdown.set("All")
+            return
         active_count = counts.get(self.active_class, 0)
         active_label = (f"{self.active_class}: "
                         f"{self.class_names.get(self.active_class, '?')}"
@@ -1270,11 +1273,18 @@ class YoloLabeler:
         if choice == "<New Class>":
             self._add_class_dialog()
             return
+        if choice == "All":
+            self._review_filter_class = "all"
+            self._refresh_class_dropdown()
+            self._review_panel.refresh(keep_focus=False)
+            return
         try:
             class_id = int(choice.split(":")[0].strip())
         except ValueError:
             return
+        self._review_filter_class = class_id
         self._select_class_by_id(class_id)
+        self._review_panel.refresh(keep_focus=False)
 
     def _class_name_dialog(self, text, title):
         """Build a class-name input dialog with the main window's icon; return the typed name or None."""
@@ -1623,7 +1633,6 @@ class YoloLabeler:
         for cid in unknown:
             self.class_names[cid] = f"class_{cid}"
         self._refresh_class_dropdown()
-        self._review_panel.refresh_class_filter()
         self._save_classes_file()
 
 

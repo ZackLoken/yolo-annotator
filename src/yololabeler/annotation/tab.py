@@ -203,7 +203,6 @@ class AnnotateTab:
                             f"({'; '.join(a.predictions_rejected)}).")
         if messages:
             a.banner_text = "\n".join(messages)
-        a._review_panel.refresh_class_filter()
         a._review_panel.refresh(keep_focus=False)
         a._review_panel.focus_item(a._review_panel.first_unreviewed())
         a._review_panel.update_labels()

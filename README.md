@@ -362,10 +362,12 @@ annotations of the same class, all candidate pairs scored by IoU and assigned
 greedily, highest-IoU first, so each annotation and each prediction participates
 in at most one match. The queue is the flattened result, in this fixed order:
 unmatched predictions, then model misses (a ground-truth annotation no
-prediction matched), then matches. The Class, Type and Status dropdowns in the
-status bar filter it; Status filters on verdict presence, so "Not reviewed" means
-no verdict yet, whatever the type. True-positive, false-positive and
-false-negative counts for the current image are shown in the status bar.
+prediction matched), then matches. Class selection lives in the top toolbar
+alongside the drawing controls, with an "All" option; Type and Status stay as
+dropdowns in the status bar. Status filters on verdict presence, so "Not
+reviewed" means no verdict yet, whatever the type. True-positive,
+false-positive and false-negative counts for the current image are shown in
+the status bar.
 
 ### Stepping
 

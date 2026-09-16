@@ -66,10 +66,6 @@ class ReviewPanel:
         right = ctk.CTkFrame(self.frame, fg_color="transparent")
         right.pack(side="left", expand=True, fill="x")
 
-        self._label(left, "Class").pack(side="left", padx=(0, 2))
-        self.class_var = tk.StringVar(value="All")
-        self.class_dd = self._combo(left, self.class_var, ["All"], 90, self.on_class_changed)
-        self.class_dd.pack(side="left", padx=(0, 4))
         self._label(left, "Type").pack(side="left", padx=(0, 2))
         self.type_var = tk.StringVar(value="All")
         self._combo(left, self.type_var, ["All", "FP", "FN", "TP"], 70,
@@ -222,23 +218,11 @@ class ReviewPanel:
         self.app._review_filter_type = choice.lower()
         self.refresh(keep_focus=False)
 
-    def on_class_changed(self, choice):
-        """Filter the queue by class id."""
-        a = self.app
-        a._review_filter_class = "all" if choice == "All" else int(choice.split(":")[0])
-        self.refresh(keep_focus=False)
-
     def on_status_changed(self, choice):
         """Filter the queue by verdict presence."""
         mapping = {"All": "all", "Reviewed": "reviewed", "Not reviewed": "not_reviewed"}
         self.app._review_status_filter = mapping.get(choice, "all")
         self.refresh(keep_focus=False)
-
-    def refresh_class_filter(self):
-        """Rebuild the class dropdown from the current class registry."""
-        a = self.app
-        self.class_dd.configure(values=["All"] + [f"{cid}: {name}"
-                                                  for cid, name in sorted(a.class_names.items())])
 
     # ── labels ─────────────────────────────────────────────────────────────
 
