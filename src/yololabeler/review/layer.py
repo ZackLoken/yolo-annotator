@@ -22,6 +22,7 @@ class LayerStyle:
     pred_color: str = "#00BFFF"
     pred_tint: float = 0.45
     focused_gt_color: str = "#FFD700"
+    focused_pred_color: str = "#FF2ECC"  # distinct from focused_gt_color, pred_color and the badge colours
     reviewed_stipple: str = "gray12"
     line_w: int = 2
     focused_w: int = 3
@@ -98,15 +99,13 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
                         tags="pred")
         if focused and focused.prediction is not None:
             p = focused.prediction
-            color = (_tint(class_color(p.class_id), style.pred_tint)
-                     if class_color else style.pred_color)
             _draw_shape(canvas, to_canvas, p.kind, p.points,
-                        outline=color, width=style.focused_w, fill="",
+                        outline=style.focused_pred_color, width=style.focused_w, fill="",
                         tags="pred_focus")
             lx, ly = _label_anchor(to_canvas, p.points)
             name = class_names.get(p.class_id, str(p.class_id))
             halo_text(canvas, lx + 2, ly - 2, f"Pred {p.class_id}: {name} ({p.confidence:.2f})",
-                      color, anchor="sw", font=font)
+                      style.focused_pred_color, anchor="sw", font=font)
 
     if show_gt and focused and focused.annotation is not None:
         a = focused.annotation

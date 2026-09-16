@@ -106,6 +106,24 @@ class TestDrawPredictionLayer:
         rect = [i for i in canvas.find_all() if canvas.type(i) == "rectangle"][0]
         assert canvas.itemcget(rect, "outline") == LayerStyle().pred_color
 
+    def test_focused_prediction_keeps_its_own_colour_even_with_class_colour(self, canvas):
+        s = make_state()
+        s.queue = [QueueItem("fp", s.predictions[0], None, None)]
+        s.queue_index = 0
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
+                              LayerStyle(), lambda cid: "#FF0000")
+        focus = canvas.find_withtag("pred_focus")
+        assert len(focus) == 1
+        assert canvas.itemcget(focus[0], "outline") == LayerStyle().focused_pred_color
+
+    def test_focused_prediction_not_drawn_when_show_pred_off(self, canvas):
+        s = make_state()
+        s.queue = [QueueItem("fp", s.predictions[0], None, None)]
+        s.queue_index = 0
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, False, False)
+        assert canvas.find_withtag("pred_focus") == ()
+        assert canvas.find_all() == ()
+
 
 # ── _tint ───────────────────────────────────────────────────────────────────
 
