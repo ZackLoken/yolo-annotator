@@ -30,6 +30,15 @@ def disk_verdicts(folder, image="a.jpg"):
     return data.get("image", {}).get(image, {}).get("verdicts", {})
 
 
+def disk_img_status(folder, image="a.jpg"):
+    """The img_status review_stats.json actually holds on disk for one image."""
+    path = folder / "state" / "review_stats.json"
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return data.get("image", {}).get(image, {}).get("img_status")
+
+
 @pytest.fixture
 def folder(tmp_path):
     """An image folder with one labelled image, one unlabelled, and predictions."""
@@ -973,6 +982,29 @@ class TestCompletion:
         assert panel.prev_item_btn.cget("state") == "normal"
         assert panel.next_item_btn.cget("state") == "normal"
         assert panel.conf_entry.get() == f"{app.conf_threshold:.2f}"
+
+    def test_blind_clears_the_prediction_layer_at_once(self, app):
+        canvas = app.canvas
+        assert canvas.find_withtag("pred") or canvas.find_withtag("pred_focus")
+        app._blind_var.set(True)
+        app._on_blind_toggled()
+        # No further redraw: hiding the model's output is the whole point of the toggle.
+        assert not canvas.find_withtag("pred")
+        assert not canvas.find_withtag("pred_focus")
+
+    def test_blind_does_not_reset_a_completed_review_status(self, app, folder):
+        panel = app._review_panel
+        panel.focus_item(0)
+        app.accept_item()
+        panel.focus_item(panel.first_unreviewed())
+        app.accept_item()
+        assert app.images[app.index] == "b.jpg"
+        assert disk_img_status(folder) == "completed"
+        assert app.go_to_image(0)
+        app._blind_var.set(True)
+        app._on_blind_toggled()
+        assert app.predictions_blind and app.queue == []
+        assert disk_img_status(folder) == "completed"
 
     def test_model_name_from_manifest(self, app, folder):
         from yololabeler.predictions.store import write_manifest

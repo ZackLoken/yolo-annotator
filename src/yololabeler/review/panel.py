@@ -126,9 +126,12 @@ class ReviewPanel:
         a = self.app
         if a.document is None or a.predictions_blind or not a.predictions:
             a.queue, a.matches = [], {}
-            if a.images:
+            # Blind mode empties the queue without touching a single verdict, so
+            # recomputing the status from it would report every image not_started.
+            if a.images and not a.predictions_blind:
                 self.engine.update_img_status(a.images[a.index])
             self.update_labels()
+            a._annotate_tab.display_image()
             return
         focused = self.current_item() if keep_focus else None
         previous = focused.key if focused else None
