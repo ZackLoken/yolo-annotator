@@ -408,8 +408,10 @@ a fixed 0.60, shown next to it.
 
 ### Blind images
 
-Ticking Blind on an image stops its prediction files from being read: the strip
-shows "Blind" in place of the queue and counts, and Accept / Reject are disabled.
+Ticking Blind pass on an image stops its prediction files from being read: the
+strip shows "Blind" in place of the queue and counts, and Accept / Reject are
+disabled. The Type/Status filters, Conf entry, and the step buttons are greyed
+out for the same reason: none of them do anything until predictions are back.
 Ticking Complete on a blind image records the completion with `blind: true`;
 predictions load normally afterward, and any later accept still carries
 `source: accepted`, so the blind pass and the assisted pass stay distinguishable

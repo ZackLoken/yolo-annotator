@@ -330,7 +330,7 @@ class YoloLabeler:
 
         self._blind_var = tk.BooleanVar(value=False)
         self.blind_cb = ctk.CTkCheckBox(
-            _tb_g3, text="Blind", variable=self._blind_var,
+            _tb_g3, text="Blind pass", variable=self._blind_var,
             font=(self.font_family, 11), text_color=FG_COLOR,
             fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
             command=self._on_blind_toggled)

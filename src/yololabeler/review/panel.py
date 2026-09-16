@@ -68,12 +68,15 @@ class ReviewPanel:
 
         self._label(left, "Type").pack(side="left", padx=(0, 2))
         self.type_var = tk.StringVar(value="All")
-        self._combo(left, self.type_var, ["All", "FP", "FN", "TP"], 70,
-                    self.on_type_changed).pack(side="left", padx=(0, 4))
+        self.type_dd = self._combo(left, self.type_var, ["All", "FP", "FN", "TP"], 70,
+                                   self.on_type_changed)
+        self.type_dd.pack(side="left", padx=(0, 4))
         self._label(left, "Status").pack(side="left", padx=(0, 2))
         self.status_var = tk.StringVar(value="All")
-        self._combo(left, self.status_var, ["All", "Not reviewed", "Reviewed"], 110,
-                    self.on_status_changed).pack(side="left", padx=(0, 4))
+        self.status_dd = self._combo(left, self.status_var,
+                                     ["All", "Not reviewed", "Reviewed"], 110,
+                                     self.on_status_changed)
+        self.status_dd.pack(side="left", padx=(0, 4))
         self._label(left, "Conf").pack(side="left", padx=(4, 2))
         self.conf_entry = ctk.CTkEntry(left, width=50, font=(a.font_family, 11),
                                        fg_color=ENTRY_BG, border_color=BORDER_COLOR,
@@ -90,9 +93,10 @@ class ReviewPanel:
 
         self.item_label = self._label(right, "", width=150, anchor="w")
         self.item_label.pack(side="left", padx=(0, 4))
-        self._button(right, "◀", 30, lambda: self.step(-1), bold=False).pack(side="left")
-        self._button(right, "▶", 30, lambda: self.step(1),
-                     bold=False).pack(side="left", padx=(2, 6))
+        self.prev_item_btn = self._button(right, "◀", 30, lambda: self.step(-1), bold=False)
+        self.prev_item_btn.pack(side="left")
+        self.next_item_btn = self._button(right, "▶", 30, lambda: self.step(1), bold=False)
+        self.next_item_btn.pack(side="left", padx=(2, 6))
         self.counts_label = self._label(right, "TP 0  FP 0  FN 0")
         self.counts_label.pack(side="left")
         self._show_threshold()
@@ -189,7 +193,13 @@ class ReviewPanel:
     # ── threshold and filters ──────────────────────────────────────────────
 
     def _show_threshold(self):
-        """Write the current confidence threshold into the entry."""
+        """Write the current confidence threshold into the entry.
+
+        Forces the entry back to "normal" first: a disabled Tk entry silently
+        ignores delete/insert, and _init_folder calls this while conf_entry may
+        still be disabled from a blind image in the previously open folder.
+        """
+        self.conf_entry.configure(state="normal")
         self.conf_entry.delete(0, "end")
         self.conf_entry.insert(0, f"{self.app.conf_threshold:.2f}")
 
@@ -245,6 +255,13 @@ class ReviewPanel:
             state = "normal"
         self.accept_btn.configure(state=state)
         self.reject_btn.configure(state=state)
+        filter_state = "disabled" if a.predictions_blind else "readonly"
+        control_state = "disabled" if a.predictions_blind else "normal"
+        self.type_dd.configure(state=filter_state)
+        self.status_dd.configure(state=filter_state)
+        self.conf_entry.configure(state=control_state)
+        self.prev_item_btn.configure(state=control_state)
+        self.next_item_btn.configure(state=control_state)
         if not a.predictions_blind:
             m = a.matches or {}
             pending = sum(1 for qi in a.queue if qi.key not in a.verdicts)

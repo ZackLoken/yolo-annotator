@@ -723,6 +723,24 @@ class TestCompletion:
         assert app._stats_store.completion("a.jpg")["blind"] is True
         assert len(app.predictions) == 2 and not app.predictions_blind
 
+    def test_blind_greys_out_inert_controls(self, app):
+        panel = app._review_panel
+        app._blind_var.set(True)
+        app._on_blind_toggled()
+        assert panel.type_dd.cget("state") == "disabled"
+        assert panel.status_dd.cget("state") == "disabled"
+        assert panel.conf_entry.cget("state") == "disabled"
+        assert panel.prev_item_btn.cget("state") == "disabled"
+        assert panel.next_item_btn.cget("state") == "disabled"
+        app._blind_var.set(False)
+        app._on_blind_toggled()
+        assert panel.type_dd.cget("state") == "readonly"
+        assert panel.status_dd.cget("state") == "readonly"
+        assert panel.conf_entry.cget("state") == "normal"
+        assert panel.prev_item_btn.cget("state") == "normal"
+        assert panel.next_item_btn.cget("state") == "normal"
+        assert panel.conf_entry.get() == f"{app.conf_threshold:.2f}"
+
     def test_model_name_from_manifest(self, app, folder):
         from yololabeler.predictions.store import write_manifest
         write_manifest(folder / "predictions", {"model": "nathan_v15"})
