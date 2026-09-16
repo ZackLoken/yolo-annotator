@@ -217,7 +217,7 @@ When no manifest is present and prediction text files already exist (for example
 a dataset from before this format existed), they are read as-is; the manifest is
 written by `yololabeler-import`, not required for the files to be read.
 
-Predictions are matched against ground truth using IoU (default 0.60, a fixed
+Predictions are matched against ground truth using IoU (default 0.50, a fixed
 constant) to classify each as a false positive, a false negative (a ground-truth
 annotation with no matching prediction, called a model miss), or a true positive;
 see [Reviewing predictions](#reviewing-predictions).
@@ -397,7 +397,7 @@ Predictions below the confidence threshold are neither drawn nor matched. It
 defaults to 0.50, is stored per dataset in `state/review_stats.json`, and is
 shown and edited in the status bar's Conf entry; press Enter to apply, an
 out-of-range or non-numeric value reverts to the stored one. The IoU threshold is
-a fixed 0.60, shown next to it.
+a fixed 0.50, neither shown nor editable in the UI.
 
 ### Blind images
 

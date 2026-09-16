@@ -18,7 +18,7 @@ ACCENT_HOVER = "#608864"
 ENTRY_BG = "#2A2A2A"
 BORDER_COLOR = "#3A3A3A"
 SI_GREEN = "#507754"
-REVIEW_IOU_THRESHOLD = 0.60  # spec 4.3; constant, displayed beside the conf entry
+REVIEW_IOU_THRESHOLD = 0.5  # matches compute_matches's own default (matching.py:79)
 
 
 class ReviewPanel:
@@ -84,7 +84,6 @@ class ReviewPanel:
         self.conf_entry.pack(side="left", padx=(0, 2))
         self.conf_entry.bind("<Return>", self._on_conf_enter)
         self.conf_entry.bind("<FocusOut>", lambda e: self._show_threshold())
-        self._label(left, f"IoU {REVIEW_IOU_THRESHOLD:.2f}").pack(side="left", padx=(2, 4))
 
         self.accept_btn = self._button(centre, "Accept (A)", 110, a.accept_item)
         self.accept_btn.pack(side="left", padx=(0, 4))
