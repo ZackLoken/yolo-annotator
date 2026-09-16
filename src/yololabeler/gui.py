@@ -24,7 +24,6 @@ from yololabeler.state_io import AnnotationStats, read_json_or_quarantine
 from yololabeler.annotation.engine import AnnotationEngine
 from yololabeler.annotation.tab import AnnotateTab
 from yololabeler.keybindings import KEY_BINDINGS
-from yololabeler.predictions.importers import import_predictions, FORMATS
 from yololabeler.predictions.store import read_manifest
 from yololabeler.review.engine import ReviewEngine, apply_accept, apply_reject, build_queue
 from yololabeler.review.panel import ReviewPanel
@@ -202,13 +201,6 @@ class YoloLabeler:
             text_color=FG_COLOR, font=(self.font_family, 12),
             command=self._open_folder)
         self.open_btn.pack(side="left", padx=(8, 8))
-
-        self.import_btn = ctk.CTkButton(
-            inner, text="Import predictions", width=140,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 12),
-            command=self._open_import_form)
-        self.import_btn.pack(side="left", padx=(0, 8))
 
         # ── RIGHT: always-visible nav (pack first so it stays rightmost) ──
         self._toolbar_right = ctk.CTkFrame(inner, fg_color="transparent")
@@ -856,83 +848,6 @@ class YoloLabeler:
         self._session_add_counts = {}
         self._session_total_adds = 0
         self._annotate_tab.load_image()
-
-    def _run_import(self, source_dir, fmt, class_id, model_name):
-        """Convert and load predictions; returns an error for the form or None."""
-        if not self.image_folder:
-            return "Open an image folder first."
-        if not model_name.strip():
-            return "A model name is required."
-        try:
-            result = import_predictions(source_dir, self.image_folder, fmt,
-                                        model_name.strip(), class_id, self._current_user)
-        except (ValueError, OSError) as e:
-            return str(e)
-        self.show_banner(result.summary())
-        if self.images and self.document is not None:
-            self._review_panel.load_predictions_for_current_image()
-            self._review_panel.refresh(keep_focus=False)
-        return None
-
-    def _open_import_form(self):
-        """A form, not a warning: source folder, format, class id, model name (spec 4.2)."""
-        form = ctk.CTkToplevel(self.root)
-        form.title("Import predictions")
-        form.configure(fg_color=BG_COLOR)
-        form.transient(self.root)
-        form.grab_set()
-        pad = {"padx": 12, "pady": 4}
-
-        def entry(label, width=260):
-            row = ctk.CTkFrame(form, fg_color="transparent")
-            row.pack(fill="x", **pad)
-            ctk.CTkLabel(row, text=label, width=110, anchor="w", font=(self.font_family, 11),
-                         text_color=FG_COLOR).pack(side="left")
-            e = ctk.CTkEntry(row, width=width, font=(self.font_family, 11), fg_color=ENTRY_BG,
-                             border_color=BORDER_COLOR, text_color=FG_COLOR)
-            e.pack(side="left")
-            return row, e
-
-        src_row, src_entry = entry("Source folder", 200)
-        ctk.CTkButton(src_row, text="Browse", width=60, fg_color=ENTRY_BG, hover_color=ACCENT_HOVER,
-                      text_color=FG_COLOR, font=(self.font_family, 11),
-                      command=lambda: (src_entry.delete(0, "end"),
-                                       src_entry.insert(0, filedialog.askdirectory(
-                                           title="Prediction files") or ""))).pack(side="left", padx=(6, 0))
-        fmt_row = ctk.CTkFrame(form, fg_color="transparent")
-        fmt_row.pack(fill="x", **pad)
-        ctk.CTkLabel(fmt_row, text="Format", width=110, anchor="w", font=(self.font_family, 11),
-                     text_color=FG_COLOR).pack(side="left")
-        fmt_var = tk.StringVar(value=FORMATS[2])
-        ctk.CTkComboBox(fmt_row, variable=fmt_var, values=list(FORMATS), width=200,
-                        font=(self.font_family, 11), fg_color=ENTRY_BG, border_color=BORDER_COLOR,
-                        button_color=ACCENT, text_color=FG_COLOR, dropdown_fg_color=BG_COLOR,
-                        dropdown_text_color=FG_COLOR, state="readonly").pack(side="left")
-        _, class_entry = entry("Class id (JSON only)", 60)
-        class_entry.insert(0, "0")
-        _, model_entry = entry("Model name")
-        message = ctk.CTkLabel(form, text="", font=(self.font_family, 11), text_color=FG_COLOR,
-                               wraplength=380, justify="left")
-        message.pack(fill="x", **pad)
-
-        def submit():
-            fmt = fmt_var.get()
-            class_id = None
-            if fmt == "bur_detect_json":
-                try:
-                    class_id = int(class_entry.get())
-                except ValueError:
-                    message.configure(text="Class id must be a whole number.")
-                    return
-            error = self._run_import(src_entry.get().strip(), fmt, class_id, model_entry.get())
-            if error:
-                message.configure(text=error)
-            else:
-                form.destroy()
-
-        ctk.CTkButton(form, text="Import predictions", width=160, fg_color=ACCENT,
-                      hover_color=ACCENT_HOVER, text_color=FG_COLOR,
-                      font=(self.font_family, 12), command=submit).pack(pady=(4, 12))
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Quit

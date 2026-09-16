@@ -165,7 +165,7 @@ time and provenance (`drawn`, `accepted`, or `unknown` for a hand-edited line wi
 no matching record) per annotation, joined to its label line by the line's exact
 formatted text and its position among identical lines.
 `predictions/manifest.json` and `labels/*/.original/` are written the first time
-Import predictions runs and the first time a label file is saved, respectively;
+`yololabeler-import` runs and the first time a label file is saved, respectively;
 neither exists until then.
 
 ---
@@ -202,7 +202,7 @@ Detection: `<class_id> <confidence> <x_center> <y_center> <width> <height>`
 Segmentation: `<class_id> <confidence> <x1> <y1> ... <xN> <yN>`
 
 All values are normalized 0-1, same as labels, with confidence in column two.
-`predictions/manifest.json`, written by Import predictions, records where a
+`predictions/manifest.json`, written by `yololabeler-import`, records where a
 dataset's predictions came from:
 
 ```json
@@ -215,36 +215,33 @@ be traced back to the folder they were converted from.
 
 When no manifest is present and prediction text files already exist (for example,
 a dataset from before this format existed), they are read as-is; the manifest is
-written by Import predictions, not required for the files to be read.
+written by `yololabeler-import`, not required for the files to be read.
 
 Predictions are matched against ground truth using IoU (default 0.60, a fixed
 constant) to classify each as a false positive, a false negative (a ground-truth
 annotation with no matching prediction, called a model miss), or a true positive;
 see [Reviewing predictions](#reviewing-predictions).
 
-### Import predictions
+### Batch import: `yololabeler-import`
 
-The Import predictions toolbar button, next to Open Folder, opens a form: source
-folder, source format, a class id, and a model name. It converts the chosen
-format into the canonical layout above and writes the manifest.
+`yololabeler-import` converts predictions before you open a folder. It takes a
+source format, a source folder, and a model name, and converts the chosen
+format into the canonical layout above, writing the manifest.
 
 | Format | Source | Class id | Notes |
 |---|---|---|---|
 | `yololabeler` | This tool's own canonical prediction layout | read from the source file | revalidated and rewritten in the same layout |
 | `ultralytics_txt` | Ultralytics `save_txt(save_conf=True)` output, confidence last: detect `class cx cy w h conf`, segment `class x1 y1 ... xn yn conf` | read from the source file | confidence is moved to column two; a line with no confidence value is rejected and counted rather than kept |
-| `bur_detect_json` | Nathan's `bur_detect.py` output, `{"boxes": [[x0,y0,x1,y1]], "scores": [...]}` in full-image pixels, one file per image stem | required on the form, since the JSON carries none | normalized by each image's oriented size |
+| `bur_detect_json` | Nathan's `bur_detect.py` output, `{"boxes": [[x0,y0,x1,y1]], "scores": [...]}` in full-image pixels, one file per image stem | required via `--class-id`, since the JSON carries none | normalized by each image's oriented size |
 
 The class id field only applies to `bur_detect_json`; the other two formats carry
 their own class ids and ignore it. Import parses every source file before writing
-anything, then reports one line on the canvas: files written, files skipped (no
-matching image in the folder), and lines rejected. If any image in the folder
-carries an EXIF rotation, the summary adds a count of affected images, since
-Nathan's script does not transpose and the mismatch can otherwise land boxes
-rotated; coordinates are never transformed to correct for this automatically.
+anything, then reports files written, files skipped (no matching image in the
+folder), and lines rejected. If any image in the folder carries an EXIF rotation,
+the summary adds a count of affected images, since Nathan's script does not
+transpose and the mismatch can otherwise land boxes rotated; coordinates are
+never transformed to correct for this automatically.
 
-### Batch import: `yololabeler-import`
-
-The toolbar form imports one source folder into the image folder that is open.
 When a collaborator hands over a whole tree of prediction folders mirroring a
 whole tree of image folders, `yololabeler-import` converts all of them in one
 pass. It is a separate console script with no Tk or CustomTkinter import, so it
@@ -276,15 +273,14 @@ is a decision for whoever knows the dataset. The stem list is the warning that
 matters most: when the same stem appears in several source folders, a mispairing
 writes plausible-looking boxes from the wrong flight and nothing errors.
 
-A `--write` run prints the same per-folder summary the toolbar form shows on the
-canvas, one line per pair, then a rollup of total images written, files skipped
-and lines rejected. `--class-id` is required for `bur_detect_json` and ignored by
-the other two formats, same as the form. The source root and the images root may
+A `--write` run prints one line per pair, then a rollup of total images written,
+files skipped and lines rejected. `--class-id` is required for `bur_detect_json`
+and ignored by the other two formats. The source root and the images root may
 not be the same folder or nested inside one another. Nothing is ever deleted
 from the source tree; removing it afterwards is a manual step.
 
-Reach for the toolbar form for a single folder you are about to annotate, and for
-`yololabeler-import` for a handover of many folders at once.
+Use `yololabeler-import` to convert predictions before opening a folder; there
+is no in-app import form.
 
 ### `classes.json`
 
@@ -325,9 +321,6 @@ viewport or leave unsaved work behind.
   Complete, for measuring assisted versus unassisted annotation
 - Completion tracking: mark an image Complete to record who, when, how many
   annotations, and which model; filter the image list by status
-- Import predictions: one form converts three source formats, this tool's own
-  layout, Ultralytics `save_txt(save_conf=True)` output, and Nathan's
-  `bur_detect.py` JSON, into the canonical prediction layout and a manifest
 - Canvas banner: import results, migrated data counts, rejected label or
   prediction lines, and save failures are reported in one message on the canvas;
   no pop-ups for routine feedback
