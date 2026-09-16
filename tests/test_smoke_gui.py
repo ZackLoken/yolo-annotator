@@ -143,6 +143,11 @@ class TestAnnotate:
         assert app.mode == "box"
         assert app._selected_annotation_id == ann.id
 
+    def test_image_timer_starts_on_load(self, app):
+        app._image_start_time = None
+        app._annotate_tab.load_image()
+        assert app._image_start_time is not None
+
     def test_hidden_class_is_not_a_delete_target(self, app):
         app._select_class_by_id(0)
         app.class_names[1] = "other"

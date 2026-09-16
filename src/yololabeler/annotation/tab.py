@@ -185,6 +185,7 @@ class AnnotateTab:
             return
 
         a.img_width, a.img_height = a.original_image.size
+        a._image_start_time = time.time()
 
         self.fit_to_window()
         rejected = self.load_document_for_current_image()
