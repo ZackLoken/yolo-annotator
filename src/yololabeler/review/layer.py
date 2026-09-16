@@ -1,9 +1,8 @@
 """Draw the prediction layer and the focused pair on the annotate canvas (spec 4.5).
 
-A prediction is drawn dashed in its class colour, the same colour its accepted
-annotation is drawn solid in, so the dash alone tells the two apart. The review
-focus is marked by a highlighter-blue halo under the focused shape rather than
-by recolouring it. Needs a Tk canvas; not headless.
+Predictions are drawn dashed in their verdict colour; annotations keep their
+class colour. The review focus is marked by a highlighter-blue halo under the
+focused shape rather than by recolouring it. Needs a Tk canvas; not headless.
 """
 
 from __future__ import annotations
@@ -16,17 +15,20 @@ from yololabeler.rendering import place_label
 
 # Highlighter blue for focus and selection; the user chose it over yellow (2026-09-16).
 SELECTION_COLOR = "#00BFFF"
+ACCEPTED_COLOR = "#4CAF50"
+REJECTED_COLOR = "#EF5350"
+UNREVIEWED_COLOR = "#BDBDBD"
 
 
 @dataclass(frozen=True)
 class LayerStyle:
     """The fixed colours and dash patterns of the prediction layer.
 
-    pred_color is only the fallback for when the caller supplies no class-colour
-    lookup. Line widths are not here: the caller passes its own scale-dependent
-    width so predictions and annotations stay equally thick at every zoom.
+    pred_color is the unreviewed colour and the fallback for annotations without
+    a class-colour lookup. Line widths are not here: the caller passes its own
+    scale-dependent width so predictions and annotations stay equally thick at every zoom.
     """
-    pred_color: str = "#00BFFF"
+    pred_color: str = UNREVIEWED_COLOR
     focus_color: str = SELECTION_COLOR
     focus_halo_extra: int = 4
     # Tk on Windows collapses numeric dash lists to one dotted look; these strings stay distinct.
@@ -84,13 +86,22 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
     def color_of(class_id):
         return class_color(class_id) if class_color else style.pred_color
 
+    def prediction_color(prediction):
+        verdict = state.verdicts.get(prediction.id)
+        action = verdict.get("action") if verdict else None
+        if action == "accepted":
+            return ACCEPTED_COLOR
+        if action == "rejected":
+            return REJECTED_COLOR
+        return style.pred_color
+
     if show_pred:
         for p in state.predictions:
             if p.confidence < state.conf_threshold or p.id == focused_pred_id:
                 continue
             verdict = state.verdicts.get(p.id)
             rejected = verdict is not None and verdict.get("action") == "rejected"
-            _draw_shape(canvas, to_canvas, p.kind, p.points, outline=color_of(p.class_id),
+            _draw_shape(canvas, to_canvas, p.kind, p.points, outline=prediction_color(p),
                         width=line_w, fill="",
                         dash=style.rejected_dash if rejected else style.dash, tags="pred")
 
@@ -104,7 +115,7 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
         if ann is None:
             _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=style.focus_color,
                         width=halo_w, fill="", tags="focus_halo")
-        _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=color_of(pred.class_id),
+        _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=prediction_color(pred),
                     width=line_w + 1, fill="", dash=style.dash, tags="pred_focus")
     if ann is not None and ann.id != selected_id:
         color = color_of(ann.class_id)

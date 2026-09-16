@@ -7,7 +7,9 @@ import pytest
 from yololabeler.annotation.document import new_annotation
 from yololabeler.predictions.store import Prediction
 from yololabeler.review.engine import QueueItem
-from yololabeler.review.layer import SELECTION_COLOR, LayerStyle, draw_prediction_layer
+from yololabeler.review.layer import (
+    SELECTION_COLOR, UNREVIEWED_COLOR, LayerStyle, draw_prediction_layer,
+)
 from yololabeler.state import AppState
 
 
@@ -78,12 +80,12 @@ class TestDrawPredictionLayer:
             assert float(canvas.itemcget(item, "width")) == 5.0
             assert canvas.itemcget(item, "dash") != ""
 
-    def test_prediction_uses_the_class_colour_untinted(self, canvas):
+    def test_unreviewed_prediction_uses_neutral_colour(self, canvas):
         s = make_state()
         draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
                               LayerStyle(), red)
         rect = [i for i in canvas.find_withtag("pred") if canvas.type(i) == "rectangle"][0]
-        assert canvas.itemcget(rect, "outline") == "#FF0000"
+        assert canvas.itemcget(rect, "outline") == UNREVIEWED_COLOR
 
     def test_without_a_class_colour_predictions_keep_the_fallback(self, canvas):
         s = make_state()
@@ -107,7 +109,7 @@ class TestDrawPredictionLayer:
         assert canvas.itemcget(rect, "fill") == ""
         assert canvas.itemcget(rect, "stipple") == ""
 
-    def test_focused_fp_gets_a_blue_halo_in_class_colour_with_one_label(self, canvas):
+    def test_focused_fp_gets_a_blue_halo_in_neutral_colour_with_one_label(self, canvas):
         s = make_state()
         s.queue = [QueueItem("fp", s.predictions[0], None, None)]
         s.queue_index = 0
@@ -116,7 +118,7 @@ class TestDrawPredictionLayer:
         halo = canvas.find_withtag("focus_halo")
         assert len(halo) == 1 and canvas.itemcget(halo[0], "outline") == SELECTION_COLOR
         focus = canvas.find_withtag("pred_focus")
-        assert len(focus) == 1 and canvas.itemcget(focus[0], "outline") == "#FF0000"
+        assert len(focus) == 1 and canvas.itemcget(focus[0], "outline") == UNREVIEWED_COLOR
         assert label_texts(canvas) == {"0: burr (0.90)"}
         assert "FP  not reviewed" in texts(canvas)
 
