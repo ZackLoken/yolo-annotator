@@ -60,11 +60,11 @@ class ReviewPanel:
         self.frame = ctk.CTkFrame(si, fg_color="transparent")
         self.frame.pack(side="left", fill="x", expand=True)
         left = ctk.CTkFrame(self.frame, fg_color="transparent")
-        left.pack(side="left", expand=True, fill="x")
+        left.pack(side="left")
         centre = ctk.CTkFrame(self.frame, fg_color="transparent")
-        centre.pack(side="left", expand=True, fill="x")
+        centre.pack(side="left")
         right = ctk.CTkFrame(self.frame, fg_color="transparent")
-        right.pack(side="left", expand=True, fill="x")
+        right.pack(side="left")
 
         self._label(left, "Type").pack(side="left", padx=(0, 2))
         self.type_var = tk.StringVar(value="All")
@@ -247,9 +247,10 @@ class ReviewPanel:
         self.reject_btn.configure(state=state)
         if not a.predictions_blind:
             m = a.matches or {}
+            pending = sum(1 for qi in a.queue if qi.key not in a.verdicts)
+            suffix = f"  ({pending} not reviewed)" if pending else ""
             self.counts_label.configure(
                 text=f"TP {len(m.get('tp', []))}  FP {len(m.get('fp', []))}  "
-                     f"FN {len(m.get('fn', []))}")
-        pending = sum(1 for item in a.queue if item.key not in a.verdicts)
-        a.complete_cb.configure(text=f"Complete ({pending} not reviewed)" if pending else "Complete")
+                     f"FN {len(m.get('fn', []))}{suffix}")
+        a.complete_cb.configure(text="Complete")
         a._update_status()

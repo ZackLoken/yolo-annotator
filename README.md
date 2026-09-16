@@ -419,8 +419,9 @@ in the sidecar.
 
 Complete is the one dataset gate: ticking it writes a completion record and
 saves; unticking it removes the record. If queue items are still missing a
-verdict the checkbox label reads "Complete (n not reviewed)", but the tick is
-never blocked on it.
+verdict, the pending count shows alongside the TP/FP/FN counts in the status
+bar (e.g. "TP 1  FP 1  FN 0  (2 not reviewed)"), but the tick is never
+blocked on it.
 
 ### What is written where
 

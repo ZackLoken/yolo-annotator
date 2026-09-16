@@ -241,23 +241,18 @@ class YoloLabeler:
             command=lambda: self._annotate_tab.prev_image())
         self.prev_btn.pack(side="right", padx=(4, 2))
 
-        self.image_name_label = ctk.CTkLabel(
-            self._toolbar_right, text="", font=(self.font_family, 11),
-            text_color="#AAAAAA")
-        self.image_name_label.pack(side="right", padx=(4, 2))
-
         # ── CENTER: Three annotation groups ──
         self._toolbar_center = ctk.CTkFrame(inner, fg_color="transparent")
         self._toolbar_center.pack(side="left", fill="x", expand=True)
 
         _tb_g1 = ctk.CTkFrame(self._toolbar_center, fg_color="transparent")
-        _tb_g1.pack(side="left", expand=True, fill="x")
+        _tb_g1.pack(side="left")
 
         _tb_g2 = ctk.CTkFrame(self._toolbar_center, fg_color="transparent")
-        _tb_g2.pack(side="left", expand=True, fill="x")
+        _tb_g2.pack(side="left")
 
         _tb_g3 = ctk.CTkFrame(self._toolbar_center, fg_color="transparent")
-        _tb_g3.pack(side="left", expand=True, fill="x")
+        _tb_g3.pack(side="left")
 
         # ── Group 1: Color Picker | Class DD | Labels | Predictions ──
         self.color_btn = tk.Button(
@@ -1570,14 +1565,14 @@ class YoloLabeler:
             self.total_label.configure(
                 text=f"/ {len(self._filtered_indices)}")
             if not self._filtered_indices:
-                self.image_name_label.configure(text="No matches")
+                self.root.title("YoloLabeler - No matches")
                 self._complete_var.set(False)
                 return
         else:
             self.counter_entry.delete(0, "end")
             self.counter_entry.insert(0, str(self.index + 1))
             self.total_label.configure(text=f"/ {len(self.images)}")
-        self.image_name_label.configure(text=self.images[self.index])
+        self.root.title(f"YoloLabeler - {self.images[self.index]}")
         # Update complete checkbox to reflect current image
         img_name = self.images[self.index]
         self._complete_var.set(img_name in self._completed_images)

@@ -356,12 +356,12 @@ class TestActions:
         app.edit_pair()
         vx, vy = panel.current_item().annotation.points[0]
         assert panel.item_label.cget("text").startswith("TP")
-        assert panel.counts_label.cget("text") == "TP 1  FP 1  FN 0"
+        assert panel.counts_label.cget("text") == "TP 1  FP 1  FN 0  (1 not reviewed)"
         tab.on_button_press(click_at(tab, vx, vy))
         tab.on_move_press(click_at(tab, 10, 10))
         tab.on_button_release(click_at(tab, 10, 10))
         # The drag alone pulls the GT below the IoU threshold, and the strip says so.
-        assert panel.counts_label.cget("text") == "TP 0  FP 2  FN 1"
+        assert panel.counts_label.cget("text") == "TP 0  FP 2  FN 1  (2 not reviewed)"
         assert panel.item_label.cget("text").startswith("FP")
         assert app.verdicts[key] == before
 
@@ -495,6 +495,11 @@ class TestNavigation:
         app.show_banner("hello")
         app._key_action(lambda: None)
         assert app.banner_text is None
+
+    def test_title_shows_current_image_name(self, app):
+        assert app.images[app.index] in app.root.title()
+        assert app.go_to_image(1)
+        assert app.images[app.index] in app.root.title()
 
     def test_success_is_silent(self, app):
         app.save_now()
@@ -702,10 +707,12 @@ class TestCompletion:
         assert app._stats_store.completion("a.jpg") is None
 
     def test_complete_label_counts_unreviewed(self, app):
-        assert app.complete_cb.cget("text") == "Complete (2 not reviewed)"
+        assert app.complete_cb.cget("text") == "Complete"
+        assert "2 not reviewed" in app._review_panel.counts_label.cget("text")
         app._review_panel.focus_item(0)
         app.reject_item()
-        assert app.complete_cb.cget("text") == "Complete (1 not reviewed)"
+        assert app.complete_cb.cget("text") == "Complete"
+        assert "1 not reviewed" in app._review_panel.counts_label.cget("text")
 
     def test_blind_hides_predictions_until_complete(self, app):
         app._blind_var.set(True)
