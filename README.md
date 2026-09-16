@@ -462,17 +462,24 @@ in the sidecar.
 `c` opens a comment box for the focused item, prediction or annotation alike.
 Enter saves it and flags the item, with or without a comment; a flag is
 independent of the verdict, so an item can be flagged before it is judged or
-after. A flagged item carries a magenta `?` at its top-right corner (on its
+after. A flagged item carries a white `?` with a black halo at its top-right corner (on its
 annotation when it has one), the badge adds "flagged", and the status bar counts
 flags next to the TP/FP/FN counts. Pressing `c` on a flagged item shows who
-flagged it and when, with Save flag to edit the comment and Resolve flag to close
-it; a resolved flag stays in `review_stats.json` with who resolved it and when.
-Review status "Flagged" narrows the queue to open flags, and Image status
-"Flagged" narrows the image list to images holding any. Flags need a review
-item, so they are not available on a blind image or one without predictions.
-Rejecting a flagged model miss deletes its annotation; the flag stays open in
-the file, and still counts toward Image status "Flagged", but has nothing left
-on the canvas to open.
+flagged it and when, and who last edited the comment, with Save flag to edit the
+comment and Resolve flag to close it; a resolved flag stays in
+`review_stats.json` with who resolved it and when. Review status "Flagged"
+narrows the queue to open flags, and Image status "Flagged" narrows the image
+list to images holding any. Flags are not part of undo.
+
+With no review queue (a blind image, or one without predictions), `c` flags the
+selected annotation instead. That flag stays on the annotation once predictions
+are shown, even when it becomes a TP.
+
+Rejecting an item deletes its annotation, and right-click deletes one directly;
+either way an open flag on that annotation has nothing left to open from, so it
+is resolved with `resolved_note` set to `rejected` or `deleted`. Undoing brings
+the annotation back but leaves the flag resolved. Rejecting a flagged TP keeps
+the flag open, since its prediction stays as an FP.
 
 ### Completion
 
@@ -494,9 +501,11 @@ jumping from the image list never asks.
 dict keyed by prediction id (a model miss is keyed by its annotation's id
 instead), each verdict recording `action` (`accepted` / `rejected`),
 `kind` (`fp` / `fn` / `tp`), `class_id`, `conf`, `iou`, `by` and `at`;
-per image, a `flags` dict under the same keys, each a list of flag entries
-oldest first, recording `comment`, `kind`, `class_id`, `by`, `at`, `resolved`,
-`resolved_by` and `resolved_at`;
+per image, a `flags` dict under the same keys (or an annotation's id, for one
+flagged with no review queue), each a list of flag entries oldest first,
+recording `comment`, `kind` (`null` with no review queue), `class_id`, `by`, `at`,
+`edited_by`, `edited_at`, `resolved`, `resolved_by`, `resolved_at` and
+`resolved_note`;
 a `labels_backed_up` flag set once the first `.original/` backup is made.
 
 `state/annotation_stats.json`: a `completion` entry per completed image,

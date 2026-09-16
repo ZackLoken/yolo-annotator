@@ -1555,7 +1555,7 @@ class TestCommentFlag:
         panel = app._review_panel
         panel.focus_item(0)
         key = panel.current_item().key
-        app.ask_flag_comment = lambda item, existing: ("save", "leaf or bur?")
+        app.ask_flag_comment = lambda heading, existing: ("save", "leaf or bur?")
         app.comment_on_item()
         assert set(app.flag_markers) == {key}
         assert "1 flagged" in panel.counts_label.cget("text")
@@ -1567,7 +1567,7 @@ class TestCommentFlag:
     def test_flag_marker_and_badge_are_drawn(self, app):
         panel, tab = app._review_panel, app._annotate_tab
         panel.focus_item(0)
-        app.ask_flag_comment = lambda item, existing: ("save", "")
+        app.ask_flag_comment = lambda heading, existing: ("save", "")
         app.comment_on_item()
         tab.render()
         assert tab.canvas.find_withtag("flag")
@@ -1578,17 +1578,17 @@ class TestCommentFlag:
     def test_reopening_passes_the_open_flag_and_resolve_clears_it(self, app):
         panel = app._review_panel
         panel.focus_item(0)
-        app.ask_flag_comment = lambda item, existing: ("save", "first")
+        app.ask_flag_comment = lambda heading, existing: ("save", "first")
         app.comment_on_item()
         seen = []
-        app.ask_flag_comment = lambda item, existing: seen.append(existing) or ("resolve", None)
+        app.ask_flag_comment = lambda heading, existing: seen.append(existing) or ("resolve", None)
         app.comment_on_item()
         assert seen[0]["comment"] == "first"
         assert app.flag_markers == {}
 
     def test_cancel_changes_nothing(self, app):
         app._review_panel.focus_item(0)
-        app.ask_flag_comment = lambda item, existing: ("cancel", None)
+        app.ask_flag_comment = lambda heading, existing: ("cancel", None)
         app.comment_on_item()
         assert app.flag_markers == {}
         assert app._review.flags("a.jpg") == {}
@@ -1597,14 +1597,14 @@ class TestCommentFlag:
         panel = app._review_panel
         panel.focus_item(0)
         key = panel.current_item().key
-        app.ask_flag_comment = lambda item, existing: ("save", "")
+        app.ask_flag_comment = lambda heading, existing: ("save", "")
         app.comment_on_item()
         panel.on_status_changed("Flagged")
         assert [q.key for q in app.queue] == [key]
 
     def test_completion_records_open_flags_and_image_filter_finds_the_image(self, app):
         app._review_panel.focus_item(0)
-        app.ask_flag_comment = lambda item, existing: ("save", "")
+        app.ask_flag_comment = lambda heading, existing: ("save", "")
         app.comment_on_item()
         app._complete_var.set(True)
         app._on_complete_toggled()
@@ -1612,9 +1612,95 @@ class TestCommentFlag:
         app._on_filter_changed("Flagged")
         assert app._filtered_indices == [0]
 
-    def test_no_focused_item_shows_a_banner(self, app):
+
+
+class TestFlagResolvedByRemoval:
+    def draw_unflagged_fn(self, app):
+        tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
+        tab.fit_to_window()
+        tab.on_button_press(click_at(tab, 420, 360))
+        tab.on_button_release(click_at(tab, 520, 440))
+        drawn = app.document.annotations[-1]
+        app.verdicts.pop(drawn.id, None)
+        app._review_panel.refresh(keep_focus=False)
+        return drawn
+
+    def flag_focused(self, app, key):
+        panel = app._review_panel
+        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.key == key))
+        app.ask_flag_comment = lambda heading, existing: ("save", "unsure")
+        app.comment_on_item()
+        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.key == key))
+
+    def test_rejecting_a_flagged_fn_resolves_its_flag(self, app):
+        drawn = self.draw_unflagged_fn(app)
+        self.flag_focused(app, drawn.id)
+        app.reject_item()
+        (entry,) = app._review.flags("a.jpg")[drawn.id]
+        assert entry["resolved"] and entry["resolved_note"] == "rejected"
+        assert not app._review.has_open_flags("a.jpg")
+        assert app.flag_markers == {}
+
+    def test_rejecting_a_flagged_tp_keeps_the_flag_open_on_its_prediction(self, app):
+        key = next(q.key for q in app.queue if q.kind == "tp")
+        self.flag_focused(app, key)
+        app.reject_item()
+        assert app._review.open_flag("a.jpg", key) is not None
+        assert key in app.flag_markers
+
+    def test_deleting_a_flagged_box_resolves_its_flag(self, app):
+        drawn = self.draw_unflagged_fn(app)
+        self.flag_focused(app, drawn.id)
+        tab = app._annotate_tab
+        tab.on_right_click(click_at(tab, *top_edge_mid(drawn)))
+        (entry,) = app._review.flags("a.jpg")[drawn.id]
+        assert entry["resolved"] and entry["resolved_note"] == "deleted"
+
+    def test_resolving_the_last_flag_drops_the_image_from_the_flagged_list(self, app):
+        drawn = self.draw_unflagged_fn(app)
+        self.flag_focused(app, drawn.id)
+        app._on_filter_changed("Flagged")
+        assert app._filtered_indices == [0]
+        self.flag_focused(app, drawn.id)
+        app.reject_item()
+        assert app._filtered_indices == []
+
+
+class TestFlagWithoutQueue:
+    def test_c_flags_the_selected_annotation_on_a_blind_image(self, app):
+        app._blind_var.set(True)
+        app._on_blind_toggled()
+        assert app.queue == []
+        ann = app.document.annotations[0]
+        app._annotate_tab.select_annotation(ann.id)
+        headings = []
+        app.ask_flag_comment = lambda heading, existing: headings.append(heading) or ("save", "")
+        app.comment_on_item()
+        assert headings[0].startswith("Annotation")
+        assert app._review.open_flag("a.jpg", ann.id)["kind"] is None
+        assert set(app.flag_markers) == {ann.id}
+
+    def test_that_flag_shows_on_the_tp_once_predictions_are_back(self, app):
+        app._blind_var.set(True)
+        app._on_blind_toggled()
+        ann = app.document.annotations[0]
+        app._annotate_tab.select_annotation(ann.id)
+        app.ask_flag_comment = lambda heading, existing: ("save", "")
+        app.comment_on_item()
+        app._blind_var.set(False)
+        app._on_blind_toggled()
+        tp = next(q for q in app.queue if q.kind == "tp")
+        assert tp.annotation.id == ann.id and ann.id in app.flag_markers
+        app._review_panel.focus_item(app.queue.index(tp))
+        seen = []
+        app.ask_flag_comment = lambda heading, existing: seen.append(existing) or ("resolve", None)
+        app.comment_on_item()
+        assert seen[0] is not None and app.flag_markers == {}
+
+    def test_nothing_selected_and_no_queue_shows_a_banner(self, app):
         app.ask_incomplete_step = lambda: "continue"
         app._annotate_tab.next_image()
         assert app.queue == []
         app.comment_on_item()
-        assert app.banner_text == "No review item in focus to comment on."
+        assert app.banner_text == "Select an annotation or focus a review item to comment on it."

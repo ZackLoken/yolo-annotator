@@ -72,8 +72,10 @@ CustomTkinter classes, which clip their contents after a move to a monitor with
 different display scaling.
 Verdicts are keyed by prediction id, except a model miss (an annotation with no
 matching prediction), which is keyed by the annotation's id instead. Flags for a
-second look (`ReviewEngine.save_flag`/`resolve_flag`) use the same keys, are
-independent of verdicts, and keep resolved entries rather than deleting them.
+second look (`ReviewEngine.save_flag`/`resolve_flag`) use the same keys, or an
+annotation's id when flagged with no review queue (`ReviewEngine.flag_key` picks
+between them); they are independent of verdicts, keep resolved entries rather
+than deleting them, and are resolved by any path that deletes their annotation.
 Box annotations are picked by their outline only (`_box_at_outline` in
 `annotation/tab.py`), so a drag that starts inside a box draws a new one.
 

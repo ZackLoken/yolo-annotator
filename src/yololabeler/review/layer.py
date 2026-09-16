@@ -18,8 +18,8 @@ from yololabeler.rendering import halo_text, place_label
 SELECTION_COLOR = "#00BFFF"
 # The user chose green/yellow/red for accepted/not reviewed/rejected (2026-09-16); the hex values are provisional.
 STATUS_COLORS = {"accepted": "#00FF00", "not_reviewed": "#FFFF00", "rejected": "#FF0000"}
-# Magenta so a flag never reads as a review status or as the selection blue; provisional, not user-chosen.
-FLAG_COLOR = "#FF00FF"
+# White with a black halo; the user chose it (2026-09-16).
+FLAG_COLOR = "#FFFFFF"
 FLAG_MARK = "?"
 
 
@@ -155,7 +155,8 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
         verdict = state.verdicts.get(focused.key)
         status = verdict["action"] if verdict else "not_reviewed"
         text = f"{focused.kind.upper()}  {status.replace('_', ' ')}"
-        if focused.key in state.flag_markers:
+        if focused.key in state.flag_markers or (
+                focused.annotation is not None and focused.annotation.id in state.flag_markers):
             text += "  flagged"
         bfnt = tkFont.Font(family=font_family, size=14, weight="bold")
         tw, th = bfnt.measure(text), bfnt.metrics("linespace")

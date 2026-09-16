@@ -389,42 +389,61 @@ def flag_engine(engine, tmp_path):
     return engine
 
 
+def flag_item(engine, item, comment, user):
+    engine.save_flag("img_001.jpg", item.key, item.kind, item.class_id, comment, user)
+
+
 class TestFlags:
     def test_save_opens_a_flag_without_a_verdict(self, flag_engine, scene):
         doc, preds = scene
         item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fp")
-        flag_engine.save_flag("img_001.jpg", item, "maybe a leaf", "ren")
+        flag_item(flag_engine, item, "maybe a leaf", "ren")
         flag = flag_engine.open_flag("img_001.jpg", item.key)
         assert flag["comment"] == "maybe a leaf" and flag["by"] == "ren" and flag["at"]
-        assert flag["kind"] == "fp" and not flag["resolved"]
+        assert flag["kind"] == "fp" and not flag["resolved"] and flag["edited_by"] is None
         assert flag_engine.verdicts("img_001.jpg") == {}
         assert flag_engine.open_flag_keys("img_001.jpg") == {item.key}
 
-    def test_saving_again_edits_the_open_flag(self, flag_engine, scene):
+    def test_editing_keeps_the_flagger_and_records_the_editor(self, flag_engine, scene):
         doc, preds = scene
         item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fn")
-        flag_engine.save_flag("img_001.jpg", item, "", "ren")
-        flag_engine.save_flag("img_001.jpg", item, "two burs?", "zack")
-        history = flag_engine.flags("img_001.jpg")[item.key]
-        assert len(history) == 1
-        assert history[0]["comment"] == "two burs?" and history[0]["by"] == "ren"
+        flag_item(flag_engine, item, "", "ren")
+        flag_item(flag_engine, item, "two burs?", "scott")
+        (entry,) = flag_engine.flags("img_001.jpg")[item.key]
+        assert entry["comment"] == "two burs?" and entry["by"] == "ren"
+        assert entry["edited_by"] == "scott" and entry["edited_at"]
+
+    def test_saving_an_unchanged_comment_records_no_edit(self, flag_engine, scene):
+        doc, preds = scene
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fn")
+        flag_item(flag_engine, item, "same", "ren")
+        flag_item(flag_engine, item, "same", "scott")
+        assert flag_engine.open_flag("img_001.jpg", item.key)["edited_by"] is None
 
     def test_resolve_keeps_the_record_and_a_new_flag_starts_a_new_entry(self, flag_engine, scene):
         doc, preds = scene
         item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "tp")
-        flag_engine.save_flag("img_001.jpg", item, "check", "ren")
+        flag_item(flag_engine, item, "check", "ren")
         flag_engine.resolve_flag("img_001.jpg", item.key, "zack")
         assert flag_engine.open_flag("img_001.jpg", item.key) is None
         (entry,) = flag_engine.flags("img_001.jpg")[item.key]
         assert entry["resolved"] and entry["resolved_by"] == "zack" and entry["resolved_at"]
-        flag_engine.save_flag("img_001.jpg", item, "again", "ren")
+        assert entry["resolved_note"] is None
+        flag_item(flag_engine, item, "again", "ren")
         assert len(flag_engine.flags("img_001.jpg")[item.key]) == 2
         assert flag_engine.open_flag("img_001.jpg", item.key)["comment"] == "again"
+
+    def test_resolve_records_a_note(self, flag_engine, scene):
+        doc, preds = scene
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fn")
+        flag_item(flag_engine, item, "", "ren")
+        flag_engine.resolve_flag("img_001.jpg", item.key, "ren", note="rejected")
+        assert flag_engine.flags("img_001.jpg")[item.key][0]["resolved_note"] == "rejected"
 
     def test_flags_persist_and_has_open_flags_reads_them(self, flag_engine, scene):
         doc, preds = scene
         item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fp")
-        flag_engine.save_flag("img_001.jpg", item, "x", "ren")
+        flag_item(flag_engine, item, "x", "ren")
         flag_engine.load_review_state()
         assert flag_engine.has_open_flags("img_001.jpg")
         assert not flag_engine.has_open_flags("other.jpg")
@@ -434,18 +453,33 @@ class TestFlags:
     def test_carry_flags_moves_the_history_to_the_new_key(self, flag_engine, scene):
         doc, preds = scene
         item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fn")
-        flag_engine.save_flag("img_001.jpg", item, "x", "ren")
+        flag_item(flag_engine, item, "x", "ren")
         flag_engine.carry_flags("img_001.jpg", item.key, "h:9")
         assert flag_engine.open_flag_keys("img_001.jpg") == {"h:9"}
+
+    def test_flag_key_prefers_an_annotation_flagged_before_predictions(self, flag_engine, scene):
+        doc, preds = scene
+        tp = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "tp")
+        assert flag_engine.flag_key("img_001.jpg", tp) == tp.key
+        flag_engine.save_flag("img_001.jpg", tp.annotation.id, None, 0, "", "ren")
+        assert flag_engine.flag_key("img_001.jpg", tp) == tp.annotation.id
 
     def test_flagged_status_filter_keeps_only_open_flagged_items(self, scene):
         doc, preds = scene
         matches = match_document(doc, preds, 0.6, 0.5)
         queue = build_queue(doc, preds, matches, {}, filter_status="flagged", flagged={"h:1"})
         assert [q.key for q in queue] == ["h:1"]
+        by_annotation = build_queue(doc, preds, matches, {}, filter_status="flagged",
+                                    flagged={doc.annotations[0].id})
+        assert [q.key for q in by_annotation] == ["h:0"]
 
     def test_markers_sit_on_the_annotation_when_there_is_one(self, scene):
         doc, preds = scene
         matches = match_document(doc, preds, 0.6, 0.5)
         markers = flag_markers(doc, preds, matches, {"h:0", "h:1", "gone"})
         assert markers == {"h:0": doc.annotations[0].points, "h:1": preds[1].points}
+
+    def test_markers_without_matches_show_annotation_flags_only(self, scene):
+        doc, preds = scene
+        ann = doc.annotations[1]
+        assert flag_markers(doc, preds, {}, {ann.id, "h:1"}) == {ann.id: ann.points}

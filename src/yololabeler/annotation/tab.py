@@ -668,6 +668,14 @@ class AnnotateTab:
         self.engine.clear_drag_state()
         self.canvas.config(cursor="cross")
 
+    def _delete_annotation(self, ann_id):
+        """Delete an annotation and resolve an open flag keyed by it, which has nothing left to open from."""
+        a = self.app
+        self.engine.delete_annotation(ann_id)
+        a._review.resolve_flag(a.images[a.index], ann_id, a._current_user, note="deleted")
+        a._rebuild_filter()
+        a._update_filter_label()
+
     def on_right_click(self, event):
         a = self.app
         if self._in_legend(event):
@@ -691,7 +699,7 @@ class AnnotateTab:
                     vi = vertex_hit[1]
                     self._push_undo()
                     if len(selected.points) <= 3:
-                        self.engine.delete_annotation(sel_id)
+                        self._delete_annotation(sel_id)
                     else:
                         new_pts = list(selected.points)
                         new_pts.pop(vi)
@@ -705,7 +713,7 @@ class AnnotateTab:
                 if self._point_in_polygon(click_ix, click_iy,
                                           selected.points):
                     self._push_undo()
-                    self.engine.delete_annotation(sel_id)
+                    self._delete_annotation(sel_id)
                     self._clear_drag_state()
                     a._mark_image_annotated()
                     a._review_panel.refresh(keep_focus=True)
@@ -719,7 +727,7 @@ class AnnotateTab:
         outlined = self._box_at_outline(event.x, event.y)
         if outlined is not None:
             self._push_undo()
-            self.engine.delete_annotation(outlined.id)
+            self._delete_annotation(outlined.id)
             a._mark_image_annotated()
             a._review_panel.refresh(keep_focus=True)
             self.display_image()
@@ -732,7 +740,7 @@ class AnnotateTab:
             if self._point_in_polygon(click_ix, click_iy, ann.points):
                 self._push_undo()
                 self._clear_drag_state()
-                self.engine.delete_annotation(ann.id)
+                self._delete_annotation(ann.id)
                 a._mark_image_annotated()
                 a._review_panel.refresh(keep_focus=True)
                 self.display_image()
@@ -1488,7 +1496,7 @@ class AnnotateTab:
             (("line", FG_COLOR, style.dash), "Dashed: prediction"),
             (("line", FG_COLOR, style.rejected_dash), "Dotted: rejected prediction"),
             (("halo",), "Blue glow: item in review focus"),
-            (("flag",), f"Magenta {FLAG_MARK}: flagged for a second look (c)"),
+            (("flag",), f"White {FLAG_MARK}: flagged for a second look (c)"),
             (("selected",), "Blue with handles: selected for editing"),
             (("snap",), "Dashed ring: snap target"),
         ]

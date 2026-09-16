@@ -123,7 +123,8 @@ def build_queue(document, predictions, matches, verdicts, filter_type="all",
 
     def keep_status(item):
         if filter_status == "flagged":
-            return item.key in flagged
+            return item.key in flagged or (
+                item.annotation is not None and item.annotation.id in flagged)
         reviewed = item.key in verdicts
         if filter_status == "reviewed":
             return reviewed
@@ -156,16 +157,24 @@ def shape_statuses(document, predictions, matches, verdicts):
 
 
 def flag_markers(document, predictions, matches, open_keys):
-    """Map each open-flagged key still in the queue to the points its marker is drawn at.
+    """Map each open-flagged key to the points its marker is drawn at.
 
-    The marker sits on the item's annotation when it has one, else on its
-    prediction. Keys whose item no longer exists (a rejected model miss) are left out.
+    With matches, a key is a queue item's key or its annotation's id, and the
+    marker sits on the annotation when there is one, else on the prediction.
+    Without matches (a blind image, or no predictions), only annotation-id keys
+    can be shown. Keys with nothing left to draw on are left out.
     """
-    if document is None or not matches:
+    if document is None:
         return {}
-    return {item.key: (item.annotation or item.prediction).points
-            for item in build_queue(document, predictions, matches, {})
-            if item.key in open_keys}
+    if not matches:
+        return {ann.id: ann.points for ann in document.annotations if ann.id in open_keys}
+    markers = {}
+    for item in build_queue(document, predictions, matches, {}):
+        if item.key in open_keys:
+            markers[item.key] = (item.annotation or item.prediction).points
+        elif item.annotation is not None and item.annotation.id in open_keys:
+            markers[item.annotation.id] = item.annotation.points
+    return markers
 
 
 def apply_accept(document, item, user):
@@ -293,10 +302,12 @@ class ReviewEngine:
     # ── Flags for a second look ────────────────────────────────────────────
 
     def flags(self, img_name):
-        """The live flag history for an image: QueueItem.key -> list of flag entries, oldest first.
+        """The live flag history for an image: flag key -> list of flag entries, oldest first.
 
-        A resolved entry is kept for the record; only the last entry of a key
-        can be open.
+        A flag key is a QueueItem.key, or an annotation id for a flag raised on a
+        selected annotation with no review queue (a blind image, or one without
+        predictions). A resolved entry is kept for the record; only the last
+        entry of a key can be open.
         """
         return self._image_entry(img_name).setdefault("flags", {})
 
@@ -317,24 +328,45 @@ class ReviewEngine:
         return any(history and not history[-1]["resolved"]
                    for history in entry.get("flags", {}).values())
 
-    def save_flag(self, img_name, item, comment, user):
-        """Open a flag on item with comment, or replace the comment of its open flag, and save."""
-        existing = self.open_flag(img_name, item.key)
+    def flag_key(self, img_name, item):
+        """The key a queue item's flag lives under.
+
+        An annotation flagged while there was no queue keeps its annotation id
+        as the key even once the item becomes a TP keyed by its prediction id.
+        """
+        if item.annotation is not None and self.open_flag(img_name, item.annotation.id):
+            return item.annotation.id
+        return item.key
+
+    def save_flag(self, img_name, key, kind, class_id, comment, user):
+        """Open a flag on key with comment, or edit the comment of its open flag, and save.
+
+        kind is the item's fp/fn/tp type, or None for an annotation flagged with
+        no review queue. Editing keeps the original flagger and records the editor.
+        """
+        now = datetime.datetime.now().isoformat(timespec="seconds")
+        existing = self.open_flag(img_name, key)
         if existing is not None:
-            existing["comment"] = comment
+            if comment != existing["comment"]:
+                existing.update(comment=comment, edited_by=user, edited_at=now)
         else:
-            self.flags(img_name).setdefault(item.key, []).append({
-                "comment": comment, "kind": item.kind, "class_id": item.class_id,
-                "by": user, "at": datetime.datetime.now().isoformat(timespec="seconds"),
-                "resolved": False, "resolved_by": None, "resolved_at": None})
+            self.flags(img_name).setdefault(key, []).append({
+                "comment": comment, "kind": kind, "class_id": class_id,
+                "by": user, "at": now, "edited_by": None, "edited_at": None,
+                "resolved": False, "resolved_by": None, "resolved_at": None,
+                "resolved_note": None})
         self.save_review_state()
 
-    def resolve_flag(self, img_name, key, user):
-        """Mark the open flag on key resolved, keeping it in the history, and save."""
+    def resolve_flag(self, img_name, key, user, note=None):
+        """Mark the open flag on key resolved, keeping it in the history, and save.
+
+        note says why when something other than the Resolve flag button resolved
+        it, e.g. rejecting or deleting the annotation the flag was opened from.
+        """
         entry = self.open_flag(img_name, key)
         if entry is None:
             return
-        entry.update(resolved=True, resolved_by=user,
+        entry.update(resolved=True, resolved_by=user, resolved_note=note,
                      resolved_at=datetime.datetime.now().isoformat(timespec="seconds"))
         self.save_review_state()
 

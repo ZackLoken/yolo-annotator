@@ -134,7 +134,10 @@ class ReviewPanel:
         """Rerun matching and rebuild the queue; called after every document change."""
         a = self.app
         if a.document is None or a.predictions_blind or not a.predictions:
-            a.queue, a.matches, a.shape_statuses, a.flag_markers = [], {}, None, {}
+            a.queue, a.matches, a.shape_statuses = [], {}, None
+            a.flag_markers = (flag_markers(a.document, [], {},
+                                           self.engine.open_flag_keys(a.images[a.index]))
+                              if a.images and a.document is not None else {})
             # Blind mode empties the queue without touching a single verdict, so
             # recomputing the status from it would report every image not_started.
             if a.images and not a.predictions_blind:

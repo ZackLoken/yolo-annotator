@@ -579,6 +579,9 @@ class YoloLabeler:
         # Taken before the verdict: rejecting a model miss removes it from the path.
         path = [qi.key for qi in self._sweep_items()]
         self._apply_verdict(item, apply)
+        # A reject can resolve the image's last flag, which changes the Flagged image list.
+        self._rebuild_filter()
+        self._update_filter_label()
         self._review_panel.refresh(keep_focus=False)
         if self._filtered_sweep_complete():
             self._annotate_tab.zoom_centered(OVERVIEW_ZOOM)
@@ -609,8 +612,20 @@ class YoloLabeler:
         self._act_on_item(lambda item: apply_accept(self.document, item, self._current_user))
 
     def reject_item(self):
-        """Reject the focused queue item, removing its annotation if it has one."""
-        self._act_on_item(lambda item: apply_reject(self.document, item))
+        """Reject the focused queue item, removing its annotation if it has one.
+
+        Rejecting an item with an annotation deletes that annotation, so an open
+        flag keyed by it (an FN, or a box flagged before predictions were shown)
+        is resolved here rather than left with nothing to open it from.
+        """
+        def apply(item):
+            result = apply_reject(self.document, item)
+            if item.annotation is not None:
+                self._review.resolve_flag(self.images[self.index], item.annotation.id,
+                                          self._current_user, note="rejected")
+            return result
+
+        self._act_on_item(apply)
 
     def edit_pair(self):
         """Select the focused item's annotation for editing (spec 5.3).
@@ -637,31 +652,43 @@ class YoloLabeler:
     def comment_on_item(self):
         """Open the comment dialog for the focused item and save or resolve its flag.
 
-        A flag is independent of the verdict: an item can be flagged before or
-        after it is accepted or rejected. Saving with an empty comment still flags it.
+        With no review queue (a blind image, or one without predictions) it acts
+        on the selected annotation instead. A flag is independent of the verdict,
+        and saving with an empty comment still flags it.
         """
-        item = self._review_panel.current_item()
-        if item is None or self.predictions_blind:
-            self.show_banner("No review item in focus to comment on.")
+        if not self.images or self.document is None:
             return
         img_name = self.images[self.index]
-        existing = self._review.open_flag(img_name, item.key)
-        action, comment = self.ask_flag_comment(item, existing)
+        item = None if self.predictions_blind else self._review_panel.current_item()
+        if item is not None:
+            key, kind, class_id = self._review.flag_key(img_name, item), item.kind, item.class_id
+            heading = f"{kind.upper()}  "
+        elif self._annotate_tab._alive(self._selected_annotation_id):
+            ann = self.document.get(self._selected_annotation_id)
+            key, kind, class_id = ann.id, None, ann.class_id
+            heading = "Annotation  "
+        else:
+            self.show_banner("Select an annotation or focus a review item to comment on it.")
+            return
+        heading += f"{class_id}: {self.class_names.get(class_id, str(class_id))}"
+        existing = self._review.open_flag(img_name, key)
+        action, comment = self.ask_flag_comment(heading, existing)
         if action == "save":
-            self._review.save_flag(img_name, item, comment, self._current_user)
+            self._review.save_flag(img_name, key, kind, class_id, comment, self._current_user)
         elif action == "resolve":
-            self._review.resolve_flag(img_name, item.key, self._current_user)
+            self._review.resolve_flag(img_name, key, self._current_user)
         else:
             return
         self._rebuild_filter()
         self._update_filter_label()
         self._review_panel.refresh(keep_focus=True)
 
-    def _ask_flag_comment(self, item, existing):
+    def _ask_flag_comment(self, heading, existing):
         """Open the comment dialog; returns ("save", text), ("resolve", None) or ("cancel", None).
 
-        existing is the item's open flag entry, or None; with one, the dialog
-        shows who flagged it and offers Resolve flag.
+        heading names what is being flagged. existing is its open flag entry, or
+        None; with one, the dialog shows who flagged and last edited it and
+        offers Resolve flag.
         """
         dialog = FitToContentToplevel(self.root)
         dialog.title("Flag for a second look")
@@ -671,10 +698,10 @@ class YoloLabeler:
         dialog.transient(self.root)
         dialog.grab_set()
         result = {"action": "cancel", "comment": None}
-        name = self.class_names.get(item.class_id, str(item.class_id))
-        heading = f"{item.kind.upper()}  {item.class_id}: {name}"
         if existing is not None:
             heading += f"\nFlagged by {existing['by'] or 'unknown'} at {existing['at']}"
+            if existing.get("edited_by"):
+                heading += f"\nEdited by {existing['edited_by']} at {existing['edited_at']}"
         ctk.CTkLabel(dialog, text=heading, font=(self.font_family, 12), text_color=FG_COLOR,
                      justify="left").pack(padx=16, pady=(16, 8), anchor="w")
         entry = ctk.CTkEntry(dialog, width=360, font=(self.font_family, 12),
