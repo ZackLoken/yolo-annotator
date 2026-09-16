@@ -163,15 +163,20 @@ def add_polygon(app):
 class TestRenderSelection:
     def test_unselected_box_is_drawn_once_in_the_class_colour(self, app):
         tab = app._annotate_tab
+        # Undo load_image()'s auto-zoom onto the fp item so the GT box isn't culled off-screen.
+        tab.fit_to_window()
         app.queue = []
         app._review_show_pred = False
         ann = app.document.annotations[0]
+        # Undo load_image()'s auto-selected fp class so the GT box passes the class-match check.
+        app._select_class_by_id(ann.class_id)
         tab.render()
         drawn = shapes_at(tab, ann.points)
         assert [c for c, _ in drawn] == [app._get_class_color(ann.class_id)]
 
     def test_selected_box_gets_a_white_halo(self, app):
         tab = app._annotate_tab
+        tab.fit_to_window()
         app.queue = []
         app._review_show_pred = False
         ann = app.document.annotations[0]
@@ -252,6 +257,11 @@ class TestReviewPanel:
         app._annotate_tab.next_image()
         assert app.images[app.index] == "b.jpg"
         assert app.queue == [] and app.predictions == []
+
+    def test_load_image_zooms_to_first_unreviewed(self, app):
+        # No explicit focus_item/step call: load_image() alone must trigger the zoom.
+        app._annotate_tab.load_image()
+        assert app._annotate_tab.scale != 1.0
 
 
 # ── actions ─────────────────────────────────────────────────────────────────
@@ -619,6 +629,8 @@ class TestStateFiles:
         path.write_text(json.dumps({"0": {"name": "burr", "color": "#123456"}}),
                         encoding="utf-8")
         app._init_folder(str(folder))
+        # Undo load_image()'s auto-selected fp class so the swatch reflects class 0's color.
+        app._select_class_by_id(0)
         assert app.color_btn.cget("bg") == "#123456"
 
     def test_colour_without_a_name_survives_a_reload(self, app, folder):

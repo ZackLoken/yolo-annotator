@@ -205,7 +205,7 @@ class AnnotateTab:
             a.banner_text = "\n".join(messages)
         a._review_panel.refresh_class_filter()
         a._review_panel.refresh(keep_focus=False)
-        a.queue_index = a._review_panel.first_unreviewed()
+        a._review_panel.focus_item(a._review_panel.first_unreviewed())
         a._review_panel.update_labels()
         self.display_image()
         a.update_title()
