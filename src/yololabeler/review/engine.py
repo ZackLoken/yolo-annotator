@@ -103,7 +103,7 @@ def apply_accept(document, item, user):
                                  prediction_id=p.id, confidence=p.confidence)
         document.add(created)
         return "accepted", created
-    return ("confirmed" if item.kind == "tp" else "kept"), None
+    return "accepted", None
 
 
 def apply_reject(document, item):

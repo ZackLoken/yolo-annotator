@@ -154,8 +154,8 @@ class TestActions:
         doc, preds = scene
         queue = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})
         before = list(doc.annotations)
-        assert apply_accept(doc, queue[1], "ren") == ("kept", None)
-        assert apply_accept(doc, queue[2], "ren") == ("confirmed", None)
+        assert apply_accept(doc, queue[1], "ren") == ("accepted", None)
+        assert apply_accept(doc, queue[2], "ren") == ("accepted", None)
         assert doc.annotations == before
 
     def test_reject_fp_changes_nothing(self, scene):

@@ -382,8 +382,8 @@ carries a label, everything else is an unlabelled outline.
 | Queue item | Accept (`a`) | Reject (`r`) |
 |---|---|---|
 | Unmatched prediction | Insert an annotation with the prediction's geometry and class (`source: accepted`); verdict `accepted` | Verdict `rejected`; nothing else changes |
-| Match (prediction paired with an annotation) | Verdict `confirmed`; annotation unchanged | Delete the annotation; verdict `rejected` |
-| Model miss (annotation with no prediction) | Verdict `kept` | Delete the annotation; verdict `rejected` |
+| Match (prediction paired with an annotation) | Verdict `accepted`; annotation unchanged | Delete the annotation; verdict `rejected` |
+| Model miss (annotation with no prediction) | Verdict `accepted` | Delete the annotation; verdict `rejected` |
 
 Press `e` to select the focused item's paired annotation for editing, moving or
 deleting its vertices without leaving the queue. Every accept, reject and edit is
@@ -417,8 +417,8 @@ never blocked on it.
 
 `state/review_stats.json`: `settings.conf_threshold`; per image, a `verdicts`
 dict keyed by prediction id (a model miss is keyed by its annotation's id
-instead), each verdict recording `action` (`accepted` / `rejected` / `confirmed`
-/ `kept`), `kind` (`fp` / `fn` / `tp`), `class_id`, `conf`, `iou`, `by` and `at`;
+instead), each verdict recording `action` (`accepted` / `rejected`),
+`kind` (`fp` / `fn` / `tp`), `class_id`, `conf`, `iou`, `by` and `at`;
 a `labels_backed_up` flag set once the first `.original/` backup is made.
 
 `state/annotation_stats.json`: a `completion` entry per completed image,
