@@ -78,16 +78,6 @@ class ReviewPanel:
         self.status_var = tk.StringVar(value="All")
         self._combo(left, self.status_var, ["All", "Not reviewed", "Reviewed"], 110,
                     self.on_status_changed).pack(side="left", padx=(0, 4))
-        self.gt_var = tk.BooleanVar(value=True)
-        ctk.CTkCheckBox(left, text="GT", variable=self.gt_var, width=40,
-                        font=(a.font_family, 11), text_color=FG_COLOR, fg_color=ACCENT,
-                        hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
-                        command=self.on_gt_toggled).pack(side="left", padx=(4, 2))
-        self.pred_var = tk.BooleanVar(value=True)
-        ctk.CTkCheckBox(left, text="Pred", variable=self.pred_var, width=45,
-                        font=(a.font_family, 11), text_color=FG_COLOR, fg_color=ACCENT,
-                        hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
-                        command=self.on_pred_toggled).pack(side="left", padx=(0, 4))
         self._label(left, "Conf").pack(side="left", padx=(4, 2))
         self.conf_entry = ctk.CTkEntry(left, width=50, font=(a.font_family, 11),
                                        fg_color=ENTRY_BG, border_color=BORDER_COLOR,
@@ -243,16 +233,6 @@ class ReviewPanel:
         mapping = {"All": "all", "Reviewed": "reviewed", "Not reviewed": "not_reviewed"}
         self.app._review_status_filter = mapping.get(choice, "all")
         self.refresh(keep_focus=False)
-
-    def on_gt_toggled(self):
-        """Show or hide the focused annotation layer."""
-        self.app._review_show_gt = self.gt_var.get()
-        self.app._annotate_tab.display_image()
-
-    def on_pred_toggled(self):
-        """Show or hide the prediction layer."""
-        self.app._review_show_pred = self.pred_var.get()
-        self.app._annotate_tab.display_image()
 
     def refresh_class_filter(self):
         """Rebuild the class dropdown from the current class registry."""

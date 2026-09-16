@@ -106,7 +106,7 @@ class YoloLabeler:
         'predictions', 'predictions_rejected', 'predictions_blind',
         'matches', 'conf_threshold',
         '_review_filter_type', '_review_filter_class', '_review_status_filter',
-        '_review_show_gt', '_review_show_pred', '_review_state',
+        '_review_show_pred', '_review_state',
         '_annotation_visible',
         # Stats & session
         '_stats',
@@ -259,7 +259,7 @@ class YoloLabeler:
         _tb_g3 = ctk.CTkFrame(self._toolbar_center, fg_color="transparent")
         _tb_g3.pack(side="left", expand=True, fill="x")
 
-        # ── Group 1: Color Picker | Class DD | Visible ──
+        # ── Group 1: Color Picker | Class DD | Labels | Predictions ──
         self.color_btn = tk.Button(
             _tb_g1, text="  ", width=2, relief="flat",
             borderwidth=1, command=self._pick_class_color,
@@ -284,13 +284,21 @@ class YoloLabeler:
 
         self._visible_var = tk.BooleanVar(value=True)
         self._visible_cb = ctk.CTkCheckBox(
-            _tb_g1, text="Visible",
+            _tb_g1, text="Labels",
             variable=self._visible_var,
             font=(self.font_family, 11), text_color=FG_COLOR,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             border_color=BORDER_COLOR,
             command=self._on_visible_toggled)
         self._visible_cb.pack(side="left", padx=(0, 4))
+
+        self._pred_var = tk.BooleanVar(value=self._review_show_pred)
+        self._pred_cb = ctk.CTkCheckBox(
+            _tb_g1, text="Predictions", variable=self._pred_var,
+            font=(self.font_family, 11), text_color=FG_COLOR,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
+            command=self._on_pred_toggled)
+        self._pred_cb.pack(side="left", padx=(0, 4))
 
         # ── Group 2: Mode | Stream | Snap ──
         self.mode_btn = ctk.CTkButton(
@@ -404,6 +412,12 @@ class YoloLabeler:
     def _on_visible_toggled(self):
         """Toggle annotation visibility on the canvas."""
         self._annotation_visible = self._visible_var.get()
+        if self.original_image is not None:
+            self._annotate_tab.display_image()
+
+    def _on_pred_toggled(self):
+        """Toggle the prediction overlay on the canvas."""
+        self._review_show_pred = self._pred_var.get()
         if self.original_image is not None:
             self._annotate_tab.display_image()
 

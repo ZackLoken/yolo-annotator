@@ -1123,7 +1123,7 @@ class AnnotateTab:
 
         focus_ann = a.queue[a.queue_index].annotation if (
             a.queue and 0 <= a.queue_index < len(a.queue)) else None
-        gold_ann_id = (focus_ann.id if focus_ann is not None and a._review_show_gt
+        gold_ann_id = (focus_ann.id if focus_ann is not None and a._annotation_visible
                        else None)
 
         for ann in self.visible_annotations():
@@ -1221,7 +1221,7 @@ class AnnotateTab:
 
         draw_prediction_layer(
             self.canvas, self.image_to_canvas, a, a.class_names, a.font_family,
-            label_size, show_gt=a._review_show_gt, show_pred=a._review_show_pred,
+            label_size, show_gt=a._annotation_visible, show_pred=a._review_show_pred,
             class_color=a._get_class_color, placed_labels=placed_labels)
 
         help_y0 = 10

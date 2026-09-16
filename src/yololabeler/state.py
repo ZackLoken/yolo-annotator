@@ -76,7 +76,6 @@ class AppState:
         self._review_filter_type = "all"
         self._review_filter_class = "all"
         self._review_status_filter = "all"
-        self._review_show_gt = True
         self._review_show_pred = True
         self._review_state = {}
         self._annotation_visible = True

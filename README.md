@@ -373,9 +373,12 @@ false-negative counts for the current image are shown in the status bar.
 Stepping sets the active class and mode (box or polygon) to match the focused
 item, so it is always drawn under the same visibility rule the canvas already
 uses, then zooms so the item fills roughly one third of the canvas. `z` re-zooms
-to the current item without moving the focus. The GT and Pred checkboxes toggle
-the annotation and prediction overlays independently; only the focused item
-carries a label, everything else is an unlabelled outline.
+to the current item without moving the focus. The Labels and Predictions
+checkboxes on the top toolbar toggle the annotation and prediction overlays
+independently; Labels also gates the focused item's gold highlight, so turning
+it off hides every annotation shape, focused or not, with no separate GT
+control. Only the focused item carries a label, everything else is an
+unlabelled outline.
 
 ### Accept and reject
 
