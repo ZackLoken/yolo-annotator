@@ -13,7 +13,7 @@ import getpass
 import datetime
 from collections import namedtuple
 import tkinter as tk
-from tkinter import filedialog, colorchooser
+from tkinter import filedialog, colorchooser, messagebox
 from PIL import Image, ImageTk
 
 import customtkinter as ctk
@@ -627,7 +627,7 @@ class YoloLabeler:
         self.save_current()
 
     def go_to_image(self, index, reset_filters=True):
-        """Save, then load another image (spec 5.2). Returns False when the save failed.
+        """Save and confirm completion before leaving. False means stay on this image.
 
         reset_filters resets the review Type/Status filters to "all" for a
         manual navigation step; the class filter is left untouched since it is
@@ -637,6 +637,9 @@ class YoloLabeler:
             return False
         if self.save_current():
             return False
+        index %= len(self.images)
+        if index != self.index and not self._confirm_leaving_image():
+            return False
         self._record_image_time()
         self.banner_text = None
         if reset_filters:
@@ -644,8 +647,22 @@ class YoloLabeler:
             self._review_status_filter = "all"
             self._review_panel.type_var.set("All")
             self._review_panel.status_var.set("All")
-        self.index = index % len(self.images)
+        self.index = index
         self._annotate_tab.load_image()
+        return True
+
+    def _confirm_leaving_image(self):
+        """Ask for a whole-image check before marking an incomplete image complete."""
+        if not self.images or self.original_image is None or self._complete_var.get():
+            return True
+        if not messagebox.askyesno(
+                "Whole-image check",
+                "Have you searched the whole photo for burs the detector missed?\n\n"
+                "Choose Yes to mark this photo complete and continue.",
+                parent=self.root, default="no"):
+            return False
+        self._complete_var.set(True)
+        self._on_complete_toggled()
         return True
 
     def show_banner(self, text):
@@ -857,9 +874,11 @@ class YoloLabeler:
             return
 
         if self.images:
-            self._record_image_time()
             if self.save_current():
                 return
+            if not self._confirm_leaving_image():
+                return
+            self._record_image_time()
             self._end_session()
             self._save_stats()
 
@@ -1130,9 +1149,19 @@ class YoloLabeler:
         """Handle filter dropdown selection."""
         mapping = {"All": "all", "Complete": "complete",
                    "Partial": "partial", "Unannotated": "unannotated"}
+        previous_filter = self._active_filter
+        if self.save_current():
+            self.filter_var.set(previous_filter.title())
+            return
         self._active_filter = mapping.get(choice, "all")
-        self._record_image_time()
         self._rebuild_filter()
+        leaving = not self._filtered_indices or self._filtered_indices[0] != self.index
+        if leaving and not self._confirm_leaving_image():
+            self._active_filter = previous_filter
+            self._rebuild_filter()
+            self.filter_var.set(previous_filter.title())
+            return
+        self._record_image_time()
         if self._filtered_indices:
             self.go_to_image(self._filtered_indices[0])
         else:
