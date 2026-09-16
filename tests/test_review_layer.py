@@ -7,7 +7,9 @@ import pytest
 from yololabeler.annotation.document import new_annotation
 from yololabeler.predictions.store import Prediction
 from yololabeler.review.engine import QueueItem
-from yololabeler.review.layer import SELECTION_COLOR, LayerStyle, draw_prediction_layer
+from yololabeler.review.layer import (
+    SELECTION_COLOR, STATUS_COLORS, LayerStyle, draw_prediction_layer,
+)
 from yololabeler.state import AppState
 
 
@@ -120,6 +122,16 @@ class TestDrawPredictionLayer:
         assert label_texts(canvas) == {"0: burr (0.90)"}
         assert "FP  not reviewed" in texts(canvas)
 
+    def test_focused_rejected_prediction_keeps_the_rejected_dash(self, canvas):
+        s = make_state()
+        s.queue = [QueueItem("fp", s.predictions[0], None, None)]
+        s.queue_index = 0
+        s.verdicts = {"h:0": {"action": "rejected"}}
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
+        focus = canvas.find_withtag("pred_focus")
+        assert len(focus) == 1
+        assert canvas.itemcget(focus[0], "dash") == LayerStyle().rejected_dash
+
     def test_focused_pair_halos_the_gt_and_shows_one_label(self, canvas):
         s = make_state()
         ann = new_annotation("box", ((12, 12), (52, 52)), 0, "z")
@@ -152,3 +164,55 @@ class TestDrawPredictionLayer:
         draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, False, False)
         assert canvas.find_withtag("pred_focus") == ()
         assert canvas.find_all() == ()
+
+
+# ── status colours ──────────────────────────────────────────────────────────
+
+def badge_fill(canvas):
+    return [canvas.itemcget(i, "fill") for i in canvas.find_withtag("badge")
+            if canvas.type(i) == "text"][0]
+
+
+class TestStatusColours:
+    @pytest.mark.parametrize("verdicts, status", [
+        ({}, "not_reviewed"),
+        ({"h:0": {"action": "accepted"}}, "accepted"),
+        ({"h:0": {"action": "rejected"}}, "rejected")])
+    def test_badge_text_takes_the_status_colour(self, canvas, verdicts, status):
+        s = make_state()
+        s.queue = [QueueItem("fp", s.predictions[0], None, None)]
+        s.queue_index = 0
+        s.verdicts = verdicts
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
+        assert badge_fill(canvas) == STATUS_COLORS[status]
+
+    def test_predictions_take_the_status_colour_over_the_class_colour(self, canvas):
+        s = make_state()
+        s.shape_statuses = {"h:0": "accepted", "h:2": "rejected"}
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
+                              LayerStyle(), red)
+        outlines = {canvas.type(i): canvas.itemcget(i, "outline")
+                    for i in canvas.find_withtag("pred")}
+        assert outlines == {"rectangle": STATUS_COLORS["accepted"],
+                            "polygon": STATUS_COLORS["rejected"]}
+
+    def test_an_id_with_no_status_is_drawn_as_not_reviewed(self, canvas):
+        s = make_state()
+        s.shape_statuses = {}
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
+                              LayerStyle(), red)
+        for item in canvas.find_withtag("pred"):
+            assert canvas.itemcget(item, "outline") == STATUS_COLORS["not_reviewed"]
+
+    def test_focused_pair_takes_the_status_colour(self, canvas):
+        s = make_state()
+        ann = new_annotation("box", ((12, 12), (52, 52)), 0, "z")
+        s.queue = [QueueItem("tp", s.predictions[0], ann, 0.9)]
+        s.queue_index = 0
+        s.shape_statuses = {"h:0": "not_reviewed", ann.id: "not_reviewed"}
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
+                              LayerStyle(), red)
+        gt = canvas.find_withtag("gt_focus")
+        assert canvas.itemcget(gt[0], "outline") == STATUS_COLORS["not_reviewed"]
+        pred = canvas.find_withtag("pred_focus")
+        assert canvas.itemcget(pred[0], "outline") == STATUS_COLORS["not_reviewed"]

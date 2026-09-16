@@ -13,7 +13,7 @@ from yololabeler import gui as guimod  # noqa: E402
 from yololabeler.annotation.document import new_annotation  # noqa: E402
 from yololabeler.gui import YoloLabeler  # noqa: E402
 from yololabeler.review.engine import build_queue  # noqa: E402
-from yololabeler.review.layer import SELECTION_COLOR  # noqa: E402
+from yololabeler.review.layer import SELECTION_COLOR, STATUS_COLORS  # noqa: E402
 
 
 def click_at(tab, ix, iy):
@@ -499,7 +499,7 @@ class TestLegend:
 
 
 class TestRenderFocus:
-    def test_focused_annotation_is_haloed_and_keeps_its_class_colour(self, app):
+    def test_focused_annotation_is_haloed_in_its_status_colour(self, app):
         tab = app._annotate_tab
         app._review_panel.focus_item(len(app.queue) - 1)
         ann = app.queue[app.queue_index].annotation
@@ -509,9 +509,26 @@ class TestRenderFocus:
         gt = canvas.find_withtag("gt_focus")
         halo = canvas.find_withtag("focus_halo")
         assert len(gt) == 1 and len(halo) == 1
-        assert canvas.itemcget(gt[0], "outline") == app._get_class_color(ann.class_id)
+        assert canvas.itemcget(gt[0], "outline") == STATUS_COLORS["not_reviewed"]
         assert canvas.itemcget(halo[0], "outline") == SELECTION_COLOR
         assert canvas.coords(halo[0]) == canvas.coords(gt[0])
+
+    def test_accepting_turns_the_pair_green_and_hiding_predictions_restores_class_colour(
+            self, app):
+        tab = app._annotate_tab
+        panel = app._review_panel
+        tp = next(q for q in app.queue if q.kind == "tp")
+        panel.focus_item(app.queue.index(tp))
+        app.accept_item()
+        app._select_class_by_id(tp.annotation.class_id)
+        tab.fit_to_window()
+        tab.render()
+        colors = [c for c, _ in shapes_at(tab, tp.annotation.points)]
+        assert colors == [STATUS_COLORS["accepted"]] * 2
+        app._review_show_pred = False
+        tab.render()
+        colors = [c for c, _ in shapes_at(tab, tp.annotation.points)]
+        assert colors == [app._get_class_color(tp.annotation.class_id)]
 
     def test_editing_the_focused_pair_draws_it_as_selected(self, app):
         tab = app._annotate_tab
@@ -544,6 +561,7 @@ class TestReviewPanel:
         assert app._review.conf_threshold == 0.85
 
     def test_image_without_predictions_is_a_stop(self, app):
+        app.ask_incomplete_step = lambda: "continue"
         app._annotate_tab.next_image()
         assert app.images[app.index] == "b.jpg"
         assert app.queue == [] and app.predictions == []
@@ -705,7 +723,8 @@ class TestActions:
         tab.on_move_press(click_at(tab, 10, 10))
         tab.on_button_release(click_at(tab, 10, 10))
         # The drag alone pulls the GT below the IoU threshold, and the strip says so.
-        assert panel.counts_label.cget("text") == "TP 0  FP 2  FN 1  (2 not reviewed)"
+        # The carried verdict covers the new FN, so only the other FP is left.
+        assert panel.counts_label.cget("text") == "TP 0  FP 2  FN 1  (1 not reviewed)"
         assert panel.item_label.cget("text").startswith("FP")
         assert app.verdicts[key] == before
 
@@ -902,10 +921,18 @@ class TestVerdictCarriesForward:
         assert ann.id not in app.verdicts
 
 
-# ── auto-advance under filters ──────────────────────────────────────────────
+# ── overview zoom when a sweep completes ────────────────────────────────────
 
-class TestAutoAdvanceFilters:
-    def test_reviewed_filter_does_not_advance_on_a_re_accept(self, app):
+def at_overview(app):
+    tab = app._annotate_tab
+    cw, ch = tab.canvas.winfo_width(), tab.canvas.winfo_height()
+    return (tab.scale == guimod.OVERVIEW_ZOOM
+            and tab.offset_x == pytest.approx((cw - app.img_width * tab.scale) / 2)
+            and tab.offset_y == pytest.approx((ch - app.img_height * tab.scale) / 2))
+
+
+class TestSweepCompleteOverview:
+    def test_reviewed_filter_does_not_zoom_out_on_a_re_accept(self, app):
         panel = app._review_panel
         panel.focus_item(0)
         assert panel.current_item().kind == "fp"
@@ -918,8 +945,9 @@ class TestAutoAdvanceFilters:
         panel.focus_item(0)
         app.accept_item()
         assert app.images[app.index] == "a.jpg"
+        assert not at_overview(app)
 
-    def test_not_reviewed_filter_advances_after_the_last_unreviewed_item(self, app):
+    def test_last_unreviewed_item_zooms_out_and_stays_on_the_image(self, app):
         panel = app._review_panel
         panel.focus_item(0)
         assert panel.current_item().kind == "fp"
@@ -928,36 +956,21 @@ class TestAutoAdvanceFilters:
         assert [q.kind for q in app.queue] == ["tp"]
         panel.focus_item(0)
         app.accept_item()
-        assert app.images[app.index] == "b.jpg"
+        assert app.images[app.index] == "a.jpg"
+        assert at_overview(app)
 
-    def test_type_filter_still_advances_when_that_type_is_done(self, app, folder):
+    def test_type_filter_zooms_out_when_that_type_is_done(self, app, folder):
         panel = app._review_panel
         panel.on_type_changed("FP")
         assert [q.kind for q in app.queue] == ["fp"]
         fp_key = app.queue[0].key
         panel.focus_item(0)
         app.reject_item()
-        assert app.images[app.index] == "b.jpg"
+        assert app.images[app.index] == "a.jpg"
+        assert at_overview(app)
         assert list(disk_verdicts(folder)) == [fp_key]
 
-    def test_auto_advance_skips_an_image_the_list_filter_hides(self, app, folder):
-        Image.new("RGB", (640, 480), "gray").save(folder / "c.jpg")
-        app._init_folder(str(folder))
-        app._annotate_tab.load_image()
-        for name, status in (("a.jpg", "partial"), ("b.jpg", "complete"), ("c.jpg", "partial")):
-            app._stats_store.set_image_status(name, status)
-        app.filter_var.set("Partial")
-        app._on_filter_changed("Partial")
-        assert app._filtered_indices == [0, 2] and app.images[app.index] == "a.jpg"
-        panel = app._review_panel
-        panel.focus_item(0)
-        app.accept_item()
-        panel.focus_item(panel.first_unreviewed())
-        app.accept_item()
-        assert app.index in app._filtered_indices
-        assert app.images[app.index] == "c.jpg"
-
-    def test_class_filter_still_advances_when_that_class_is_done(self, app, folder):
+    def test_class_filter_zooms_out_when_that_class_is_done(self, app, folder):
         panel = app._review_panel
         app._review_filter_class = 1
         panel.refresh(keep_focus=False)
@@ -965,8 +978,16 @@ class TestAutoAdvanceFilters:
         fp_key = app.queue[0].key
         panel.focus_item(0)
         app.reject_item()
-        assert app.images[app.index] == "b.jpg"
+        assert app.images[app.index] == "a.jpg"
+        assert at_overview(app)
         assert list(disk_verdicts(folder)) == [fp_key]
+
+    def test_an_unfinished_sweep_focuses_the_next_item_instead(self, app):
+        panel = app._review_panel
+        panel.focus_item(0)
+        app.accept_item()
+        assert not at_overview(app)
+        assert panel.current_item().key not in app.verdicts
 
 
 # ── undo/redo with no folder open ───────────────────────────────────────────
@@ -1278,7 +1299,7 @@ class TestCompletion:
         app.accept_item()
         panel.focus_item(panel.first_unreviewed())
         app.accept_item()
-        assert app.images[app.index] == "b.jpg"
+        assert app.images[app.index] == "a.jpg"
         assert disk_img_status(folder) == "completed"
         assert app.go_to_image(0)
         app._blind_var.set(True)
@@ -1390,3 +1411,44 @@ class TestAcceptance:
         for b in KEY_BINDINGS:
             if b.when == "always":
                 assert b.label in texts
+
+
+# ── confirm before stepping past an incomplete image ────────────────────────
+
+class TestIncompleteStep:
+    def test_mark_complete_and_continue(self, app):
+        app.ask_incomplete_step = lambda: "complete"
+        app._annotate_tab.next_image()
+        assert app.images[app.index] == "b.jpg"
+        assert app._stats_store.completion("a.jpg") is not None
+        assert "a.jpg" in app._completed_images
+
+    def test_continue_without_marking(self, app):
+        app.ask_incomplete_step = lambda: "continue"
+        app._annotate_tab.next_image()
+        assert app.images[app.index] == "b.jpg"
+        assert app._stats_store.completion("a.jpg") is None
+
+    def test_stay(self, app):
+        app.ask_incomplete_step = lambda: "stay"
+        app._annotate_tab.next_image()
+        assert app.images[app.index] == "a.jpg"
+        assert app._stats_store.completion("a.jpg") is None
+
+    def test_a_complete_image_steps_without_asking(self, app):
+        app._complete_var.set(True)
+        app._on_complete_toggled()
+        asked = []
+        app.ask_incomplete_step = lambda: asked.append(True) or "stay"
+        app._annotate_tab.next_image()
+        assert asked == []
+        assert app.images[app.index] == "b.jpg"
+
+    def test_previous_image_never_asks(self, app):
+        app.ask_incomplete_step = lambda: "continue"
+        app._annotate_tab.next_image()
+        asked = []
+        app.ask_incomplete_step = lambda: asked.append(True) or "stay"
+        app._annotate_tab.prev_image()
+        assert asked == []
+        assert app.images[app.index] == "a.jpg"

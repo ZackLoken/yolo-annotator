@@ -326,8 +326,8 @@ viewport or leave unsaved work behind.
 - Multi-class support: dropdown selector, inline "Add" for new classes, per-class
   colors
 - Prediction layer: import model output, matched against ground truth by IoU, and
-  drawn as a dashed overlay in a lightened tint of the class colour, with the
-  focused item highlighted
+  drawn as a dashed overlay coloured by review status, with the focused item
+  highlighted
 - Accept in place: promote an unmatched prediction straight into an annotation
   with its geometry, class and provenance recorded, no separate review pass
 - Queue over every image: unmatched predictions, model misses and matches,
@@ -393,8 +393,12 @@ shape, focused or not. The step arrows sit in the status bar right of Accept /
 Edit / Reject, followed by the focused item's type, position and verdict (e.g.
 "FP 2 / 16  not reviewed").
 
-Annotations are solid and predictions dashed, both in their class colour at the
-same zoom-scaled width; a rejected prediction is dotted. The focused item is
+Annotations are solid and predictions dashed at the same zoom-scaled width; a
+rejected prediction is dotted. While Predictions is ticked on an image that has
+predictions, both are coloured by review status: green accepted, yellow not
+reviewed, red rejected. A match's prediction and annotation share one status.
+With Predictions unticked, on a blind image, or on an image with no predictions,
+annotations are drawn in their class colour instead. The focused item is
 marked by a highlighter-blue glow under it, and the one thing that is selected
 for editing is drawn in that blue with vertex or corner handles. Only the focused
 item carries a label, a single "class: name (confidence)" on its annotation when
@@ -411,6 +415,9 @@ the canvas opens a key to all of this; click it again to close it.
 
 Accept and reject both move straight on to the next item without a review
 action; the accepted prediction stays drawn, dashed, under its new annotation.
+Once every item of the active Type and Class filters has a verdict, the image
+stays loaded and zooms out to 33%, centred, for a pass over the whole canopy for
+objects the model missed.
 
 Edit (`e`, or the Edit button between Accept and Reject) selects the focused
 item's annotation for editing, moving or deleting its vertices without leaving
@@ -426,7 +433,7 @@ geometry to that prediction (`prediction_id` in the sidecar), not from a verdict
 
 Predictions below the confidence threshold are neither drawn nor matched. It
 defaults to the lowest confidence in the imported set (`min_conf` in
-`predictions/manifest.json`, which `yololabeler-import` writes), and to 0.50 only
+`predictions/manifest.json`, which `yololabeler-import` writes), and to 0.25 only
 when there is no manifest. It is shown and edited in the status bar's Conf entry;
 press Enter to apply, an out-of-range or non-numeric value reverts to the stored
 one. A typed value is stored in `state/review_stats.json` with the manifest's
@@ -451,6 +458,11 @@ saves; unticking it removes the record. If queue items are still missing a
 verdict, the pending count shows alongside the TP/FP/FN counts in the status
 bar (e.g. "TP 1  FP 1  FN 0  (2 not reviewed)"), but the tick is never
 blocked on it.
+
+Stepping to the next image (`Right` or Next) from an image not marked Complete
+opens a prompt with three buttons: Mark complete and continue (`Enter`),
+Continue without marking, and Stay (`Esc`). Going to the previous image or
+jumping from the image list never asks.
 
 ### What is written where
 

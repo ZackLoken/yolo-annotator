@@ -8,7 +8,7 @@ import tkinter as tk
 import customtkinter as ctk
 
 from yololabeler.predictions.store import load_predictions
-from yololabeler.review.engine import build_queue, match_document
+from yololabeler.review.engine import build_queue, match_document, shape_statuses
 
 # Palette constants duplicated from gui.py to avoid a circular import
 FG_COLOR = "#E0E0E0"
@@ -134,7 +134,7 @@ class ReviewPanel:
         """Rerun matching and rebuild the queue; called after every document change."""
         a = self.app
         if a.document is None or a.predictions_blind or not a.predictions:
-            a.queue, a.matches = [], {}
+            a.queue, a.matches, a.shape_statuses = [], {}, None
             # Blind mode empties the queue without touching a single verdict, so
             # recomputing the status from it would report every image not_started.
             if a.images and not a.predictions_blind:
@@ -149,6 +149,7 @@ class ReviewPanel:
         a.queue = build_queue(a.document, a.predictions, a.matches, a.verdicts,
                               a._review_filter_type, a._review_filter_class,
                               a._review_status_filter)
+        a.shape_statuses = shape_statuses(a.document, a.predictions, a.matches, a.verdicts)
         a.queue_index = 0
         if previous is not None:
             for i, item in enumerate(a.queue):

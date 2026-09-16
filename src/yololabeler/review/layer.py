@@ -1,7 +1,8 @@
 """Draw the prediction layer and the focused pair on the annotate canvas (spec 4.5).
 
-A prediction is drawn dashed in its class colour, the same colour its accepted
-annotation is drawn solid in, so the dash alone tells the two apart. The review
+An annotation is drawn solid, a prediction dashed, a rejected prediction dotted.
+While predictions are shown on an image that has them, every shape is coloured
+by its review status (state.shape_statuses); otherwise by its class. The review
 focus is marked by a highlighter-blue halo under the focused shape rather than
 by recolouring it. Needs a Tk canvas; not headless.
 """
@@ -9,13 +10,24 @@ by recolouring it. Needs a Tk canvas; not headless.
 from __future__ import annotations
 
 import tkinter.font as tkFont
-from dataclasses import dataclass, field
-from typing import Dict
+from dataclasses import dataclass
 
 from yololabeler.rendering import place_label
 
 # Highlighter blue for focus and selection; the user chose it over yellow (2026-09-16).
 SELECTION_COLOR = "#00BFFF"
+# The user chose green/yellow/red for accepted/not reviewed/rejected (2026-09-16); the hex values are provisional.
+STATUS_COLORS = {"accepted": "#00FF00", "not_reviewed": "#FFFF00", "rejected": "#FF0000"}
+
+
+def status_colors_active(state, show_pred):
+    """The id-to-status map to colour shapes by, or None when they keep class colours."""
+    return state.shape_statuses if show_pred else None
+
+
+def status_color(statuses, shape_id):
+    """The status colour for a shape id, treating an id with no entry as not reviewed."""
+    return STATUS_COLORS.get(statuses.get(shape_id), STATUS_COLORS["not_reviewed"])
 
 
 @dataclass(frozen=True)
@@ -32,8 +44,6 @@ class LayerStyle:
     # Tk on Windows collapses numeric dash lists to one dotted look; these strings stay distinct.
     dash: str = "_"
     rejected_dash: str = "."
-    badge_colors: Dict[str, str] = field(default_factory=lambda: {
-        "tp": "#4CAF50", "fp": "#EF5350", "fn": "#FFA726"})
 
 
 def _canvas_points(to_canvas, points):
@@ -81,18 +91,24 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
     font = (font_family, label_size, "bold")
     halo_w = line_w + style.focus_halo_extra
 
-    def color_of(class_id):
-        return class_color(class_id) if class_color else style.pred_color
+    statuses = status_colors_active(state, show_pred)
+
+    def color_of(shape):
+        if statuses is not None:
+            return status_color(statuses, shape.id)
+        return class_color(shape.class_id) if class_color else style.pred_color
+
+    def dash_of(prediction):
+        verdict = state.verdicts.get(prediction.id)
+        rejected = verdict is not None and verdict.get("action") == "rejected"
+        return style.rejected_dash if rejected else style.dash
 
     if show_pred:
         for p in state.predictions:
             if p.confidence < state.conf_threshold or p.id == focused_pred_id:
                 continue
-            verdict = state.verdicts.get(p.id)
-            rejected = verdict is not None and verdict.get("action") == "rejected"
-            _draw_shape(canvas, to_canvas, p.kind, p.points, outline=color_of(p.class_id),
-                        width=line_w, fill="",
-                        dash=style.rejected_dash if rejected else style.dash, tags="pred")
+            _draw_shape(canvas, to_canvas, p.kind, p.points, outline=color_of(p),
+                        width=line_w, fill="", dash=dash_of(p), tags="pred")
 
     if focused is None:
         return
@@ -104,10 +120,10 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
         if ann is None:
             _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=style.focus_color,
                         width=halo_w, fill="", tags="focus_halo")
-        _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=color_of(pred.class_id),
-                    width=line_w + 1, fill="", dash=style.dash, tags="pred_focus")
+        _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=color_of(pred),
+                    width=line_w + 1, fill="", dash=dash_of(pred), tags="pred_focus")
     if ann is not None and ann.id != selected_id:
-        color = color_of(ann.class_id)
+        color = color_of(ann)
         _draw_shape(canvas, to_canvas, ann.kind, ann.points, outline=style.focus_color,
                     width=halo_w, fill="", tags="focus_halo")
         _draw_shape(canvas, to_canvas, ann.kind, ann.points, outline=color,
@@ -121,12 +137,12 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
             text += f" ({focused.prediction.confidence:.2f})"
         lx, ly = _label_anchor(to_canvas, labelled.points)
         place_label(canvas, placed_labels, lx + 2, ly - 2, text,
-                    color_of(focused.class_id), anchor="sw", font=font)
+                    color_of(labelled), anchor="sw", font=font)
 
     if show_gt or show_pred:
         verdict = state.verdicts.get(focused.key)
-        status = verdict["action"] if verdict else "not reviewed"
-        text = f"{focused.kind.upper()}  {status}"
+        status = verdict["action"] if verdict else "not_reviewed"
+        text = f"{focused.kind.upper()}  {status.replace('_', ' ')}"
         bfnt = tkFont.Font(family=font_family, size=14, weight="bold")
         tw, th = bfnt.measure(text), bfnt.metrics("linespace")
         cw = canvas.winfo_width() or 800
@@ -134,5 +150,5 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
         canvas.create_rectangle(bx - 6, by - 2, bx + tw + 6, by + th + 4,
                                 fill="#1A1A1A", outline="#444444", width=1, tags="badge")
         canvas.create_text(bx, by + 2, anchor="nw", text=text,
-                           fill=style.badge_colors.get(focused.kind, "#E0E0E0"),
+                           fill=STATUS_COLORS.get(status, STATUS_COLORS["not_reviewed"]),
                            font=(font_family, 14, "bold"), tags="badge")

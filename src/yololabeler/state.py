@@ -76,7 +76,8 @@ class AppState:
         self.predictions_rejected = [] # "path: line n" messages from loading
         self.predictions_blind = False # True when the image is blind and preds were not read
         self.matches = {}              # compute_matches output for the current image
-        self.conf_threshold = 0.50     # mirrored from ReviewEngine.conf_threshold
+        self.shape_statuses = None     # shape id -> review status, rebuilt with matches
+        self.conf_threshold = 0.25     # mirrored from ReviewEngine.conf_threshold
         self._review_filter_type = "all"
         self._review_filter_class = "all"
         self._review_status_filter = "all"

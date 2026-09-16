@@ -10,7 +10,7 @@ from yololabeler.predictions.store import Prediction, write_manifest
 from yololabeler.state import AppState
 from yololabeler.review.engine import (
     DEFAULT_CONF_THRESHOLD, QueueItem, ReviewEngine, apply_accept, apply_reject,
-    build_queue, match_document,
+    build_queue, match_document, shape_statuses,
 )
 
 
@@ -137,6 +137,27 @@ class TestQueue:
         assert [q.kind for q in queue] == ["tp"]
 
 
+# ── shape_statuses ──────────────────────────────────────────────────────────
+
+class TestShapeStatuses:
+    def test_none_without_matches(self, scene):
+        doc, _ = scene
+        assert shape_statuses(doc, [], {}, {}) is None
+
+    def test_a_match_shares_its_status_with_its_annotation(self, scene):
+        doc, preds = scene
+        matches = match_document(doc, preds, 0.6, 0.5)
+        verdicts = {"h:0": {"action": "accepted"}, "h:1": {"action": "rejected"}}
+        assert shape_statuses(doc, preds, matches, verdicts) == {
+            "h:0": "accepted", doc.annotations[0].id: "accepted",
+            "h:1": "rejected", doc.annotations[1].id: "not_reviewed"}
+
+    def test_low_confidence_prediction_has_no_status(self, scene):
+        doc, preds = scene
+        statuses = shape_statuses(doc, preds, match_document(doc, preds, 0.6, 0.5), {})
+        assert "h:2" not in statuses
+
+
 # ── apply_accept / apply_reject ─────────────────────────────────────────────
 
 class TestActions:
@@ -196,7 +217,7 @@ class TestVerdicts:
         engine.state.image_folder = str(tmp_path)
         engine.state.state_dir = str(tmp_path / "state")
         os.makedirs(engine.state.state_dir)
-        assert engine.conf_threshold == DEFAULT_CONF_THRESHOLD
+        assert engine.conf_threshold == DEFAULT_CONF_THRESHOLD == pytest.approx(0.25)
         engine.conf_threshold = 0.3
         engine.load_review_state()
         assert engine.conf_threshold == pytest.approx(0.3)
@@ -207,8 +228,8 @@ class TestVerdicts:
         os.makedirs(engine.state.state_dir)
         preds_dir = tmp_path / "predictions"
         os.makedirs(preds_dir)
-        write_manifest(str(preds_dir), {"min_conf": 0.25})
-        assert engine.conf_threshold == pytest.approx(0.25)
+        write_manifest(str(preds_dir), {"min_conf": 0.4})
+        assert engine.conf_threshold == pytest.approx(0.4)
 
     def test_explicit_conf_threshold_overrides_imported_min(self, engine, tmp_path):
         engine.state.image_folder = str(tmp_path)
@@ -228,8 +249,8 @@ class TestVerdicts:
         os.makedirs(preds_dir)
         write_manifest(str(preds_dir), {"min_conf": 0.4, "imported_at": "2026-09-15T08:00:00"})
         engine.conf_threshold = 0.6
-        write_manifest(str(preds_dir), {"min_conf": 0.25, "imported_at": "2026-09-16T08:00:00"})
-        assert engine.conf_threshold == pytest.approx(0.25)
+        write_manifest(str(preds_dir), {"min_conf": 0.35, "imported_at": "2026-09-16T08:00:00"})
+        assert engine.conf_threshold == pytest.approx(0.35)
 
     def test_unstamped_saved_threshold_yields_to_imported_min(self, engine, tmp_path):
         engine.state.image_folder = str(tmp_path)
@@ -237,9 +258,9 @@ class TestVerdicts:
         os.makedirs(engine.state.state_dir)
         preds_dir = tmp_path / "predictions"
         os.makedirs(preds_dir)
-        write_manifest(str(preds_dir), {"min_conf": 0.25, "imported_at": "2026-09-16T08:00:00"})
+        write_manifest(str(preds_dir), {"min_conf": 0.35, "imported_at": "2026-09-16T08:00:00"})
         engine.state._review_state = {"settings": {"conf_threshold": 0.5}}
-        assert engine.conf_threshold == pytest.approx(0.25)
+        assert engine.conf_threshold == pytest.approx(0.35)
 
     def test_corrupt_state_is_quarantined(self, engine, tmp_path):
         engine.state.image_folder = str(tmp_path)

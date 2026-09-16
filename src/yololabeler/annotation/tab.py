@@ -19,7 +19,10 @@ from yololabeler.annotation.document import load_document
 from yololabeler.matching import point_to_segment_dist, point_in_polygon
 from yololabeler.rendering import place_label
 from yololabeler.review.engine import build_queue
-from yololabeler.review.layer import SELECTION_COLOR, LayerStyle, draw_prediction_layer
+from yololabeler.review.layer import (
+    SELECTION_COLOR, STATUS_COLORS, LayerStyle, draw_prediction_layer, status_color,
+    status_colors_active,
+)
 from yololabeler.utils import auto_orient_image
 
 # Interaction constants, carried over from the original implementation
@@ -251,6 +254,19 @@ class AnnotateTab:
         self._initial_fit()
         self._cached_scale = None
         self._request_redraw()
+
+    def zoom_centered(self, scale):
+        """Zoom to the zoom level nearest scale with the whole image centred in the canvas."""
+        a = self.app
+        cw = self.canvas.winfo_width() or 800
+        ch = self.canvas.winfo_height() or 600
+        self.zoom_index = self._nearest_zoom_index(scale)
+        self.scale = self.zoom_levels[self.zoom_index]
+        self.offset_x = (cw - a.img_width * self.scale) / 2
+        self.offset_y = (ch - a.img_height * self.scale) / 2
+        self._cached_scale = None
+        self._request_redraw()
+        a._update_status()
 
     def zoom_to_bbox(self, x1, y1, x2, y2):
         """Zoom so the box fills one third of the canvas, centred (spec 4.3)."""
@@ -742,6 +758,7 @@ class AnnotateTab:
                          if qi.annotation is not None and qi.annotation.id == ann_id), None)
         if new_item is not None and new_item.key != old_key and new_item.key not in a.verdicts:
             a._review.carry_verdict(img_name, new_item, old_verdict)
+            a._review_panel.refresh(keep_focus=True)
 
     def _clear_box_edit_state(self):
         a = self.app
@@ -1156,7 +1173,9 @@ class AnnotateTab:
         return a.index + 1
 
     def next_image(self, event=None):
-        self.app.go_to_image(self.next_index())
+        """Step to the next image, asking first when this one is not marked complete."""
+        if self.app.confirm_leaving_incomplete():
+            self.app.go_to_image(self.next_index())
 
     def prev_image(self, event=None):
         a = self.app
@@ -1295,13 +1314,17 @@ class AnnotateTab:
             label_size, show_gt=a._annotation_visible, show_pred=a._review_show_pred,
             class_color=a._get_class_color, placed_labels=placed_labels,
             line_w=line_w)
+        statuses = status_colors_active(a, a._review_show_pred)
 
         for ann in self.visible_annotations():
             class_id = ann.class_id
             is_selected = (ann.id == a._selected_annotation_id)
             if ann.id == gold_ann_id and not is_selected:
                 continue
-            color = a._get_class_color(class_id)
+            if statuses is not None:
+                color = status_color(statuses, ann.id)
+            else:
+                color = a._get_class_color(class_id)
             class_name = a.class_names.get(class_id, str(class_id))
             if ann.kind == "box":
                 (x1, y1), (x2, y2) = ann.points
@@ -1427,8 +1450,13 @@ class AnnotateTab:
             return
 
         style = LayerStyle()
-        rows = [(("class", a._get_class_color(cid)),
-                 f"{cid}: {a.class_names.get(cid, cid)}") for cid in self._legend_classes()]
+        if status_colors_active(a, a._review_show_pred) is not None:
+            rows = [(("class", STATUS_COLORS["accepted"]), "Green: accepted"),
+                    (("class", STATUS_COLORS["not_reviewed"]), "Yellow: not reviewed"),
+                    (("class", STATUS_COLORS["rejected"]), "Red: rejected")]
+        else:
+            rows = [(("class", a._get_class_color(cid)),
+                     f"{cid}: {a.class_names.get(cid, cid)}") for cid in self._legend_classes()]
         rows += [
             (("line", FG_COLOR, None), "Solid: annotation (ground truth)"),
             (("line", FG_COLOR, style.dash), "Dashed: prediction"),

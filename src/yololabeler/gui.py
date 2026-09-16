@@ -35,6 +35,9 @@ from yololabeler.utils import (
 # Lightweight event object for synthesised clicks
 _SynthEvent = namedtuple('_SynthEvent', ['x', 'y'])
 
+# Zoom for the whole-canopy pass for model misses once a sweep is done; the user chose 33% (2026-09-16).
+OVERVIEW_ZOOM = 0.33
+
 
 # ── Dark Theme Palette ─────────────────────────────────────────────────────────
 BG_COLOR = "#1E1E1E"       # dark gray background
@@ -104,7 +107,7 @@ class YoloLabeler:
         # Review data
         'queue', 'queue_index',
         'predictions', 'predictions_rejected', 'predictions_blind',
-        'matches', 'conf_threshold',
+        'matches', 'shape_statuses', 'conf_threshold',
         '_review_filter_type', '_review_filter_class', '_review_status_filter',
         '_review_show_pred', '_review_state',
         '_annotation_visible',
@@ -150,6 +153,8 @@ class YoloLabeler:
 
         # GUI-only handles (not part of AppState)
         self._timer_after_id = None
+        # Replaceable so tests can answer the dialog without opening a modal.
+        self.ask_incomplete_step = self._ask_incomplete_step
         self._logo_image = None  # keep a reference so Tk does not drop the image
         self._app_icon_image = None  # same, for the window/taskbar icon
         self._stats_store = AnnotationStats()
@@ -532,14 +537,18 @@ class YoloLabeler:
         return result
 
     def _act_on_item(self, apply):
-        """Shared body of accept and reject: record the verdict, then advance."""
+        """Shared body of accept and reject: record the verdict, then move on.
+
+        Once the sweep is complete the image stays loaded and zooms out to the
+        overview, so the reviewer can scan the whole canopy for model misses.
+        """
         item = self._review_panel.current_item()
         if item is None or self.predictions_blind:
             return
         self._apply_verdict(item, apply)
         self._review_panel.refresh(keep_focus=False)
         if self._filtered_sweep_complete():
-            self.go_to_image(self._annotate_tab.next_index(), reset_filters=False)
+            self._annotate_tab.zoom_centered(OVERVIEW_ZOOM)
         else:
             self._review_panel.focus_item(self._review_panel.first_unreviewed())
 
@@ -895,7 +904,7 @@ class YoloLabeler:
         self.root.destroy()
 
     def _confirm_quit_without_saving(self):
-        """The one modal: a save failed on quit (spec 7.2). True means quit anyway."""
+        """Modal shown when a save failed on quit (spec 7.2). True means quit anyway."""
         count = len(self.document.annotations) if self.document else 0
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Save failed")
@@ -928,6 +937,52 @@ class YoloLabeler:
                       command=quit_anyway).pack(side="left")
         dialog.wait_window()
         return result["quit"]
+
+    def confirm_leaving_incomplete(self):
+        """Ask before stepping past an image not marked complete. True means go on.
+
+        Marking complete from the dialog goes through _on_complete_toggled, the
+        same path as ticking the checkbox.
+        """
+        if not self.images or self._complete_var.get():
+            return True
+        choice = self.ask_incomplete_step()
+        if choice == "complete":
+            self._complete_var.set(True)
+            self._on_complete_toggled()
+        return choice != "stay"
+
+    def _ask_incomplete_step(self):
+        """Open the not-complete dialog; returns "complete", "continue" or "stay"."""
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("Image not marked complete")
+        self._apply_app_icon(dialog)
+        dialog.configure(fg_color=BG_COLOR)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        result = {"choice": "stay"}
+
+        def choose(choice):
+            result["choice"] = choice
+            dialog.destroy()
+
+        ctk.CTkLabel(dialog, text="Mark this image complete and move to the next image?",
+                     font=(self.font_family, 12), text_color=FG_COLOR).pack(
+            padx=16, pady=(16, 12))
+        for text, choice, fg in (("Mark complete and continue (Enter)", "complete", ACCENT),
+                                 ("Continue without marking", "continue", ENTRY_BG),
+                                 ("Stay (Esc)", "stay", ENTRY_BG)):
+            ctk.CTkButton(dialog, text=text, width=260, fg_color=fg, hover_color=ACCENT_HOVER,
+                          text_color=FG_COLOR, font=(self.font_family, 12),
+                          command=lambda c=choice: choose(c)).pack(padx=16, pady=(0, 8))
+        dialog.bind("<Return>", lambda e: choose("complete"))
+        dialog.bind("<Escape>", lambda e: choose("stay"))
+        dialog.protocol("WM_DELETE_WINDOW", lambda: choose("stay"))
+        dialog.focus_force()
+        dialog.wait_window()
+        self.canvas.focus_set()
+        return result["choice"]
 
     def _on_escape(self, event=None):
         if self.mode == "polygon":

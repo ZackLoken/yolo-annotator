@@ -62,8 +62,11 @@ README Controls tables. `banner_text`, shown and cleared through
 is loaded (import results, save failures, rejected lines all go through it);
 `show_canvas_message` covers the same kind of failure when there is no image yet
 to draw a banner on (no images in the chosen folder, no loadable images at all).
-There are no pop-ups anywhere in the app, and the quit-without-saving
-confirmation is the one deliberate modal in the normal workflow.
+Errors and status never get a pop-up; they go to the banner. A pop-up is for a
+decision the user has to make, with real buttons: the quit-without-saving
+confirmation, and the prompt when stepping to the next image from one not marked
+complete (`confirm_leaving_incomplete` in `gui.py`). A dialog's own Enter/Esc
+bindings live on the dialog, not in `KEY_BINDINGS`.
 Verdicts are keyed by prediction id, except a model miss (an annotation with no
 matching prediction), which is keyed by the annotation's id instead.
 

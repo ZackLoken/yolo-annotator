@@ -19,8 +19,8 @@ from yololabeler.state_io import read_json_or_quarantine
 
 # Centre-match tolerance carried over from the original code, used by the migration.
 MATCH_TOLERANCE = 0.002
-# Fallback cutoff (spec 4.3) used only until an import's own min_conf is known.
-DEFAULT_CONF_THRESHOLD = 0.50
+# Fallback cutoff when there is no manifest min_conf; the user set it to the conf inference runs at (2026-09-16).
+DEFAULT_CONF_THRESHOLD = 0.25
 
 
 @dataclass(frozen=True)
@@ -93,6 +93,26 @@ def build_queue(document, predictions, matches, verdicts, filter_type="all",
         return True
 
     return [item for item in items if keep(item)]
+
+
+def shape_statuses(document, predictions, matches, verdicts):
+    """Map each queue item's prediction id and annotation id to its review status.
+
+    The status is the verdict's action, or "not_reviewed" when there is none,
+    taken from the unfiltered queue so the active filters never change it. A
+    match's prediction and annotation share one status. Returns None when there
+    are no matches (no predictions, or a blind image).
+    """
+    if document is None or not matches:
+        return None
+    statuses = {}
+    for item in build_queue(document, predictions, matches, verdicts):
+        verdict = verdicts.get(item.key)
+        status = verdict["action"] if verdict else "not_reviewed"
+        for shape in (item.prediction, item.annotation):
+            if shape is not None:
+                statuses[shape.id] = status
+    return statuses
 
 
 def apply_accept(document, item, user):
