@@ -756,7 +756,7 @@ class AnnotateTab:
         a.start_x = None
         a.start_y = None
         sel_id = a._selected_annotation_id
-        if sel_id is not None and self._alive(sel_id):
+        if sel_id is not None and a._annotation_visible and self._alive(sel_id):
             selected = a.document.get(sel_id)
             if selected.kind == "box":
                 hit = self._box_edit_hit(selected, event.x, event.y)

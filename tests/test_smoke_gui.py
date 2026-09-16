@@ -261,6 +261,19 @@ class TestBoxEditing:
         assert app.rect is None
         assert len(app.document.annotations) == count
 
+    def test_hiding_labels_lets_you_draw_over_an_already_selected_box(self, app):
+        tab, ann = box_setup(app)
+        tab.select_annotation(ann.id)
+        (x1, y1), (x2, y2) = ann.points
+        count = len(app.document.annotations)
+        app._annotation_visible = False
+        tab.on_button_press(click_at(tab, x1, y1))
+        assert app._box_edit_mode is None
+        assert app.rect is not None
+        tab.on_move_press(click_at(tab, x1 + 40, y1 + 40))
+        tab.on_button_release(click_at(tab, x1 + 40, y1 + 40))
+        assert len(app.document.annotations) == count + 1
+
     def test_switching_mode_clears_an_in_progress_box_drag(self, app):
         tab, ann = box_setup(app)
         tab.select_annotation(ann.id)
