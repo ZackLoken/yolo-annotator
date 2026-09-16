@@ -680,6 +680,7 @@ class AnnotateTab:
                         self.engine.set_points(sel_id, new_pts)
                     self._clear_drag_state()
                     a._mark_image_annotated()
+                    a._review_panel.refresh(keep_focus=True)
                     self.display_image()
                     a.update_title()
                     return
@@ -689,6 +690,7 @@ class AnnotateTab:
                     self.engine.delete_annotation(sel_id)
                     self._clear_drag_state()
                     a._mark_image_annotated()
+                    a._review_panel.refresh(keep_focus=True)
                     self.display_image()
                     a.update_title()
                     return
@@ -704,6 +706,7 @@ class AnnotateTab:
                 self._push_undo()
                 self.engine.delete_annotation(ann.id)
                 a._mark_image_annotated()
+                a._review_panel.refresh(keep_focus=True)
                 self.display_image()
                 a.update_title()
                 return
@@ -716,6 +719,7 @@ class AnnotateTab:
                 self._clear_drag_state()
                 self.engine.delete_annotation(ann.id)
                 a._mark_image_annotated()
+                a._review_panel.refresh(keep_focus=True)
                 self.display_image()
                 a.update_title()
                 return

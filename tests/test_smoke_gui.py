@@ -596,6 +596,44 @@ class TestActions:
         assert after.key == key and after.kind == "tp"
 
 
+# ── right-click delete while an item is focused ─────────────────────────────
+
+def box_center(ann):
+    """The centre point of a box annotation."""
+    (x1, y1), (x2, y2) = ann.points
+    return (x1 + x2) / 2, (y1 + y2) / 2
+
+
+class TestRightClickDelete:
+    def test_deleting_the_focused_annotation_leaves_the_queue_usable(self, app):
+        panel, tab = app._review_panel, app._annotate_tab
+        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.kind == "tp"))
+        ann = panel.current_item().annotation
+        assert ann is not None
+        tab.on_right_click(click_at(tab, *box_center(ann)))
+        assert all(a.id != ann.id for a in app.document.annotations)
+        assert all(q.annotation is None or q.annotation.id != ann.id for q in app.queue)
+        colors = [c for c, _ in shapes_at(tab, ann.points)]
+        assert LayerStyle().focused_gt_color not in colors
+        # Both of these read the focused item's annotation and used to raise KeyError.
+        app.edit_pair()
+        app.reject_item()
+
+    def test_deleting_an_unrelated_annotation_keeps_the_focus(self, app):
+        panel, tab = app._review_panel, app._annotate_tab
+        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.kind == "tp"))
+        key = panel.current_item().key
+        tab.fit_to_window()
+        tab.on_button_press(click_at(tab, 420, 360))
+        tab.on_button_release(click_at(tab, 520, 440))
+        drawn = app.document.annotations[-1]
+        assert drawn.class_id == app.active_class
+        tab.on_right_click(click_at(tab, *box_center(drawn)))
+        assert all(a.id != drawn.id for a in app.document.annotations)
+        assert panel.current_item().key == key
+        assert panel.current_item().annotation is not None
+
+
 # ── auto-advance under filters ──────────────────────────────────────────────
 
 class TestAutoAdvanceFilters:
