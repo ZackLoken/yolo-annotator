@@ -85,11 +85,12 @@ for the same list, filtered to the current mode.
 |---|---|
 | Previous image | `Left` |
 | Next image | `Right` |
-| Previous queue item | `Up` |
-| Next queue item | `Down` |
+| Previous queue item | `Down` |
+| Next queue item | `Up` |
 | Accept focused item (an unmatched prediction becomes a new annotation) | `a` |
 | Reject focused item (deletes its annotation, if any) | `r` |
 | Edit focused item (an unmatched prediction is accepted first) | `e` |
+| Comment on the focused item, flagging it for a second look | `c` |
 | Fit image to window | `f` |
 | Zoom to focused item | `z` |
 | Toggle box / polygon mode | `m` |
@@ -110,11 +111,11 @@ for the same list, filtered to the current mode.
 | Pan up / down | Scroll | always |
 | Pan left / right | Shift+Scroll | always |
 | Pan | Middle-click drag | always |
-| Draw a box (on empty space) | Left-click drag | box |
-| Select it; does not start a new box | Click inside a box | box |
+| Draw a box (anywhere off a box outline, including inside a box) | Left-click drag | box |
+| Select it | Click a box outline | box |
+| Move the whole box | Drag a box outline | box |
 | Resize; the opposite corner stays fixed (selected box) | Drag a corner | box |
-| Move the whole box (selected box) | Drag the body | box |
-| Delete box | Right-click | box |
+| Delete box | Right-click a box outline | box |
 | Place vertex / select polygon | Left-click | polygon |
 | Start / pause laying vertices as the pointer moves | Left-click (Stream on) | polygon |
 | Close polygon | Double-click | polygon |
@@ -317,10 +318,9 @@ viewport or leave unsaved work behind.
 - Vertex streaming and vertex snapping: continuous vertex placement while moving the
   mouse (`v`), snapped to nearby existing vertices (`s`)
 - Full vertex editing: drag, insert on an edge, and right-click delete on the
-  selected polygon; boxes support drag-to-resize from a corner, drag-to-move
-  from the body, and click-to-select, a new capability where clicking inside
-  an existing box selects it instead of always starting a new rectangle on
-  top of it; right-click delete is unchanged for both shapes, and
+  selected polygon; a box is selected, moved and right-click deleted by its
+  outline and resized from a corner, so a drag starting inside a box draws a
+  new one, e.g. for a bur that sits inside its neighbour's box;
   insert-on-edge remains polygon-only; snapshot undo / redo (`Ctrl+Z` /
   `Ctrl+Y`) covers drawing, accept, reject and edit alike
 - Multi-class support: dropdown selector, inline "Add" for new classes, per-class
@@ -368,9 +368,14 @@ alongside the annotation tools, no separate mode to enter.
 Every prediction above the confidence threshold is matched against ground-truth
 annotations of the same class, all candidate pairs scored by IoU and assigned
 greedily, highest-IoU first, so each annotation and each prediction participates
-in at most one match. The queue is the flattened result, in this fixed order:
-unmatched predictions, then model misses (a ground-truth annotation no
-prediction matched), then matches. Class selection lives in the top toolbar
+in at most one match. The queue is the flattened result: unmatched predictions,
+model misses (a ground-truth annotation no prediction matched) and matches,
+together in one spatial path. The path starts at the item nearest the top-left
+corner and always steps to the nearest item not yet visited, so a cluster is
+reviewed in a row whatever the types in it. The Type and Class filters lay the
+path over the items they keep; the Review status filter only hides items, so
+judging one never reorders the rest. After an accept or reject the focus moves
+to the next unreviewed item along the path. Class selection lives in the top toolbar
 alongside the drawing controls, with an "All" option; Type and Review status are
 dropdowns in the status bar. Review status filters on verdict presence, so "Not
 reviewed" means no verdict yet, whatever the type. (Image status, in the top
@@ -382,7 +387,8 @@ the status bar.
 
 ### Stepping
 
-`Up` / `Down` move the focus one queue item at a time, wrapping at both ends.
+`Up` moves the focus to the next queue item and `Down` to the previous one,
+wrapping at both ends.
 Stepping sets the active class and mode (box or polygon) to match the focused
 item, so it is always drawn under the same visibility rule the canvas already
 uses, then zooms so the item fills roughly one third of the canvas. `z` re-zooms
@@ -451,6 +457,23 @@ predictions load normally afterward, and any later accept still carries
 `source: accepted`, so the blind pass and the assisted pass stay distinguishable
 in the sidecar.
 
+### Flagging for a second look
+
+`c` opens a comment box for the focused item, prediction or annotation alike.
+Enter saves it and flags the item, with or without a comment; a flag is
+independent of the verdict, so an item can be flagged before it is judged or
+after. A flagged item carries a magenta `?` at its top-right corner (on its
+annotation when it has one), the badge adds "flagged", and the status bar counts
+flags next to the TP/FP/FN counts. Pressing `c` on a flagged item shows who
+flagged it and when, with Save flag to edit the comment and Resolve flag to close
+it; a resolved flag stays in `review_stats.json` with who resolved it and when.
+Review status "Flagged" narrows the queue to open flags, and Image status
+"Flagged" narrows the image list to images holding any. Flags need a review
+item, so they are not available on a blind image or one without predictions.
+Rejecting a flagged model miss deletes its annotation; the flag stays open in
+the file, and still counts toward Image status "Flagged", but has nothing left
+on the canvas to open.
+
 ### Completion
 
 Complete is the one dataset gate: ticking it writes a completion record and
@@ -471,12 +494,16 @@ jumping from the image list never asks.
 dict keyed by prediction id (a model miss is keyed by its annotation's id
 instead), each verdict recording `action` (`accepted` / `rejected`),
 `kind` (`fp` / `fn` / `tp`), `class_id`, `conf`, `iou`, `by` and `at`;
+per image, a `flags` dict under the same keys, each a list of flag entries
+oldest first, recording `comment`, `kind`, `class_id`, `by`, `at`, `resolved`,
+`resolved_by` and `resolved_at`;
 a `labels_backed_up` flag set once the first `.original/` backup is made.
 
 `state/annotation_stats.json`: a `completion` entry per completed image,
-`{"by", "at", "blind", "annotation_count", "model"}`, where `model` is the name
-recorded in the predictions manifest when predictions were visible, or `null`
-for a blind pass.
+`{"by", "at", "blind", "annotation_count", "model", "open_flags"}`, where `model`
+is the name recorded in the predictions manifest when predictions were visible,
+or `null` for a blind pass, and `open_flags` counts the image's items still
+flagged when it was marked Complete.
 
 ---
 

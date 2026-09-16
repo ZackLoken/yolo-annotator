@@ -8,7 +8,7 @@ import tkinter as tk
 import customtkinter as ctk
 
 from yololabeler.predictions.store import load_predictions
-from yololabeler.review.engine import build_queue, match_document, shape_statuses
+from yololabeler.review.engine import build_queue, flag_markers, match_document, shape_statuses
 
 # Palette constants duplicated from gui.py to avoid a circular import
 FG_COLOR = "#E0E0E0"
@@ -81,7 +81,7 @@ class ReviewPanel:
         self._label(left, "Review status").pack(side="left", padx=(0, 2))
         self.status_var = tk.StringVar(value="All")
         self.status_dd = self._combo(left, self.status_var,
-                                     ["All", "Not reviewed", "Reviewed"], 100,
+                                     ["All", "Not reviewed", "Reviewed", "Flagged"], 100,
                                      self.on_status_changed)
         self.status_dd.pack(side="left", padx=(0, 8))
         self._label(left, "Type").pack(side="left", padx=(0, 2))
@@ -134,7 +134,7 @@ class ReviewPanel:
         """Rerun matching and rebuild the queue; called after every document change."""
         a = self.app
         if a.document is None or a.predictions_blind or not a.predictions:
-            a.queue, a.matches, a.shape_statuses = [], {}, None
+            a.queue, a.matches, a.shape_statuses, a.flag_markers = [], {}, None, {}
             # Blind mode empties the queue without touching a single verdict, so
             # recomputing the status from it would report every image not_started.
             if a.images and not a.predictions_blind:
@@ -146,10 +146,12 @@ class ReviewPanel:
         previous = focused.key if focused else None
         a.matches = match_document(a.document, a.predictions, REVIEW_IOU_THRESHOLD,
                                    a.conf_threshold)
+        open_keys = self.engine.open_flag_keys(a.images[a.index])
         a.queue = build_queue(a.document, a.predictions, a.matches, a.verdicts,
                               a._review_filter_type, a._review_filter_class,
-                              a._review_status_filter)
+                              a._review_status_filter, open_keys)
         a.shape_statuses = shape_statuses(a.document, a.predictions, a.matches, a.verdicts)
+        a.flag_markers = flag_markers(a.document, a.predictions, a.matches, open_keys)
         a.queue_index = 0
         if previous is not None:
             for i, item in enumerate(a.queue):
@@ -168,6 +170,21 @@ class ReviewPanel:
             if item.key not in a.verdicts:
                 return i
         return 0
+
+    def next_unreviewed_after(self, path, key):
+        """Queue index of the first unreviewed item after key along path, wrapping.
+
+        path is the list of item keys in path order taken before the last
+        verdict; a key no longer in the queue is skipped. Falls back to
+        first_unreviewed when nothing along the path qualifies.
+        """
+        a = self.app
+        start = path.index(key) + 1 if key in path else 0
+        positions = {item.key: i for i, item in enumerate(a.queue)}
+        for candidate in path[start:] + path[:start]:
+            if candidate in positions and candidate not in a.verdicts:
+                return positions[candidate]
+        return self.first_unreviewed()
 
     # ── stepping ───────────────────────────────────────────────────────────
 
@@ -244,7 +261,8 @@ class ReviewPanel:
 
     def on_status_changed(self, choice):
         """Filter the queue by verdict presence."""
-        mapping = {"All": "all", "Reviewed": "reviewed", "Not reviewed": "not_reviewed"}
+        mapping = {"All": "all", "Reviewed": "reviewed", "Not reviewed": "not_reviewed",
+                   "Flagged": "flagged"}
         self.app._review_status_filter = mapping.get(choice, "all")
         self.refresh(keep_focus=False)
         self.app.canvas.focus_set()
@@ -281,7 +299,10 @@ class ReviewPanel:
         if not a.predictions_blind:
             m = a.matches or {}
             pending = sum(1 for qi in a.queue if qi.key not in a.verdicts)
-            suffix = f"  ({pending} not reviewed)" if pending else ""
+            notes = [f"{pending} not reviewed"] if pending else []
+            if a.flag_markers:
+                notes.append(f"{len(a.flag_markers)} flagged")
+            suffix = f"  ({', '.join(notes)})" if notes else ""
             self.counts_label.configure(
                 text=f"TP {len(m.get('tp', []))}  FP {len(m.get('fp', []))}  "
                      f"FN {len(m.get('fn', []))}{suffix}")

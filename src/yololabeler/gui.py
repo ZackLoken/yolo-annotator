@@ -5,6 +5,7 @@ AnnotateTab and one ReviewPanel over a single canvas, and owns the
 toolbar, status bar, class registry, folder loading and session stats.
 """
 
+import math
 import os
 import sys
 import json
@@ -34,6 +35,34 @@ from yololabeler.utils import (
 
 # Lightweight event object for synthesised clicks
 _SynthEvent = namedtuple('_SynthEvent', ['x', 'y'])
+
+class FitToContentMixin:
+    """Grow a CustomTkinter dialog to fit its contents after a monitor DPI change.
+
+    On a DPI change CTkToplevel scales the window's last size by the DPI ratio
+    and pins it (customtkinter/windows/ctk_toplevel.py _set_scaling), but text
+    does not scale in exact proportion, so a dialog sized to its contents ends
+    up clipped. _set_scaled_min_max runs once CustomTkinter releases that pin.
+    """
+
+    def _set_scaled_min_max(self):
+        super()._set_scaled_min_max()
+        self.update_idletasks()
+        width = max(self.winfo_width(), self.winfo_reqwidth())
+        height = max(self.winfo_height(), self.winfo_reqheight())
+        if (width, height) != (self.winfo_width(), self.winfo_height()):
+            # Rounded up: CustomTkinter's own reverse scaling truncates and can clip a pixel.
+            scaling = self._get_window_scaling()
+            self.geometry(f"{math.ceil(width / scaling)}x{math.ceil(height / scaling)}")
+
+
+class FitToContentToplevel(FitToContentMixin, ctk.CTkToplevel):
+    """A CTkToplevel that stays large enough for its contents across monitors."""
+
+
+class FitToContentInputDialog(FitToContentMixin, ctk.CTkInputDialog):
+    """A CTkInputDialog that stays large enough for its contents across monitors."""
+
 
 # Zoom for the whole-canopy pass for model misses once a sweep is done; the user chose 33% (2026-09-16).
 OVERVIEW_ZOOM = 0.33
@@ -107,7 +136,7 @@ class YoloLabeler:
         # Review data
         'queue', 'queue_index',
         'predictions', 'predictions_rejected', 'predictions_blind',
-        'matches', 'shape_statuses', 'conf_threshold',
+        'matches', 'shape_statuses', 'flag_markers', 'conf_threshold',
         '_review_filter_type', '_review_filter_class', '_review_status_filter',
         '_review_show_pred', '_review_state',
         '_annotation_visible',
@@ -153,8 +182,9 @@ class YoloLabeler:
 
         # GUI-only handles (not part of AppState)
         self._timer_after_id = None
-        # Replaceable so tests can answer the dialog without opening a modal.
+        # Replaceable so tests can answer these dialogs without opening a modal.
         self.ask_incomplete_step = self._ask_incomplete_step
+        self.ask_flag_comment = self._ask_flag_comment
         self._logo_image = None  # keep a reference so Tk does not drop the image
         self._app_icon_image = None  # same, for the window/taskbar icon
         self._stats_store = AnnotationStats()
@@ -298,7 +328,7 @@ class YoloLabeler:
         self.filter_var = tk.StringVar(value="All")
         self.filter_dropdown = ctk.CTkComboBox(
             _tb_g3, variable=self.filter_var, width=130,
-            values=["All", "Complete", "Partial", "Unannotated"],
+            values=["All", "Complete", "Partial", "Unannotated", "Flagged"],
             font=(self.font_family, 11),
             dropdown_font=(self.font_family, 11),
             fg_color=ENTRY_BG, border_color=BORDER_COLOR,
@@ -456,7 +486,8 @@ class YoloLabeler:
             "prev_image": tab.prev_image, "next_image": tab.next_image,
             "prev_item": lambda: panel.step(-1), "next_item": lambda: panel.step(1),
             "accept": self.accept_item, "reject": self.reject_item,
-            "edit_pair": self.edit_pair, "fit": tab.fit_to_window,
+            "edit_pair": self.edit_pair, "comment": self.comment_on_item,
+            "fit": tab.fit_to_window,
             "zoom_item": lambda: panel.focus_item(self.queue_index),
             "toggle_mode": self._toggle_mode, "toggle_snap": self._toggle_snap_key,
             "toggle_stream": self._toggle_stream_key,
@@ -545,12 +576,23 @@ class YoloLabeler:
         item = self._review_panel.current_item()
         if item is None or self.predictions_blind:
             return
+        # Taken before the verdict: rejecting a model miss removes it from the path.
+        path = [qi.key for qi in self._sweep_items()]
         self._apply_verdict(item, apply)
         self._review_panel.refresh(keep_focus=False)
         if self._filtered_sweep_complete():
             self._annotate_tab.zoom_centered(OVERVIEW_ZOOM)
         else:
-            self._review_panel.focus_item(self._review_panel.first_unreviewed())
+            self._review_panel.focus_item(
+                self._review_panel.next_unreviewed_after(path, item.key))
+
+    def _sweep_items(self):
+        """Queue items of the active Type and Class filters, in path order, whatever their status."""
+        if self.document is None or not self.matches:
+            return []
+        return build_queue(self.document, self.predictions, self.matches, self.verdicts,
+                           self._review_filter_type, self._review_filter_class,
+                           filter_status="all")
 
     def _filtered_sweep_complete(self):
         """Whether every item of the active Type and Class filters now has a verdict.
@@ -559,11 +601,7 @@ class YoloLabeler:
         queue instead, a Reviewed view is complete by construction and a
         Not reviewed view empties itself, so neither answers this question.
         """
-        if self.document is None or not self.matches:
-            return False
-        items = build_queue(self.document, self.predictions, self.matches, self.verdicts,
-                            self._review_filter_type, self._review_filter_class,
-                            filter_status="all")
+        items = self._sweep_items()
         return bool(items) and all(item.key in self.verdicts for item in items)
 
     def accept_item(self):
@@ -595,6 +633,77 @@ class YoloLabeler:
             self._annotation_visible = True
         self._annotate_tab.select_annotation(ann_id)
         self.canvas.focus_set()
+
+    def comment_on_item(self):
+        """Open the comment dialog for the focused item and save or resolve its flag.
+
+        A flag is independent of the verdict: an item can be flagged before or
+        after it is accepted or rejected. Saving with an empty comment still flags it.
+        """
+        item = self._review_panel.current_item()
+        if item is None or self.predictions_blind:
+            self.show_banner("No review item in focus to comment on.")
+            return
+        img_name = self.images[self.index]
+        existing = self._review.open_flag(img_name, item.key)
+        action, comment = self.ask_flag_comment(item, existing)
+        if action == "save":
+            self._review.save_flag(img_name, item, comment, self._current_user)
+        elif action == "resolve":
+            self._review.resolve_flag(img_name, item.key, self._current_user)
+        else:
+            return
+        self._rebuild_filter()
+        self._update_filter_label()
+        self._review_panel.refresh(keep_focus=True)
+
+    def _ask_flag_comment(self, item, existing):
+        """Open the comment dialog; returns ("save", text), ("resolve", None) or ("cancel", None).
+
+        existing is the item's open flag entry, or None; with one, the dialog
+        shows who flagged it and offers Resolve flag.
+        """
+        dialog = FitToContentToplevel(self.root)
+        dialog.title("Flag for a second look")
+        self._apply_app_icon(dialog)
+        dialog.configure(fg_color=BG_COLOR)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        result = {"action": "cancel", "comment": None}
+        name = self.class_names.get(item.class_id, str(item.class_id))
+        heading = f"{item.kind.upper()}  {item.class_id}: {name}"
+        if existing is not None:
+            heading += f"\nFlagged by {existing['by'] or 'unknown'} at {existing['at']}"
+        ctk.CTkLabel(dialog, text=heading, font=(self.font_family, 12), text_color=FG_COLOR,
+                     justify="left").pack(padx=16, pady=(16, 8), anchor="w")
+        entry = ctk.CTkEntry(dialog, width=360, font=(self.font_family, 12),
+                             fg_color=ENTRY_BG, border_color=BORDER_COLOR, text_color=FG_COLOR,
+                             placeholder_text="Comment (optional)")
+        entry.pack(padx=16, pady=(0, 12))
+        if existing is not None and existing["comment"]:
+            entry.insert(0, existing["comment"])
+
+        def choose(action):
+            result["action"] = action
+            result["comment"] = entry.get().strip() if action == "save" else None
+            dialog.destroy()
+
+        buttons = [("Save flag (Enter)", "save", ACCENT)]
+        if existing is not None:
+            buttons.append(("Resolve flag", "resolve", ENTRY_BG))
+        buttons.append(("Cancel (Esc)", "cancel", ENTRY_BG))
+        for text, action, fg in buttons:
+            ctk.CTkButton(dialog, text=text, width=360, fg_color=fg, hover_color=ACCENT_HOVER,
+                          text_color=FG_COLOR, font=(self.font_family, 12),
+                          command=lambda a=action: choose(a)).pack(padx=16, pady=(0, 8))
+        dialog.bind("<Return>", lambda e: choose("save"))
+        dialog.bind("<Escape>", lambda e: choose("cancel"))
+        dialog.protocol("WM_DELETE_WINDOW", lambda: choose("cancel"))
+        entry.focus_force()
+        dialog.wait_window()
+        self.canvas.focus_set()
+        return result["action"], result["comment"]
 
     def accept_drawn_annotation(self, ann):
         """Record an accepted verdict for the queue item a hand-drawn annotation forms.
@@ -906,7 +1015,7 @@ class YoloLabeler:
     def _confirm_quit_without_saving(self):
         """Modal shown when a save failed on quit (spec 7.2). True means quit anyway."""
         count = len(self.document.annotations) if self.document else 0
-        dialog = ctk.CTkToplevel(self.root)
+        dialog = FitToContentToplevel(self.root)
         dialog.title("Save failed")
         self._apply_app_icon(dialog)
         dialog.configure(fg_color=BG_COLOR)
@@ -954,7 +1063,7 @@ class YoloLabeler:
 
     def _ask_incomplete_step(self):
         """Open the not-complete dialog; returns "complete", "continue" or "stay"."""
-        dialog = ctk.CTkToplevel(self.root)
+        dialog = FitToContentToplevel(self.root)
         dialog.title("Image not marked complete")
         self._apply_app_icon(dialog)
         dialog.configure(fg_color=BG_COLOR)
@@ -1158,7 +1267,8 @@ class YoloLabeler:
             blind = store.is_blind(img_name) and store.completion(img_name) is None
             store.set_completion(img_name, self._current_user, blind,
                                  len(self.document.annotations) if self.document else 0,
-                                 None if blind else self._current_model_name())
+                                 None if blind else self._current_model_name(),
+                                 len(self.flag_markers))
             store.set_image_status(img_name, "complete")
             self._completed_images.add(img_name)
         else:
@@ -1184,7 +1294,7 @@ class YoloLabeler:
     def _on_filter_changed(self, choice):
         """Handle filter dropdown selection."""
         mapping = {"All": "all", "Complete": "complete",
-                   "Partial": "partial", "Unannotated": "unannotated"}
+                   "Partial": "partial", "Unannotated": "unannotated", "Flagged": "flagged"}
         self._active_filter = mapping.get(choice, "all")
         self._record_image_time()
         self._rebuild_filter()
@@ -1204,6 +1314,9 @@ class YoloLabeler:
         """Rebuild the list of image indices matching the active filter."""
         if self._active_filter == "all":
             self._filtered_indices = list(range(len(self.images)))
+        elif self._active_filter == "flagged":
+            self._filtered_indices = [i for i, name in enumerate(self.images)
+                                      if self._review.has_open_flags(name)]
         else:
             self._filtered_indices = [
                 i for i, name in enumerate(self.images)
@@ -1288,7 +1401,7 @@ class YoloLabeler:
 
     def _class_name_dialog(self, text, title):
         """Build a class-name input dialog with the main window's icon; return the typed name or None."""
-        dialog = ctk.CTkInputDialog(
+        dialog = FitToContentInputDialog(
             text=text, title=title, fg_color=BG_COLOR,
             button_fg_color=ACCENT, button_hover_color=ACCENT_HOVER,
             entry_fg_color=ENTRY_BG, entry_border_color=BORDER_COLOR,
@@ -1406,7 +1519,7 @@ class YoloLabeler:
 
     def _show_dark_color_picker(self, initial_color, title):
         """Custom dark-themed color picker with SI palette as custom colors."""
-        picker = ctk.CTkToplevel(self.root)
+        picker = FitToContentToplevel(self.root)
         picker.title(title)
         self._apply_app_icon(picker)
         picker.configure(fg_color=BG_COLOR)

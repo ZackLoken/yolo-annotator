@@ -66,9 +66,16 @@ Errors and status never get a pop-up; they go to the banner. A pop-up is for a
 decision the user has to make, with real buttons: the quit-without-saving
 confirmation, and the prompt when stepping to the next image from one not marked
 complete (`confirm_leaving_incomplete` in `gui.py`). A dialog's own Enter/Esc
-bindings live on the dialog, not in `KEY_BINDINGS`.
+bindings live on the dialog, not in `KEY_BINDINGS`. Build a dialog from
+`FitToContentToplevel` or `FitToContentInputDialog` in `gui.py`, not the plain
+CustomTkinter classes, which clip their contents after a move to a monitor with
+different display scaling.
 Verdicts are keyed by prediction id, except a model miss (an annotation with no
-matching prediction), which is keyed by the annotation's id instead.
+matching prediction), which is keyed by the annotation's id instead. Flags for a
+second look (`ReviewEngine.save_flag`/`resolve_flag`) use the same keys, are
+independent of verdicts, and keep resolved entries rather than deleting them.
+Box annotations are picked by their outline only (`_box_at_outline` in
+`annotation/tab.py`), so a drag that starts inside a box draws a new one.
 
 ### Key pattern: state forwarding
 

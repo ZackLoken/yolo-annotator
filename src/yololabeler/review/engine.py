@@ -60,9 +60,45 @@ def match_document(document, predictions, iou_threshold, conf_threshold):
                            iou_threshold, conf_threshold)
 
 
+def _centre(item):
+    """Centre of the item's prediction, or of its annotation when it has no prediction."""
+    shape = item.prediction or item.annotation
+    xs = [p[0] for p in shape.points]
+    ys = [p[1] for p in shape.points]
+    return (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+
+
+def spatial_order(items):
+    """Order items along a nearest-neighbour path so neighbours are visited in a row.
+
+    The path starts at the item nearest the image's top-left corner and always
+    steps to the closest item not yet visited; ties fall back to the item key so
+    the order is deterministic.
+    """
+    remaining = {item.key: item for item in items}
+    centres = {key: _centre(item) for key, item in remaining.items()}
+    ordered = []
+    current = None
+    while remaining:
+        if current is None:
+            key = min(remaining, key=lambda k: (sum(centres[k]), k))
+        else:
+            cx, cy = centres[current]
+            key = min(remaining, key=lambda k: (
+                (centres[k][0] - cx) ** 2 + (centres[k][1] - cy) ** 2, k))
+        ordered.append(remaining.pop(key))
+        current = key
+    return ordered
+
+
 def build_queue(document, predictions, matches, verdicts, filter_type="all",
-                filter_class="all", filter_status="all"):
-    """Flatten matches into QueueItems ordered fp, fn, tp, then filter (spec 4.4)."""
+                filter_class="all", filter_status="all", flagged=frozenset()):
+    """Flatten matches into QueueItems in spatial order, then filter (spec 4.4).
+
+    The path is laid over the items the Type and Class filters keep, before the
+    Status filter, so judging an item never reorders the ones still to review.
+    flagged holds the keys with an open flag, used by the "flagged" status filter.
+    """
     boxes, polys = document.boxes(), document.polygons()
     pboxes, ppolys = _split_predictions(predictions)
 
@@ -80,11 +116,14 @@ def build_queue(document, predictions, matches, verdicts, filter_type="all",
     for gt_type, gt_idx, p_type, p_idx, iou, _cid, _conf in matches["tp"]:
         items.append(QueueItem("tp", pr(p_type, p_idx), gt(gt_type, gt_idx), iou))
 
-    def keep(item):
+    def keep_type_and_class(item):
         if filter_type != "all" and item.kind != filter_type:
             return False
-        if filter_class != "all" and item.class_id != filter_class:
-            return False
+        return filter_class == "all" or item.class_id == filter_class
+
+    def keep_status(item):
+        if filter_status == "flagged":
+            return item.key in flagged
         reviewed = item.key in verdicts
         if filter_status == "reviewed":
             return reviewed
@@ -92,7 +131,8 @@ def build_queue(document, predictions, matches, verdicts, filter_type="all",
             return not reviewed
         return True
 
-    return [item for item in items if keep(item)]
+    ordered = spatial_order([item for item in items if keep_type_and_class(item)])
+    return [item for item in ordered if keep_status(item)]
 
 
 def shape_statuses(document, predictions, matches, verdicts):
@@ -113,6 +153,19 @@ def shape_statuses(document, predictions, matches, verdicts):
             if shape is not None:
                 statuses[shape.id] = status
     return statuses
+
+
+def flag_markers(document, predictions, matches, open_keys):
+    """Map each open-flagged key still in the queue to the points its marker is drawn at.
+
+    The marker sits on the item's annotation when it has one, else on its
+    prediction. Keys whose item no longer exists (a rejected model miss) are left out.
+    """
+    if document is None or not matches:
+        return {}
+    return {item.key: (item.annotation or item.prediction).points
+            for item in build_queue(document, predictions, matches, {})
+            if item.key in open_keys}
 
 
 def apply_accept(document, item, user):
@@ -236,6 +289,61 @@ class ReviewEngine:
             "iou": round(item.iou, 4) if item.iou is not None else None,
         }
         self.save_review_state()
+
+    # ── Flags for a second look ────────────────────────────────────────────
+
+    def flags(self, img_name):
+        """The live flag history for an image: QueueItem.key -> list of flag entries, oldest first.
+
+        A resolved entry is kept for the record; only the last entry of a key
+        can be open.
+        """
+        return self._image_entry(img_name).setdefault("flags", {})
+
+    def open_flag(self, img_name, key):
+        """The open flag entry for key, or None when it has none or its last one is resolved."""
+        history = self.flags(img_name).get(key)
+        if history and not history[-1]["resolved"]:
+            return history[-1]
+        return None
+
+    def open_flag_keys(self, img_name):
+        """Keys with an open flag on an image, whether or not their item still exists."""
+        return {key for key in self.flags(img_name) if self.open_flag(img_name, key)}
+
+    def has_open_flags(self, img_name):
+        """Whether an image holds any open flag, read without loading it."""
+        entry = self.state._review_state.get("image", {}).get(img_name, {})
+        return any(history and not history[-1]["resolved"]
+                   for history in entry.get("flags", {}).values())
+
+    def save_flag(self, img_name, item, comment, user):
+        """Open a flag on item with comment, or replace the comment of its open flag, and save."""
+        existing = self.open_flag(img_name, item.key)
+        if existing is not None:
+            existing["comment"] = comment
+        else:
+            self.flags(img_name).setdefault(item.key, []).append({
+                "comment": comment, "kind": item.kind, "class_id": item.class_id,
+                "by": user, "at": datetime.datetime.now().isoformat(timespec="seconds"),
+                "resolved": False, "resolved_by": None, "resolved_at": None})
+        self.save_review_state()
+
+    def resolve_flag(self, img_name, key, user):
+        """Mark the open flag on key resolved, keeping it in the history, and save."""
+        entry = self.open_flag(img_name, key)
+        if entry is None:
+            return
+        entry.update(resolved=True, resolved_by=user,
+                     resolved_at=datetime.datetime.now().isoformat(timespec="seconds"))
+        self.save_review_state()
+
+    def carry_flags(self, img_name, old_key, new_key):
+        """Move a key's flag history onto the key a geometry edit reclassified it to, and save."""
+        flags = self.flags(img_name)
+        if old_key in flags and new_key not in flags:
+            flags[new_key] = flags.pop(old_key)
+            self.save_review_state()
 
     def remove_verdict(self, img_name, key):
         """Remove a recorded verdict, if present, and save."""

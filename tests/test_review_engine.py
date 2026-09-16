@@ -10,7 +10,7 @@ from yololabeler.predictions.store import Prediction, write_manifest
 from yololabeler.state import AppState
 from yololabeler.review.engine import (
     DEFAULT_CONF_THRESHOLD, QueueItem, ReviewEngine, apply_accept, apply_reject,
-    build_queue, match_document, shape_statuses,
+    build_queue, flag_markers, match_document, shape_statuses, spatial_order,
 )
 
 
@@ -97,18 +97,37 @@ def scene():
     return doc, preds
 
 
+def of_kind(queue, kind):
+    """The one queue item of that kind."""
+    (item,) = [q for q in queue if q.kind == kind]
+    return item
+
+
 # ── match_document / build_queue ────────────────────────────────────────────
 
 class TestQueue:
-    def test_queue_order_and_keys(self, scene):
+    def test_queue_keys(self, scene):
         doc, preds = scene
         matches = match_document(doc, preds, 0.6, 0.5)
         queue = build_queue(doc, preds, matches, {})
-        assert [q.kind for q in queue] == ["fp", "fn", "tp"]
-        assert queue[0].key == "h:1"
-        assert queue[1].key == doc.annotations[1].id
-        assert queue[2].key == "h:0" and queue[2].annotation is doc.annotations[0]
-        assert queue[2].iou == pytest.approx(0.9238, abs=0.001)
+        assert of_kind(queue, "fp").key == "h:1"
+        assert of_kind(queue, "fn").key == doc.annotations[1].id
+        tp = of_kind(queue, "tp")
+        assert tp.key == "h:0" and tp.annotation is doc.annotations[0]
+        assert tp.iou == pytest.approx(0.9238, abs=0.001)
+
+    def test_queue_follows_the_nearest_neighbour_path_from_the_top_left(self, scene):
+        doc, preds = scene
+        queue = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})
+        # tp centre (62, 62) is nearest the corner; fn (350, 350) is nearer to it than fp (530, 50).
+        assert [q.kind for q in queue] == ["tp", "fn", "fp"]
+
+    def test_status_filter_does_not_reorder_the_path(self, scene):
+        doc, preds = scene
+        matches = match_document(doc, preds, 0.6, 0.5)
+        verdicts = {doc.annotations[1].id: {"action": "accepted"}}
+        queue = build_queue(doc, preds, matches, verdicts, filter_status="not_reviewed")
+        assert [q.kind for q in queue] == ["tp", "fp"]
 
     def test_low_confidence_is_absent(self, scene):
         doc, preds = scene
@@ -137,6 +156,20 @@ class TestQueue:
         assert [q.kind for q in queue] == ["tp"]
 
 
+# ── spatial_order ───────────────────────────────────────────────────────────
+
+class TestSpatialOrder:
+    def test_a_cluster_is_visited_before_moving_on(self):
+        far = [pred("h:0", 900, 900, 910, 910), pred("h:1", 0, 0, 10, 10),
+               pred("h:2", 600, 20, 610, 30), pred("h:3", 30, 0, 40, 10),
+               pred("h:4", 15, 25, 25, 35)]
+        items = [QueueItem("fp", p, None, None) for p in far]
+        assert [q.key for q in spatial_order(items)] == ["h:1", "h:4", "h:3", "h:2", "h:0"]
+
+    def test_empty(self):
+        assert spatial_order([]) == []
+
+
 # ── shape_statuses ──────────────────────────────────────────────────────────
 
 class TestShapeStatuses:
@@ -163,7 +196,7 @@ class TestShapeStatuses:
 class TestActions:
     def test_accept_fp_inserts_annotation_with_provenance(self, scene):
         doc, preds = scene
-        item = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})[0]
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fp")
         action, created = apply_accept(doc, item, "ren")
         assert action == "accepted"
         assert created in doc.annotations
@@ -175,22 +208,22 @@ class TestActions:
         doc, preds = scene
         queue = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})
         before = list(doc.annotations)
-        assert apply_accept(doc, queue[1], "ren") == ("accepted", None)
-        assert apply_accept(doc, queue[2], "ren") == ("accepted", None)
+        assert apply_accept(doc, of_kind(queue, "fn"), "ren") == ("accepted", None)
+        assert apply_accept(doc, of_kind(queue, "tp"), "ren") == ("accepted", None)
         assert doc.annotations == before
 
     def test_reject_fp_changes_nothing(self, scene):
         doc, preds = scene
-        item = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})[0]
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fp")
         assert apply_reject(doc, item) == ("rejected", None)
         assert len(doc.annotations) == 2
 
     def test_reject_tp_and_fn_delete(self, scene):
         doc, preds = scene
         queue = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})
-        action, removed = apply_reject(doc, queue[2])
+        action, removed = apply_reject(doc, of_kind(queue, "tp"))
         assert action == "rejected" and removed not in doc.annotations
-        action, removed = apply_reject(doc, queue[1])
+        action, removed = apply_reject(doc, of_kind(queue, "fn"))
         assert removed not in doc.annotations and doc.annotations == []
 
 
@@ -202,7 +235,7 @@ class TestVerdicts:
         engine.state.state_dir = str(tmp_path / "state")
         os.makedirs(engine.state.state_dir)
         doc, preds = scene
-        item = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})[0]
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fp")
         engine.record_verdict("img_001.jpg", item, "rejected", "ren")
         v = engine.verdicts("img_001.jpg")["h:1"]
         assert v["action"] == "rejected" and v["by"] == "ren" and v["class_id"] == 0
@@ -344,3 +377,75 @@ class TestMigrateCentreEntries:
 
     def test_noop_without_legacy_entries(self, engine):
         assert engine.migrate_centre_entries("img_001.jpg", [], 640, 480) == 0
+
+
+# ── flags ───────────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def flag_engine(engine, tmp_path):
+    engine.state.image_folder = str(tmp_path)
+    engine.state.state_dir = str(tmp_path / "state")
+    os.makedirs(engine.state.state_dir)
+    return engine
+
+
+class TestFlags:
+    def test_save_opens_a_flag_without_a_verdict(self, flag_engine, scene):
+        doc, preds = scene
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fp")
+        flag_engine.save_flag("img_001.jpg", item, "maybe a leaf", "ren")
+        flag = flag_engine.open_flag("img_001.jpg", item.key)
+        assert flag["comment"] == "maybe a leaf" and flag["by"] == "ren" and flag["at"]
+        assert flag["kind"] == "fp" and not flag["resolved"]
+        assert flag_engine.verdicts("img_001.jpg") == {}
+        assert flag_engine.open_flag_keys("img_001.jpg") == {item.key}
+
+    def test_saving_again_edits_the_open_flag(self, flag_engine, scene):
+        doc, preds = scene
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fn")
+        flag_engine.save_flag("img_001.jpg", item, "", "ren")
+        flag_engine.save_flag("img_001.jpg", item, "two burs?", "zack")
+        history = flag_engine.flags("img_001.jpg")[item.key]
+        assert len(history) == 1
+        assert history[0]["comment"] == "two burs?" and history[0]["by"] == "ren"
+
+    def test_resolve_keeps_the_record_and_a_new_flag_starts_a_new_entry(self, flag_engine, scene):
+        doc, preds = scene
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "tp")
+        flag_engine.save_flag("img_001.jpg", item, "check", "ren")
+        flag_engine.resolve_flag("img_001.jpg", item.key, "zack")
+        assert flag_engine.open_flag("img_001.jpg", item.key) is None
+        (entry,) = flag_engine.flags("img_001.jpg")[item.key]
+        assert entry["resolved"] and entry["resolved_by"] == "zack" and entry["resolved_at"]
+        flag_engine.save_flag("img_001.jpg", item, "again", "ren")
+        assert len(flag_engine.flags("img_001.jpg")[item.key]) == 2
+        assert flag_engine.open_flag("img_001.jpg", item.key)["comment"] == "again"
+
+    def test_flags_persist_and_has_open_flags_reads_them(self, flag_engine, scene):
+        doc, preds = scene
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fp")
+        flag_engine.save_flag("img_001.jpg", item, "x", "ren")
+        flag_engine.load_review_state()
+        assert flag_engine.has_open_flags("img_001.jpg")
+        assert not flag_engine.has_open_flags("other.jpg")
+        flag_engine.resolve_flag("img_001.jpg", item.key, "zack")
+        assert not flag_engine.has_open_flags("img_001.jpg")
+
+    def test_carry_flags_moves_the_history_to_the_new_key(self, flag_engine, scene):
+        doc, preds = scene
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fn")
+        flag_engine.save_flag("img_001.jpg", item, "x", "ren")
+        flag_engine.carry_flags("img_001.jpg", item.key, "h:9")
+        assert flag_engine.open_flag_keys("img_001.jpg") == {"h:9"}
+
+    def test_flagged_status_filter_keeps_only_open_flagged_items(self, scene):
+        doc, preds = scene
+        matches = match_document(doc, preds, 0.6, 0.5)
+        queue = build_queue(doc, preds, matches, {}, filter_status="flagged", flagged={"h:1"})
+        assert [q.key for q in queue] == ["h:1"]
+
+    def test_markers_sit_on_the_annotation_when_there_is_one(self, scene):
+        doc, preds = scene
+        matches = match_document(doc, preds, 0.6, 0.5)
+        markers = flag_markers(doc, preds, matches, {"h:0", "h:1", "gone"})
+        assert markers == {"h:0": doc.annotations[0].points, "h:1": preds[1].points}

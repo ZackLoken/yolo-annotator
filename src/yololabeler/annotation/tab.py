@@ -20,14 +20,15 @@ from yololabeler.matching import point_to_segment_dist, point_in_polygon
 from yololabeler.rendering import place_label
 from yololabeler.review.engine import build_queue
 from yololabeler.review.layer import (
-    SELECTION_COLOR, STATUS_COLORS, LayerStyle, draw_prediction_layer, status_color,
-    status_colors_active,
+    FLAG_COLOR, FLAG_MARK, SELECTION_COLOR, STATUS_COLORS, LayerStyle, draw_prediction_layer,
+    status_color, status_colors_active,
 )
 from yololabeler.utils import auto_orient_image
 
 # Interaction constants, carried over from the original implementation
 VERTEX_HANDLE_RADIUS = 4      # base vertex marker radius in canvas px
 BOX_CORNER_HIT_RADIUS = 8     # canvas px; matches _find_nearest_vertex's default tolerance
+BOX_EDGE_HIT_RADIUS = 8       # canvas px from a box outline that selects or drags it; same as corners, provisional
 MIN_BOX_SIDE = 3              # image px; the minimum box side enforced when drawing
 # Streaming and snapping values taken from TCIP Agent's AnnotateTab.tsx
 STREAM_MIN_DISTANCE = 6       # canvas px the pointer moves before the next streamed vertex
@@ -519,6 +520,10 @@ class AnnotateTab:
         elif a.mode != "polygon":
             if a._hovered_annotation_id is not None:
                 a._hovered_annotation_id = None
+            on_outline = self._box_at_outline(event.x, event.y) is not None
+            cursor = "fleur" if on_outline else "cross"
+            if self.canvas.cget("cursor") != cursor:
+                self.canvas.config(cursor=cursor)
 
         # Polygon preview line
         if a.mode == "polygon" and a.current_polygon:
@@ -711,18 +716,15 @@ class AnnotateTab:
             self.display_image()
             return
 
-        for ann in self.visible_annotations():
-            if ann.kind != "box":
-                continue
-            (x1, y1), (x2, y2) = ann.points
-            if x1 <= click_ix <= x2 and y1 <= click_iy <= y2:
-                self._push_undo()
-                self.engine.delete_annotation(ann.id)
-                a._mark_image_annotated()
-                a._review_panel.refresh(keep_focus=True)
-                self.display_image()
-                a.update_title()
-                return
+        outlined = self._box_at_outline(event.x, event.y)
+        if outlined is not None:
+            self._push_undo()
+            self.engine.delete_annotation(outlined.id)
+            a._mark_image_annotated()
+            a._review_panel.refresh(keep_focus=True)
+            self.display_image()
+            a.update_title()
+            return
 
         for ann in self.visible_annotations():
             if ann.kind != "polygon":
@@ -744,21 +746,22 @@ class AnnotateTab:
         """Refresh the review queue after a GT geometry edit, and if the edit
         demoted a verdicted match to a freshly-unverdicted item under a new
         key, carry the prior verdict forward so the reviewer isn't asked to
-        re-confirm geometry they just fixed."""
+        re-confirm geometry they just fixed. Its flag history moves with it."""
         a = self.app
         item = a._review_panel.current_item()
         if item is None or item.annotation is None or item.annotation.id != ann_id:
             return
         old_key, old_verdict = item.key, a.verdicts.get(item.key)
         a._review_panel.refresh(keep_focus=True)
-        if old_verdict is None:
-            return
         all_items = build_queue(a.document, a.predictions, a.matches, a.verdicts)
         new_item = next((qi for qi in all_items
                          if qi.annotation is not None and qi.annotation.id == ann_id), None)
-        if new_item is not None and new_item.key != old_key and new_item.key not in a.verdicts:
+        if new_item is None or new_item.key == old_key:
+            return
+        a._review.carry_flags(img_name, old_key, new_item.key)
+        if old_verdict is not None and new_item.key not in a.verdicts:
             a._review.carry_verdict(img_name, new_item, old_verdict)
-            a._review_panel.refresh(keep_focus=True)
+        a._review_panel.refresh(keep_focus=True)
 
     def _clear_box_edit_state(self):
         a = self.app
@@ -782,10 +785,41 @@ class AnnotateTab:
                 best_i = i
         if best_i is not None:
             return opposite[best_i]
-        ix, iy = self.canvas_to_image(cx, cy)
-        if x1 <= ix <= x2 and y1 <= iy <= y2:
+        if self._box_outline_distance(ann, cx, cy) <= BOX_EDGE_HIT_RADIUS:
             return "move"
         return None
+
+    def _box_outline_distance(self, ann, cx, cy):
+        """Canvas-pixel distance from (cx, cy) to the nearest edge of a box annotation."""
+        (x1, y1), (x2, y2) = ann.points
+        corners = [self.image_to_canvas(x, y) for x, y in ((x1, y1), (x2, y1), (x2, y2), (x1, y2))]
+        return min(point_to_segment_dist(cx, cy, *corners[i], *corners[(i + 1) % 4])
+                   for i in range(4))
+
+    def _box_at_outline(self, cx, cy):
+        """The visible box whose outline is nearest (cx, cy) within BOX_EDGE_HIT_RADIUS, or None.
+
+        Boxes are picked by their outline, never their interior, so a press inside
+        a box can start a new box, e.g. a bur sitting inside a neighbour's box.
+        """
+        best, best_d = None, BOX_EDGE_HIT_RADIUS
+        for ann in self.visible_annotations():
+            if ann.kind != "box":
+                continue
+            d = self._box_outline_distance(ann, cx, cy)
+            if d <= best_d:
+                best, best_d = ann, d
+        return best
+
+    def _start_box_move(self, ann, event):
+        """Begin dragging a box by its outline; a release without movement changes nothing."""
+        a = self.app
+        p1, p2 = ann.points
+        ix, iy = self.canvas_to_image(event.x, event.y)
+        a._box_edit_mode = "move"
+        a._box_edit_origin = (p1, p2, ix, iy)
+        a._box_edit_dirty = False
+        self.canvas.config(cursor="fleur")
 
     def _box_press(self, event):
         a = self.app
@@ -798,12 +832,7 @@ class AnnotateTab:
             if selected.kind == "box":
                 hit = self._box_edit_hit(selected, event.x, event.y)
                 if hit == "move":
-                    p1, p2 = selected.points
-                    ix, iy = self.canvas_to_image(event.x, event.y)
-                    a._box_edit_mode = "move"
-                    a._box_edit_origin = (p1, p2, ix, iy)
-                    a._box_edit_dirty = False
-                    self.canvas.config(cursor="fleur")
+                    self._start_box_move(selected, event)
                     return
                 if hit is not None:
                     a._box_edit_mode = "resize"
@@ -811,14 +840,11 @@ class AnnotateTab:
                     a._box_edit_dirty = False
                     self.canvas.config(cursor="fleur")
                     return
-        ix, iy = self.canvas_to_image(event.x, event.y)
-        for ann in self.visible_annotations():
-            if ann.kind != "box":
-                continue
-            (x1, y1), (x2, y2) = ann.points
-            if x1 <= ix <= x2 and y1 <= iy <= y2:
-                self.select_annotation(ann.id)
-                return
+        outlined = self._box_at_outline(event.x, event.y)
+        if outlined is not None:
+            self.select_annotation(outlined.id)
+            self._start_box_move(outlined, event)
+            return
         if a._selected_annotation_id is not None:
             self.select_annotation(None)
         if a._review_filter_class == "all":
@@ -1462,6 +1488,7 @@ class AnnotateTab:
             (("line", FG_COLOR, style.dash), "Dashed: prediction"),
             (("line", FG_COLOR, style.rejected_dash), "Dotted: rejected prediction"),
             (("halo",), "Blue glow: item in review focus"),
+            (("flag",), f"Magenta {FLAG_MARK}: flagged for a second look (c)"),
             (("selected",), "Blue with handles: selected for editing"),
             (("snap",), "Dashed ring: snap target"),
         ]
@@ -1485,6 +1512,9 @@ class AnnotateTab:
                 canvas.create_line(sx0, cy, sx1, cy, fill=SELECTION_COLOR, width=7,
                                    tags="legend")
                 canvas.create_line(sx0, cy, sx1, cy, fill=FG_COLOR, width=2, tags="legend")
+            elif kind == "flag":
+                canvas.create_text((sx0 + sx1) / 2, cy, text=FLAG_MARK, fill=FLAG_COLOR,
+                                   font=(a.font_family, 14, "bold"), tags="legend")
             elif kind == "selected":
                 canvas.create_line(sx0, cy, sx1, cy, fill=SELECTION_COLOR, width=3,
                                    tags="legend")

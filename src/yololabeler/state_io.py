@@ -82,12 +82,12 @@ class AnnotationStats:
         """Return the completion record for name, or None if not completed."""
         return self.data["completion"].get(name)
 
-    def set_completion(self, name, by, blind, annotation_count, model):
-        """Record a completion entry for name with author, timestamp, blind flag, count and model."""
+    def set_completion(self, name, by, blind, annotation_count, model, open_flags):
+        """Record a completion entry: author, timestamp, blind flag, counts, model, open flags."""
         self.data["completion"][name] = {
             "by": by, "at": datetime.datetime.now().isoformat(timespec="seconds"),
             "blind": bool(blind), "annotation_count": int(annotation_count),
-            "model": model}
+            "model": model, "open_flags": int(open_flags)}
 
     def clear_completion(self, name):
         """Remove the completion record for name, if any."""

@@ -42,14 +42,15 @@ class TestAnnotationStats:
         stats, _ = AnnotationStats.load(p)
         stats.set_image_status("a.jpg", "complete")
         stats.set_blind("a.jpg", True)
-        stats.set_completion("a.jpg", by="ren", blind=True, annotation_count=4, model=None)
+        stats.set_completion("a.jpg", by="ren", blind=True, annotation_count=4, model=None,
+                             open_flags=2)
         stats.save(p)
         again, _ = AnnotationStats.load(p)
         assert again.image_status("a.jpg") == "complete"
         assert again.is_blind("a.jpg")
         rec = again.completion("a.jpg")
         assert rec["by"] == "ren" and rec["blind"] and rec["annotation_count"] == 4
-        assert rec["model"] is None and rec["at"]
+        assert rec["model"] is None and rec["at"] and rec["open_flags"] == 2
 
     def test_set_blind_off(self, tmp_path):
         stats, _ = AnnotationStats.load(tmp_path / "s.json")
@@ -59,7 +60,7 @@ class TestAnnotationStats:
 
     def test_clear_completion(self, tmp_path):
         stats, _ = AnnotationStats.load(tmp_path / "s.json")
-        stats.set_completion("a.jpg", "ren", False, 1, "nathan_v15")
+        stats.set_completion("a.jpg", "ren", False, 1, "nathan_v15", 0)
         stats.clear_completion("a.jpg")
         assert stats.completion("a.jpg") is None
 

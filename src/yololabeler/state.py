@@ -77,6 +77,7 @@ class AppState:
         self.predictions_blind = False # True when the image is blind and preds were not read
         self.matches = {}              # compute_matches output for the current image
         self.shape_statuses = None     # shape id -> review status, rebuilt with matches
+        self.flag_markers = {}         # open-flagged item key -> points its marker sits on
         self.conf_threshold = 0.25     # mirrored from ReviewEngine.conf_threshold
         self._review_filter_type = "all"
         self._review_filter_class = "all"

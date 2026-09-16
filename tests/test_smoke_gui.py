@@ -194,10 +194,10 @@ class TestBoxEditing:
         assert moved == pytest.approx(image_point(tab, x1 + 40, y1 + 30))
         assert app._box_edit_mode is None and app._box_edit_dirty is False
 
-    def test_dragging_the_body_shifts_both_points_by_the_same_delta(self, app):
+    def test_dragging_the_outline_shifts_both_points_by_the_same_delta(self, app):
         tab, ann = box_setup(app)
         (x1, y1), (x2, y2) = ann.points
-        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        cx, cy = top_edge_mid(ann)
         tab.select_annotation(ann.id)
         tab.on_button_press(click_at(tab, cx, cy))
         assert app._box_edit_mode == "move"
@@ -209,10 +209,10 @@ class TestBoxEditing:
         assert flat(app.document.get(ann.id).points) == pytest.approx(
             [x1 + dx, y1 + dy, x2 + dx, y2 + dy])
 
-    def test_dragging_the_body_past_an_edge_clamps_it_inside_the_image(self, app):
+    def test_dragging_the_outline_past_an_edge_clamps_it_inside_the_image(self, app):
         tab, ann = box_setup(app)
         (x1, y1), (x2, y2) = ann.points
-        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        cx, cy = top_edge_mid(ann)
         tab.select_annotation(ann.id)
         tab.on_button_press(click_at(tab, cx, cy))
         tab.on_move_press(click_at(tab, x2 + 400, y2 + 400))
@@ -260,23 +260,54 @@ class TestBoxEditing:
         other = app.document.annotations[-1]
         tab.select_annotation(other.id)
         count = len(app.document.annotations)
-        (x1, y1), (x2, y2) = ann.points
-        tab.on_button_press(click_at(tab, (x1 + x2) / 2, (y1 + y2) / 2))
+        tab.on_button_press(click_at(tab, *top_edge_mid(ann)))
         assert app._selected_annotation_id == ann.id
-        assert app.rect is None and app._box_edit_mode is None
-        tab.on_button_release(click_at(tab, (x1 + x2) / 2, (y1 + y2) / 2))
+        assert app.rect is None
+        tab.on_button_release(click_at(tab, *top_edge_mid(ann)))
         assert len(app.document.annotations) == count
+        assert app._box_edit_mode is None
 
-    def test_clicking_inside_a_box_with_nothing_selected_selects_it(self, app):
+    def test_clicking_an_outline_with_nothing_selected_selects_it(self, app):
         tab, ann = box_setup(app)
         assert app._selected_annotation_id is None and app.mode == "box"
         count = len(app.document.annotations)
-        (x1, y1), (x2, y2) = ann.points
-        tab.on_button_press(click_at(tab, (x1 + x2) / 2, (y1 + y2) / 2))
-        tab.on_button_release(click_at(tab, (x1 + x2) / 2, (y1 + y2) / 2))
+        tab.on_button_press(click_at(tab, *top_edge_mid(ann)))
+        tab.on_button_release(click_at(tab, *top_edge_mid(ann)))
         assert app._selected_annotation_id == ann.id
         assert app.rect is None
         assert len(app.document.annotations) == count
+
+    def test_clicking_inside_a_box_does_not_select_it(self, app):
+        tab, ann = box_setup(app)
+        tab.on_button_press(click_at(tab, *box_center(ann)))
+        assert app._selected_annotation_id is None
+        assert app.rect is not None
+
+    def test_dragging_inside_the_selected_box_draws_a_new_box(self, app):
+        tab, ann = box_setup(app)
+        tab.select_annotation(ann.id)
+        before = ann.points
+        count = len(app.document.annotations)
+        cx, cy = box_center(ann)
+        tab.on_button_press(click_at(tab, cx - 20, cy - 20))
+        assert app._box_edit_mode is None and app._selected_annotation_id is None
+        tab.on_move_press(click_at(tab, cx + 20, cy + 20))
+        tab.on_button_release(click_at(tab, cx + 20, cy + 20))
+        assert len(app.document.annotations) == count + 1
+        assert app.document.get(ann.id).points == before
+
+    def test_dragging_an_unselected_outline_selects_and_moves_it(self, app):
+        tab, ann = box_setup(app)
+        (x1, y1), (x2, y2) = ann.points
+        sx, sy = image_point(tab, *top_edge_mid(ann))
+        tab.on_button_press(click_at(tab, *top_edge_mid(ann)))
+        tx, ty = image_point(tab, x1 + 30, y1 + 10)
+        tab.on_move_press(click_at(tab, x1 + 30, y1 + 10))
+        tab.on_button_release(click_at(tab, x1 + 30, y1 + 10))
+        dx, dy = tx - sx, ty - sy
+        assert app._selected_annotation_id == ann.id
+        assert flat(app.document.get(ann.id).points) == pytest.approx(
+            [x1 + dx, y1 + dy, x2 + dx, y2 + dy])
 
     def test_hiding_labels_lets_you_draw_over_an_already_selected_box(self, app):
         tab, ann = box_setup(app)
@@ -655,8 +686,7 @@ class TestClassRequiredToDraw:
     def test_existing_box_still_selectable_while_filter_is_all(self, app):
         tab, ann = box_setup(app)
         app._on_class_selected("All")
-        cx, cy = box_center(ann)
-        tab.on_button_press(click_at(tab, cx, cy))
+        tab.on_button_press(click_at(tab, *top_edge_mid(ann)))
         assert app._selected_annotation_id == ann.id
 
 
@@ -825,13 +855,19 @@ def box_center(ann):
     return (x1 + x2) / 2, (y1 + y2) / 2
 
 
+def top_edge_mid(ann):
+    """The midpoint of a box annotation's top edge, where a press picks the box."""
+    (x1, y1), (x2, _) = ann.points
+    return (x1 + x2) / 2, y1
+
+
 class TestRightClickDelete:
     def test_deleting_the_focused_annotation_leaves_the_queue_usable(self, app):
         panel, tab = app._review_panel, app._annotate_tab
         panel.focus_item(next(i for i, q in enumerate(app.queue) if q.kind == "tp"))
         ann = panel.current_item().annotation
         assert ann is not None
-        tab.on_right_click(click_at(tab, *box_center(ann)))
+        tab.on_right_click(click_at(tab, *top_edge_mid(ann)))
         assert all(a.id != ann.id for a in app.document.annotations)
         assert all(q.annotation is None or q.annotation.id != ann.id for q in app.queue)
         assert tab.canvas.find_withtag("gt_focus") == ()
@@ -849,7 +885,7 @@ class TestRightClickDelete:
         tab.on_button_release(click_at(tab, 520, 440))
         drawn = app.document.annotations[-1]
         assert drawn.class_id == app.active_class
-        tab.on_right_click(click_at(tab, *box_center(drawn)))
+        tab.on_right_click(click_at(tab, *top_edge_mid(drawn)))
         assert all(a.id != drawn.id for a in app.document.annotations)
         assert panel.current_item().key == key
         assert panel.current_item().annotation is not None
@@ -865,11 +901,13 @@ def focus_kind(app, kind):
 
 
 def drag_box_to(tab, ann, ix, iy):
-    """Move an existing box annotation by dragging its centre to (ix, iy)."""
+    """Move an existing box annotation by its outline so its centre lands near (ix, iy)."""
     tab.select_annotation(ann.id)
-    tab.on_button_press(click_at(tab, *box_center(ann)))
-    tab.on_move_press(click_at(tab, ix, iy))
-    tab.on_button_release(click_at(tab, ix, iy))
+    ex, ey = top_edge_mid(ann)
+    cx, cy = box_center(ann)
+    tab.on_button_press(click_at(tab, ex, ey))
+    tab.on_move_press(click_at(tab, ix + ex - cx, iy + ey - cy))
+    tab.on_button_release(click_at(tab, ix + ex - cx, iy + ey - cy))
 
 
 def unfiltered_item_for(app, ann_id):
@@ -1130,7 +1168,7 @@ def typed_name(monkeypatch, value):
         def after(self, *a, **k):
             pass
 
-    monkeypatch.setattr(guimod.ctk, "CTkInputDialog", Dialog)
+    monkeypatch.setattr(guimod, "FitToContentInputDialog", Dialog)
 
 
 def saved_names(folder):
@@ -1452,3 +1490,131 @@ class TestIncompleteStep:
         app._annotate_tab.prev_image()
         assert asked == []
         assert app.images[app.index] == "a.jpg"
+
+
+# ── dialogs across a monitor DPI change ─────────────────────────────────────
+
+def dialog_with_wide_text(cls, root):
+    dialog = cls(root)
+    dialog.resizable(False, False)
+    ctk.CTkLabel(dialog, text="Mark this image complete and move to the next image?",
+                 font=("Arial", 12)).pack(padx=16, pady=(16, 12))
+    for text in ("Mark complete and continue (Enter)", "Continue without marking",
+                 "Stay (Esc)"):
+        ctk.CTkButton(dialog, text=text, width=260, font=("Arial", 12)).pack(
+            padx=16, pady=(0, 8))
+    dialog.update()
+    return dialog
+
+
+def rescale(dialog, factor):
+    """Apply CustomTkinter's per-window DPI rescale, then its delayed min/max release."""
+    from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
+    ScalingTracker.window_dpi_scaling_dict[dialog] *= factor
+    ScalingTracker.update_scaling_callbacks_for_window(dialog)
+    dialog._set_scaled_min_max()
+    dialog.update()
+
+
+class TestFitToContentDialog:
+    def test_dialog_still_fits_its_contents_after_moving_monitors(self, app):
+        dialog = dialog_with_wide_text(guimod.FitToContentToplevel, app.root)
+        try:
+            for factor in (1.5, 1 / 1.5, 1.25):
+                rescale(dialog, factor)
+                assert dialog.winfo_width() >= dialog.winfo_reqwidth()
+                assert dialog.winfo_height() >= dialog.winfo_reqheight()
+        finally:
+            dialog.destroy()
+
+
+# ── moving on along the path ────────────────────────────────────────────────
+
+class TestNextUnreviewedAfter:
+    def test_continues_forward_from_the_judged_item(self, app):
+        panel = app._review_panel
+        path = [q.key for q in app.queue]
+        assert panel.next_unreviewed_after(path, path[0]) == 1
+
+    def test_wraps_to_the_start(self, app):
+        panel = app._review_panel
+        path = [q.key for q in app.queue]
+        assert panel.next_unreviewed_after(path, path[-1]) == 0
+
+    def test_skips_reviewed_items(self, app):
+        panel = app._review_panel
+        path = [q.key for q in app.queue]
+        app.verdicts[path[1]] = {"action": "accepted"}
+        assert panel.next_unreviewed_after(path, path[1]) == 0
+
+
+# ── comment and flag ────────────────────────────────────────────────────────
+
+class TestCommentFlag:
+    def test_saving_a_comment_flags_the_focused_item(self, app, folder):
+        panel = app._review_panel
+        panel.focus_item(0)
+        key = panel.current_item().key
+        app.ask_flag_comment = lambda item, existing: ("save", "leaf or bur?")
+        app.comment_on_item()
+        assert set(app.flag_markers) == {key}
+        assert "1 flagged" in panel.counts_label.cget("text")
+        data = json.loads((folder / "state" / "review_stats.json").read_text(encoding="utf-8"))
+        (entry,) = data["image"]["a.jpg"]["flags"][key]
+        assert entry["comment"] == "leaf or bur?" and not entry["resolved"]
+        assert key not in app.verdicts
+
+    def test_flag_marker_and_badge_are_drawn(self, app):
+        panel, tab = app._review_panel, app._annotate_tab
+        panel.focus_item(0)
+        app.ask_flag_comment = lambda item, existing: ("save", "")
+        app.comment_on_item()
+        tab.render()
+        assert tab.canvas.find_withtag("flag")
+        badge = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_withtag("badge")
+                 if tab.canvas.type(i) == "text"]
+        assert badge[0].endswith("flagged")
+
+    def test_reopening_passes_the_open_flag_and_resolve_clears_it(self, app):
+        panel = app._review_panel
+        panel.focus_item(0)
+        app.ask_flag_comment = lambda item, existing: ("save", "first")
+        app.comment_on_item()
+        seen = []
+        app.ask_flag_comment = lambda item, existing: seen.append(existing) or ("resolve", None)
+        app.comment_on_item()
+        assert seen[0]["comment"] == "first"
+        assert app.flag_markers == {}
+
+    def test_cancel_changes_nothing(self, app):
+        app._review_panel.focus_item(0)
+        app.ask_flag_comment = lambda item, existing: ("cancel", None)
+        app.comment_on_item()
+        assert app.flag_markers == {}
+        assert app._review.flags("a.jpg") == {}
+
+    def test_flagged_review_status_filter(self, app):
+        panel = app._review_panel
+        panel.focus_item(0)
+        key = panel.current_item().key
+        app.ask_flag_comment = lambda item, existing: ("save", "")
+        app.comment_on_item()
+        panel.on_status_changed("Flagged")
+        assert [q.key for q in app.queue] == [key]
+
+    def test_completion_records_open_flags_and_image_filter_finds_the_image(self, app):
+        app._review_panel.focus_item(0)
+        app.ask_flag_comment = lambda item, existing: ("save", "")
+        app.comment_on_item()
+        app._complete_var.set(True)
+        app._on_complete_toggled()
+        assert app._stats_store.completion("a.jpg")["open_flags"] == 1
+        app._on_filter_changed("Flagged")
+        assert app._filtered_indices == [0]
+
+    def test_no_focused_item_shows_a_banner(self, app):
+        app.ask_incomplete_step = lambda: "continue"
+        app._annotate_tab.next_image()
+        assert app.queue == []
+        app.comment_on_item()
+        assert app.banner_text == "No review item in focus to comment on."
