@@ -549,7 +549,7 @@ class YoloLabeler:
             return
         self._review_panel.refresh(keep_focus=False)
         if self._filtered_sweep_complete():
-            self.go_to_image(self.index + 1, reset_filters=False)
+            self.go_to_image(self._annotate_tab.next_index(), reset_filters=False)
         else:
             self._review_panel.focus_item(self._review_panel.first_unreviewed())
 

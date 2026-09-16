@@ -1102,16 +1102,18 @@ class AnnotateTab:
     # ──────────────────────────────────────────────────────────────────────────
     #  Navigation
     # ──────────────────────────────────────────────────────────────────────────
-    def next_image(self, event=None):
+    def next_index(self):
+        """The index a step forward lands on, honouring the active image filter."""
         a = self.app
         if a._active_filter != "all" and a._filtered_indices:
             for idx in a._filtered_indices:
                 if idx > a.index:
-                    a.go_to_image(idx)
-                    return
-            a.go_to_image(a._filtered_indices[0])
-            return
-        a.go_to_image(a.index + 1)
+                    return idx
+            return a._filtered_indices[0]
+        return a.index + 1
+
+    def next_image(self, event=None):
+        self.app.go_to_image(self.next_index())
 
     def prev_image(self, event=None):
         a = self.app

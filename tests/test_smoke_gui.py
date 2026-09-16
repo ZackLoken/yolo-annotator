@@ -681,6 +681,23 @@ class TestAutoAdvanceFilters:
         assert app.images[app.index] == "b.jpg"
         assert list(disk_verdicts(folder)) == [fp_key]
 
+    def test_auto_advance_skips_an_image_the_list_filter_hides(self, app, folder):
+        Image.new("RGB", (640, 480), "gray").save(folder / "c.jpg")
+        app._init_folder(str(folder))
+        app._annotate_tab.load_image()
+        for name, status in (("a.jpg", "partial"), ("b.jpg", "complete"), ("c.jpg", "partial")):
+            app._stats_store.set_image_status(name, status)
+        app.filter_var.set("Partial")
+        app._on_filter_changed("Partial")
+        assert app._filtered_indices == [0, 2] and app.images[app.index] == "a.jpg"
+        panel = app._review_panel
+        panel.focus_item(0)
+        app.accept_item()
+        panel.focus_item(panel.first_unreviewed())
+        app.accept_item()
+        assert app.index in app._filtered_indices
+        assert app.images[app.index] == "c.jpg"
+
     def test_class_filter_still_advances_when_that_class_is_done(self, app, folder):
         panel = app._review_panel
         app._review_filter_class = 1
