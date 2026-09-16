@@ -348,6 +348,40 @@ class TestRenderSelection:
         assert set(drawn) == {"white", color}
         assert drawn["white"] == pytest.approx(drawn[color] + 2)
 
+    def test_selected_box_gets_four_corner_handles(self, app):
+        tab = app._annotate_tab
+        tab.fit_to_window()
+        app.queue = []
+        app._review_show_pred = False
+        ann = app.document.annotations[0]
+        (x1, y1), (x2, y2) = ann.points
+        cx1, cy1 = tab.image_to_canvas(x1, y1)
+        cx2, cy2 = tab.image_to_canvas(x2, y2)
+        corners = [(cx1, cy1), (cx2, cy1), (cx2, cy2), (cx1, cy2)]
+        box_w = abs(cx2 - cx1)
+
+        def corner_handles():
+            canvas = tab.canvas
+            found = []
+            for i in canvas.find_all():
+                if canvas.type(i) != "rectangle":
+                    continue
+                rx0, ry0, rx1, ry1 = canvas.coords(i)
+                if abs(rx1 - rx0) >= box_w or abs(ry1 - ry0) >= box_w:
+                    continue  # the full-box outline/halo rectangles, not a handle
+                center = ((rx0 + rx1) / 2, (ry0 + ry1) / 2)
+                if any(center == pytest.approx(corner, abs=0.5) for corner in corners):
+                    found.append(i)
+            return found
+
+        tab.select_annotation(None)
+        tab.render()
+        assert corner_handles() == []
+
+        tab.select_annotation(ann.id)
+        tab.render()
+        assert len(corner_handles()) == 4
+
     def test_unselected_polygon_is_drawn_once_in_the_class_colour(self, app):
         tab = app._annotate_tab
         app.queue = []

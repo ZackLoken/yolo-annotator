@@ -1257,6 +1257,11 @@ class AnnotateTab:
                     canvas.create_rectangle(
                         cx1, cy1, cx2, cy2, outline="white", fill="",
                         width=line_w + 2)
+                    r = sel_vert_r
+                    for hx, hy in ((cx1, cy1), (cx2, cy1), (cx2, cy2), (cx1, cy2)):
+                        canvas.create_rectangle(
+                            hx - r, hy - r, hx + r, hy + r,
+                            fill=color, outline="white", width=1)
                 canvas.create_rectangle(
                     cx1, cy1, cx2, cy2, outline=color, width=line_w)
                 _halo(cx1 + 2, cy1 - 2, anchor="sw",
