@@ -26,7 +26,7 @@ from yololabeler.annotation.tab import AnnotateTab
 from yololabeler.keybindings import KEY_BINDINGS
 from yololabeler.predictions.importers import import_predictions, FORMATS
 from yololabeler.predictions.store import read_manifest
-from yololabeler.review.engine import ReviewEngine, apply_accept, apply_reject
+from yololabeler.review.engine import ReviewEngine, apply_accept, apply_reject, build_queue
 from yololabeler.review.panel import ReviewPanel
 from yololabeler.utils import (
     suppress_tk_mac_warnings, _load_custom_fonts, _get_font_family,
@@ -546,10 +546,24 @@ class YoloLabeler:
             self._annotate_tab.select_annotation(created.id)
             return
         self._review_panel.refresh(keep_focus=False)
-        if self.queue and all(qi.key in self.verdicts for qi in self.queue):
+        if self._filtered_sweep_complete():
             self.go_to_image(self.index + 1, reset_filters=False)
         else:
             self._review_panel.focus_item(self._review_panel.first_unreviewed())
+
+    def _filtered_sweep_complete(self):
+        """Whether every item of the active Type and Class filters now has a verdict.
+
+        The Status filter is forced to "all" here: judged against the visible
+        queue instead, a Reviewed view is complete by construction and a
+        Not reviewed view empties itself, so neither answers this question.
+        """
+        if self.document is None or not self.matches:
+            return False
+        items = build_queue(self.document, self.predictions, self.matches, self.verdicts,
+                            self._review_filter_type, self._review_filter_class,
+                            filter_status="all")
+        return bool(items) and all(item.key in self.verdicts for item in items)
 
     def accept_item(self):
         """Accept the focused queue item, promoting an fp prediction into an annotation."""

@@ -357,6 +357,56 @@ class TestActions:
         assert after.key == key and after.kind == "tp"
 
 
+# ── auto-advance under filters ──────────────────────────────────────────────
+
+class TestAutoAdvanceFilters:
+    def test_reviewed_filter_does_not_advance_on_a_re_accept(self, app):
+        panel = app._review_panel
+        panel.focus_item(0)
+        assert panel.current_item().kind == "fp"
+        tp_key = next(q.key for q in app.queue if q.kind == "tp")
+        app.accept_item()
+        panel.on_status_changed("Reviewed")
+        # Every item in this view has a verdict by construction, but the tp does not.
+        assert app.queue and all(q.key in app.verdicts for q in app.queue)
+        assert tp_key not in app.verdicts
+        panel.focus_item(0)
+        app.accept_item()
+        assert app.images[app.index] == "a.jpg"
+
+    def test_not_reviewed_filter_advances_after_the_last_unreviewed_item(self, app):
+        panel = app._review_panel
+        panel.focus_item(0)
+        assert panel.current_item().kind == "fp"
+        app.accept_item()
+        panel.on_status_changed("Not reviewed")
+        assert [q.kind for q in app.queue] == ["tp"]
+        panel.focus_item(0)
+        app.accept_item()
+        assert app.images[app.index] == "b.jpg"
+
+    def test_type_filter_still_advances_when_that_type_is_done(self, app, folder):
+        panel = app._review_panel
+        panel.on_type_changed("FP")
+        assert [q.kind for q in app.queue] == ["fp"]
+        fp_key = app.queue[0].key
+        panel.focus_item(0)
+        app.reject_item()
+        assert app.images[app.index] == "b.jpg"
+        assert list(disk_verdicts(folder)) == [fp_key]
+
+    def test_class_filter_still_advances_when_that_class_is_done(self, app, folder):
+        panel = app._review_panel
+        app._review_filter_class = 1
+        panel.refresh(keep_focus=False)
+        assert [q.kind for q in app.queue] == ["fp"]
+        fp_key = app.queue[0].key
+        panel.focus_item(0)
+        app.reject_item()
+        assert app.images[app.index] == "b.jpg"
+        assert list(disk_verdicts(folder)) == [fp_key]
+
+
 # ── undo/redo with no folder open ───────────────────────────────────────────
 
 class TestUndoRedoNoFolder:
