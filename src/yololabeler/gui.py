@@ -191,63 +191,28 @@ class YoloLabeler:
         self.toolbar.pack_propagate(False)
 
         inner = ctk.CTkFrame(self.toolbar, fg_color="transparent")
-        inner.pack(fill="x", padx=6, pady=4)
+        inner.pack(fill="both", expand=True, padx=6, pady=4)
+        # Equal-weight side columns keep the middle group centred on the window.
+        inner.grid_columnconfigure(0, weight=1, uniform="toolbar_side")
+        inner.grid_columnconfigure(2, weight=1, uniform="toolbar_side")
+        inner.grid_rowconfigure(0, weight=1)
+        _tb_g1 = ctk.CTkFrame(inner, fg_color="transparent")
+        _tb_g1.grid(row=0, column=0, sticky="w")
+        _tb_g2 = ctk.CTkFrame(inner, fg_color="transparent")
+        _tb_g2.grid(row=0, column=1, padx=12)
+        _tb_g3 = ctk.CTkFrame(inner, fg_color="transparent")
+        _tb_g3.grid(row=0, column=2, sticky="e")
 
-        # ── LEFT: Logo | Open Folder (always visible) ──
-        self._load_logo(inner)
+        # ── Left: Logo | Open Folder | Color Picker | Class DD | Labels ──
+        self._load_logo(_tb_g1)
 
         self.open_btn = ctk.CTkButton(
-            inner, text="\U0001f4c2 Open Folder", width=120,
+            _tb_g1, text="\U0001f4c2 Open Folder", width=120,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 12),
             command=self._open_folder)
         self.open_btn.pack(side="left", padx=(8, 8))
 
-        # ── RIGHT: always-visible nav (pack first so it stays rightmost) ──
-        self._toolbar_right = ctk.CTkFrame(inner, fg_color="transparent")
-        self._toolbar_right.pack(side="right")
-
-        self.next_btn = ctk.CTkButton(
-            self._toolbar_right, text="Next \u25b6", width=70,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 12, "bold"),
-            command=lambda: self._annotate_tab.next_image())
-        self.next_btn.pack(side="right", padx=(2, 4))
-
-        self.total_label = ctk.CTkLabel(
-            self._toolbar_right, text="/ 0", font=(self.font_family, 12),
-            text_color=FG_COLOR)
-        self.total_label.pack(side="right", padx=(2, 4))
-
-        self.counter_entry = ctk.CTkEntry(
-            self._toolbar_right, width=55, font=(self.font_family, 12),
-            fg_color=ENTRY_BG, border_color=BORDER_COLOR,
-            text_color=FG_COLOR, justify="center")
-        self.counter_entry.pack(side="right", padx=(2, 0))
-        self.counter_entry.bind("<Return>", self._on_counter_enter)
-        self.counter_entry.bind("<FocusOut>", self._on_counter_focus_out)
-
-        self.prev_btn = ctk.CTkButton(
-            self._toolbar_right, text="\u25c0 Prev", width=70,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            text_color=FG_COLOR, font=(self.font_family, 12, "bold"),
-            command=lambda: self._annotate_tab.prev_image())
-        self.prev_btn.pack(side="right", padx=(4, 2))
-
-        # ── CENTER: Three annotation groups ──
-        self._toolbar_center = ctk.CTkFrame(inner, fg_color="transparent")
-        self._toolbar_center.pack(side="left", fill="x", expand=True)
-
-        _tb_g1 = ctk.CTkFrame(self._toolbar_center, fg_color="transparent")
-        _tb_g1.pack(side="left")
-
-        _tb_g2 = ctk.CTkFrame(self._toolbar_center, fg_color="transparent")
-        _tb_g2.pack(side="left")
-
-        _tb_g3 = ctk.CTkFrame(self._toolbar_center, fg_color="transparent")
-        _tb_g3.pack(side="left")
-
-        # ── Group 1: Color Picker | Class DD | Labels | Predictions ──
         self.color_btn = tk.Button(
             _tb_g1, text="  ", width=2, relief="flat",
             borderwidth=1, command=self._pick_class_color,
@@ -272,7 +237,7 @@ class YoloLabeler:
 
         self._visible_var = tk.BooleanVar(value=True)
         self._visible_cb = ctk.CTkCheckBox(
-            _tb_g1, text="Labels",
+            _tb_g1, text="Labels", width=1,
             variable=self._visible_var,
             font=(self.font_family, 11), text_color=FG_COLOR,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
@@ -280,7 +245,7 @@ class YoloLabeler:
             command=self._on_visible_toggled)
         self._visible_cb.pack(side="left", padx=(0, 4))
 
-        # ── Group 2: Mode | Stream | Snap ──
+        # ── Centre: Mode | Stream | Snap ──
         self.mode_btn = ctk.CTkButton(
             _tb_g2, text="Mode: Polygon \u2b21", width=120,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
@@ -302,10 +267,28 @@ class YoloLabeler:
             command=self._toggle_snap)
         self.snap_btn.pack(side="left", padx=(0, 4))
 
-        # ── Group 3: Image status DD | Complete | Blind pass ──
+        # ── Right: Blind pass | Complete | Image status DD | Prev | counter | Next ──
+        self._blind_var = tk.BooleanVar(value=False)
+        self.blind_cb = ctk.CTkCheckBox(
+            _tb_g3, text="Blind pass", variable=self._blind_var, width=1,
+            font=(self.font_family, 11), text_color=FG_COLOR,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
+            command=self._on_blind_toggled)
+        self.blind_cb.pack(side="left", padx=(0, 12))
+
+        self._complete_var = tk.BooleanVar(value=False)
+        self.complete_cb = ctk.CTkCheckBox(
+            _tb_g3, text="Complete", width=1,
+            variable=self._complete_var,
+            font=(self.font_family, 11), text_color=FG_COLOR,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            border_color=BORDER_COLOR,
+            command=self._on_complete_toggled)
+        self.complete_cb.pack(side="left", padx=(0, 12))
+
         ctk.CTkLabel(_tb_g3, text="Image status:",
                      font=(self.font_family, 11),
-                     text_color=FG_COLOR).pack(side="left", padx=(4, 2))
+                     text_color=FG_COLOR).pack(side="left", padx=(0, 2))
 
         self.filter_var = tk.StringVar(value="All")
         self.filter_dropdown = ctk.CTkComboBox(
@@ -322,23 +305,32 @@ class YoloLabeler:
             command=self._on_filter_changed)
         self.filter_dropdown.pack(side="left", padx=(0, 8))
 
-        self._complete_var = tk.BooleanVar(value=False)
-        self.complete_cb = ctk.CTkCheckBox(
-            _tb_g3, text="Complete",
-            variable=self._complete_var,
-            font=(self.font_family, 11), text_color=FG_COLOR,
+        self.prev_btn = ctk.CTkButton(
+            _tb_g3, text="◀ Prev", width=70,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            border_color=BORDER_COLOR,
-            command=self._on_complete_toggled)
-        self.complete_cb.pack(side="left", padx=(0, 4))
+            text_color=FG_COLOR, font=(self.font_family, 12, "bold"),
+            command=lambda: self._annotate_tab.prev_image())
+        self.prev_btn.pack(side="left", padx=(0, 2))
 
-        self._blind_var = tk.BooleanVar(value=False)
-        self.blind_cb = ctk.CTkCheckBox(
-            _tb_g3, text="Blind pass", variable=self._blind_var,
-            font=(self.font_family, 11), text_color=FG_COLOR,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
-            command=self._on_blind_toggled)
-        self.blind_cb.pack(side="left", padx=(0, 4))
+        self.counter_entry = ctk.CTkEntry(
+            _tb_g3, width=55, font=(self.font_family, 12),
+            fg_color=ENTRY_BG, border_color=BORDER_COLOR,
+            text_color=FG_COLOR, justify="center")
+        self.counter_entry.pack(side="left", padx=(2, 0))
+        self.counter_entry.bind("<Return>", self._on_counter_enter)
+        self.counter_entry.bind("<FocusOut>", self._on_counter_focus_out)
+
+        self.total_label = ctk.CTkLabel(
+            _tb_g3, text="/ 0", font=(self.font_family, 12),
+            text_color=FG_COLOR)
+        self.total_label.pack(side="left", padx=(4, 2))
+
+        self.next_btn = ctk.CTkButton(
+            _tb_g3, text="Next ▶", width=70,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR, font=(self.font_family, 12, "bold"),
+            command=lambda: self._annotate_tab.next_image())
+        self.next_btn.pack(side="left", padx=(2, 0))
 
     def _toolbar_sep(self, parent):
         sep = ctk.CTkFrame(parent, width=1, height=28,

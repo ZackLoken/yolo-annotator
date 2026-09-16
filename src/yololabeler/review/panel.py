@@ -57,39 +57,45 @@ class ReviewPanel:
     def build(self, left, centre, right):
         """Create the strip in the status bar's left, centre and right columns.
 
-        Left holds the prediction toggle, filters, threshold and counts; centre
-        holds Accept, Edit and Reject; right starts with the item stepper and its
-        "FP 2 / 16  not reviewed" readout, ahead of whatever the caller packs there.
+        Left holds the prediction toggle, threshold, filters and the item stepper
+        with its "FP 2 / 16  not reviewed" readout between the arrows; centre
+        holds Accept, Edit and Reject; the TP/FP/FN counts are packed on the right,
+        to the left of whatever the caller has already packed there.
         """
         a = self.app
         a._pred_var = tk.BooleanVar(value=a._review_show_pred)
         a._pred_cb = ctk.CTkCheckBox(
-            left, text="Predictions", variable=a._pred_var,
+            left, text="Predictions", variable=a._pred_var, width=1,
             font=(a.font_family, 11), text_color=FG_COLOR,
             fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
             command=a._on_pred_toggled)
-        a._pred_cb.pack(side="left", padx=(0, 8))
+        a._pred_cb.pack(side="left", padx=(0, 10))
 
-        self._label(left, "Type").pack(side="left", padx=(0, 2))
-        self.type_var = tk.StringVar(value="All")
-        self.type_dd = self._combo(left, self.type_var, ["All", "FP", "FN", "TP"], 70,
-                                   self.on_type_changed)
-        self.type_dd.pack(side="left", padx=(0, 8))
-        self._label(left, "Review status").pack(side="left", padx=(0, 2))
-        self.status_var = tk.StringVar(value="All")
-        self.status_dd = self._combo(left, self.status_var,
-                                     ["All", "Not reviewed", "Reviewed"], 110,
-                                     self.on_status_changed)
-        self.status_dd.pack(side="left", padx=(0, 8))
         self._label(left, "Conf").pack(side="left", padx=(0, 2))
-        self.conf_entry = ctk.CTkEntry(left, width=50, font=(a.font_family, 11),
+        self.conf_entry = ctk.CTkEntry(left, width=44, font=(a.font_family, 11),
                                        fg_color=ENTRY_BG, border_color=BORDER_COLOR,
                                        text_color=FG_COLOR, justify="center")
         self.conf_entry.pack(side="left", padx=(0, 8))
         self.conf_entry.bind("<Return>", self._on_conf_enter)
         self.conf_entry.bind("<FocusOut>", lambda e: self._show_threshold())
-        self.counts_label = self._label(left, "TP 0  FP 0  FN 0")
-        self.counts_label.pack(side="left")
+        self._label(left, "Review status").pack(side="left", padx=(0, 2))
+        self.status_var = tk.StringVar(value="All")
+        self.status_dd = self._combo(left, self.status_var,
+                                     ["All", "Not reviewed", "Reviewed"], 100,
+                                     self.on_status_changed)
+        self.status_dd.pack(side="left", padx=(0, 8))
+        self._label(left, "Type").pack(side="left", padx=(0, 2))
+        self.type_var = tk.StringVar(value="All")
+        self.type_dd = self._combo(left, self.type_var, ["All", "FP", "FN", "TP"], 64,
+                                   self.on_type_changed)
+        self.type_dd.pack(side="left", padx=(0, 8))
+        self.prev_item_btn = self._button(left, "◀", 28, lambda: self.step(-1), bold=False)
+        self.prev_item_btn.pack(side="left")
+        # Fixed width so the next arrow does not jump as the readout changes length.
+        self.item_label = self._label(left, "", width=130, anchor="center")
+        self.item_label.pack(side="left", padx=2)
+        self.next_item_btn = self._button(left, "▶", 28, lambda: self.step(1), bold=False)
+        self.next_item_btn.pack(side="left")
 
         self.accept_btn = self._button(centre, "Accept (A)", 96, a.accept_item)
         self.accept_btn.pack(side="left", padx=(0, 6))
@@ -98,12 +104,9 @@ class ReviewPanel:
         self.reject_btn = self._button(centre, "Reject (R)", 96, a.reject_item)
         self.reject_btn.pack(side="left")
 
-        self.prev_item_btn = self._button(right, "◀", 30, lambda: self.step(-1), bold=False)
-        self.prev_item_btn.pack(side="left")
-        self.next_item_btn = self._button(right, "▶", 30, lambda: self.step(1), bold=False)
-        self.next_item_btn.pack(side="left", padx=(2, 6))
-        self.item_label = self._label(right, "", anchor="w")
-        self.item_label.pack(side="left")
+        a._status_sep_right(right)
+        self.counts_label = self._label(right, "TP 0  FP 0  FN 0")
+        self.counts_label.pack(side="right", padx=(0, 6))
         self._show_threshold()
 
     # ── loading and refresh ────────────────────────────────────────────────
