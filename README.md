@@ -321,9 +321,9 @@ viewport or leave unsaved work behind.
   Complete, for measuring assisted versus unassisted annotation
 - Completion tracking: mark an image Complete to record who, when, how many
   annotations, and which model; filter the image list by status
-- Canvas banner: import results, migrated data counts, rejected label or
-  prediction lines, and save failures are reported in one message on the canvas;
-  no pop-ups for routine feedback
+- Canvas banner: migrated data counts, rejected label or prediction lines, and
+  save failures are reported in one message on the canvas; no pop-ups for
+  routine feedback
 - Annotation stats: per-image and per-session timing, annotation counts
   (`annotation_stats.json`)
 - Separate label dirs: `labels/detect/` and `labels/segment/` for clean
