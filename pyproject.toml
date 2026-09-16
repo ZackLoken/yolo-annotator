@@ -7,7 +7,7 @@ name = "yololabeler"
 version = "1.0.0"
 description = "Image annotation tool for YOLO training - draw bounding boxes and polygons, export in YOLO detection + segmentation format"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.14"
 license = {text = "MIT"}
 authors = [
     {name = "Zack Loken"},

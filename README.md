@@ -6,7 +6,7 @@ Desktop tool for drawing and reviewing YOLO bounding-box and instance-segmentati
 annotations, and for visualizing model predictions against ground truth.
 Built with Python + CustomTkinter.
 
-![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)
+![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -34,7 +34,7 @@ pytest -q
 
 ### Requirements
 
-- Python 3.9+
+- Python 3.14+
 - Pillow ≥ 9.0
 - CustomTkinter ≥ 5.0
 - Shapely ≥ 2.0

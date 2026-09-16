@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run one test file: `pytest tests/test_matching.py -q`
 - Run one test: `pytest tests/test_matching.py::TestBoxIou::test_perfect_overlap -q`
 - No linter or formatter is configured in this repo (no ruff/black/flake8 section in pyproject.toml, no config files for any of them).
-- CI (`.github/workflows/tests.yml`) runs `pytest -q` on Python 3.9 and 3.12 on push/PR to main.
+- CI (`.github/workflows/tests.yml`) runs `pytest -q` on Python 3.14 on push/PR to main.
 
 ## Architecture
 
