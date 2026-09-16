@@ -1558,7 +1558,9 @@ def main():
     ctk.set_default_color_theme("dark-blue")
 
     root = ctk.CTk()
-    root.geometry("1200x800")
+    # 1600 is the first width that fits the toolbar's measured natural width
+    # (1533 at a scaling factor of 1) with room to spare.
+    root.geometry("1600x800")
     root.title("YoloLabeler")
     root.configure(fg_color=BG_COLOR)
 
