@@ -36,7 +36,7 @@ headlessly, e.g. for scripting, AI agents, or training pipelines.
 | `review/layer.py` | Draws the prediction layer and the focused pair on a canvas passed in by the caller; no widgets of its own. |
 | `review/panel.py` | `ReviewPanel`, the status-bar strip: stepping, accept/reject, filters, the confidence entry. Replaces the old `review/tab.py`. GUI. |
 | `predictions/store.py` | `Prediction` records, file-hash ids, canonical loading, manifest read/write. GUI-free. |
-| `predictions/importers.py` | The three prediction format converters run by Import predictions (`FORMATS`). GUI-free. |
+| `predictions/importers.py` | The three prediction format converters (`FORMATS`), run by `batch.py` under the `yololabeler-import` CLI. GUI-free. |
 | `predictions/batch.py` | `plan_pairs`, `batch_import`: pair a source prediction tree to an image tree strictly by relative path, then run `import_predictions` per pair. GUI-free. |
 | `predictions/cli.py` | `main()` behind the `yololabeler-import` console script: argparse over `batch.py`, dry run by default. GUI-free and headless-safe. |
 | `state_io.py` | `AnnotationStats`: `annotation_stats.json` access, quarantine of a corrupt file. GUI-free. |
