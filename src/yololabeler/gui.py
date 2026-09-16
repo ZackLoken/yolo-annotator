@@ -467,7 +467,7 @@ class YoloLabeler:
             "help": tab.toggle_help, "rename_class": self._rename_class_dialog,
         }
         for n in range(10):
-            actions[f"class_{n}"] = lambda n=n: self._select_class_by_id(n)
+            actions[f"class_{n}"] = lambda n=n: self._select_class_for_filter_and_draw(n)
         return actions
 
     def _bind_keys(self):
@@ -1193,6 +1193,12 @@ class YoloLabeler:
         try:
             class_id = int(choice.split(":")[0].strip())
         except ValueError:
+            return
+        self._select_class_for_filter_and_draw(class_id)
+
+    def _select_class_for_filter_and_draw(self, class_id):
+        """Set class_id as both the active drawing class and the review class filter."""
+        if class_id not in self.class_names:
             return
         self._review_filter_class = class_id
         self._select_class_by_id(class_id)

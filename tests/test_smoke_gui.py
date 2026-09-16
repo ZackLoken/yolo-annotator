@@ -120,6 +120,7 @@ class TestAnnotate:
 
     def test_draw_delete_undo(self, app):
         tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
         tab.on_button_press(click_at(tab, 50, 50))
         tab.on_button_release(click_at(tab, 150, 150))
         assert len(app.document.annotations) == 2
@@ -130,6 +131,7 @@ class TestAnnotate:
 
     def test_save_and_reload(self, app):
         tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
         tab.on_button_press(click_at(tab, 50, 50))
         tab.on_button_release(click_at(tab, 150, 150))
         assert tab.save_annotations() is None
@@ -158,8 +160,8 @@ class TestAnnotate:
 # ── box editing ─────────────────────────────────────────────────────────────
 
 def box_setup(app):
-    """The tab and the fixture's GT box, with its class active and the image in view."""
-    app._select_class_by_id(0)
+    """The tab and the fixture's GT box, with its class chosen and the image in view."""
+    app._select_class_for_filter_and_draw(0)
     tab = app._annotate_tab
     tab.fit_to_window()
     return tab, app.document.annotations[0]
@@ -507,6 +509,45 @@ class TestClassFilterMerge:
         assert app.class_dropdown.get() == "All"
 
 
+class TestClassRequiredToDraw:
+    def test_box_draw_blocked_while_filter_is_all(self, app):
+        tab = app._annotate_tab
+        app._on_class_selected("All")
+        tab.fit_to_window()
+        before = len(app.document.annotations)
+        tab.on_button_press(click_at(tab, 50, 50))
+        tab.on_button_release(click_at(tab, 150, 150))
+        assert len(app.document.annotations) == before
+        assert "class" in app.banner_text
+
+    def test_polygon_draw_blocked_while_filter_is_all(self, poly_app):
+        tab = poly_app._annotate_tab
+        poly_app._on_class_selected("All")
+        tab.fit_to_window()
+        tab.on_button_press(click_at(tab, 500, 400))
+        assert poly_app.current_polygon == []
+        assert "class" in poly_app.banner_text
+
+    def test_numeric_shortcut_sets_the_filter_and_unblocks_drawing(self, app):
+        tab = app._annotate_tab
+        app._on_class_selected("All")
+        app.ACTIONS["class_0"]()
+        assert app._review_filter_class == 0
+        assert app.active_class == 0
+        tab.fit_to_window()
+        before = len(app.document.annotations)
+        tab.on_button_press(click_at(tab, 50, 50))
+        tab.on_button_release(click_at(tab, 150, 150))
+        assert len(app.document.annotations) == before + 1
+
+    def test_existing_box_still_selectable_while_filter_is_all(self, app):
+        tab, ann = box_setup(app)
+        app._on_class_selected("All")
+        cx, cy = box_center(ann)
+        tab.on_button_press(click_at(tab, cx, cy))
+        assert app._selected_annotation_id == ann.id
+
+
 # ── actions ─────────────────────────────────────────────────────────────────
 
 class TestActions:
@@ -576,6 +617,7 @@ class TestActions:
 
     def test_drawing_an_unrelated_box_records_nothing_for_the_focused_item(self, app):
         panel, tab = app._review_panel, app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
         panel.focus_item(len(app.queue) - 1)
         item = panel.current_item()
         assert item.kind == "tp"
@@ -635,6 +677,7 @@ class TestRightClickDelete:
 
     def test_deleting_an_unrelated_annotation_keeps_the_focus(self, app):
         panel, tab = app._review_panel, app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
         panel.focus_item(next(i for i, q in enumerate(app.queue) if q.kind == "tp"))
         key = panel.current_item().key
         tab.fit_to_window()
@@ -732,6 +775,7 @@ class TestUndoRedoNoFolder:
 class TestNavigation:
     def test_go_to_image_saves_first(self, app, folder):
         tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
         tab.on_button_press(click_at(tab, 50, 50))
         tab.on_button_release(click_at(tab, 150, 150))
         assert app.go_to_image(1)
@@ -1099,6 +1143,7 @@ class TestAcceptance:
 
     def test_draw_step_navigate_return(self, app):
         tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
         tab.on_button_press(click_at(tab, 100, 100))
         tab.on_button_release(click_at(tab, 160, 160))
         app._review_panel.step(1)

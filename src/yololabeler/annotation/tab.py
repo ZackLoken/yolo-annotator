@@ -789,6 +789,9 @@ class AnnotateTab:
                 return
         if a._selected_annotation_id is not None:
             self.select_annotation(None)
+        if a._review_filter_class == "all":
+            a.show_banner("Select a class before drawing.")
+            return
         a.start_x = event.x
         a.start_y = event.y
         color = a._get_class_color(a.active_class)
@@ -984,6 +987,10 @@ class AnnotateTab:
 
         if just_deselected:
             self.display_image()
+            return
+
+        if a._review_filter_class == "all":
+            a.show_banner("Select a class before drawing.")
             return
 
         ix, iy = self._maybe_snap(ix, iy)
