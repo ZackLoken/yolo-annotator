@@ -1231,18 +1231,21 @@ class YoloLabeler:
             return
         self._select_class_by_id(class_id)
 
+    def _class_name_dialog(self, text, title):
+        """Build a class-name input dialog with the main window's icon; return the typed name or None."""
+        dialog = ctk.CTkInputDialog(
+            text=text, title=title, fg_color=BG_COLOR,
+            button_fg_color=ACCENT, button_hover_color=ACCENT_HOVER,
+            entry_fg_color=ENTRY_BG, entry_border_color=BORDER_COLOR,
+            button_text_color=FG_COLOR)
+        dialog.iconphoto(True, self._app_icon_image)
+        if sys.platform.startswith("win"):
+            dialog.iconbitmap(os.path.join(ASSETS_DIR, "app_icon.ico"))
+        return dialog.get_input()
+
     def _add_class_dialog(self):
         """Open a small dialog to add a new class by name."""
-        dialog = ctk.CTkInputDialog(
-            text="Enter new class name:",
-            title="Add Class",
-            fg_color=BG_COLOR,
-            button_fg_color=ACCENT,
-            button_hover_color=ACCENT_HOVER,
-            entry_fg_color=ENTRY_BG,
-            entry_border_color=BORDER_COLOR,
-            button_text_color=FG_COLOR)
-        name = dialog.get_input()
+        name = self._class_name_dialog("Enter new class name:", "Add Class")
         if not name or not name.strip():
             return
         name = name.strip()
@@ -1269,16 +1272,9 @@ class YoloLabeler:
         if self.active_class not in self.class_names:
             return
         current = self.class_names[self.active_class]
-        dialog = ctk.CTkInputDialog(
-            text=f'Rename class {self.active_class} (currently "{current}"):',
-            title="Rename Class",
-            fg_color=BG_COLOR,
-            button_fg_color=ACCENT,
-            button_hover_color=ACCENT_HOVER,
-            entry_fg_color=ENTRY_BG,
-            entry_border_color=BORDER_COLOR,
-            button_text_color=FG_COLOR)
-        name = dialog.get_input()
+        name = self._class_name_dialog(
+            f'Rename class {self.active_class} (currently "{current}"):',
+            "Rename Class")
         if not name or not name.strip():
             return
         name = name.strip()

@@ -362,6 +362,12 @@ def typed_name(monkeypatch, value):
         def get_input(self):
             return value
 
+        def iconphoto(self, *a, **k):
+            pass
+
+        def iconbitmap(self, *a, **k):
+            pass
+
     monkeypatch.setattr(guimod.ctk, "CTkInputDialog", Dialog)
 
 
