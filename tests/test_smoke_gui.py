@@ -782,6 +782,32 @@ class TestActions:
                             filter_status="not_reviewed")
         assert all(q.key != drawn.id for q in items)
 
+    def test_a_hand_drawn_box_is_on_disk_before_its_verdict_is(self, app, folder):
+        tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
+        tab.on_button_press(click_at(tab, 420, 360))
+        tab.on_button_release(click_at(tab, 520, 440))
+        drawn = app.document.annotations[-1]
+        lines = (folder / "labels" / "detect" / "a.txt").read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2
+        assert disk_verdicts(folder)[drawn.id]["action"] == "accepted"
+
+    def test_a_failed_save_records_no_verdict_and_rolls_the_accept_back(self, app, folder):
+        import os
+        broken = folder / "labels" / "detect" / "a.txt"
+        os.remove(broken)
+        os.makedirs(broken)
+        try:
+            app._review_panel.focus_item(0)
+            assert app.queue[0].kind == "fp"
+            app.accept_item()
+            assert app.verdicts == {} and disk_verdicts(folder) == {}
+            assert len(app.document.annotations) == 1
+            assert app._redo_stack == []
+            assert "Could not save" in app.banner_text
+        finally:
+            os.rmdir(broken)
+
     def test_undoing_a_hand_drawn_box_drops_its_verdict(self, app):
         tab = app._annotate_tab
         app._select_class_for_filter_and_draw(0)
@@ -1365,6 +1391,35 @@ class TestLoadFailures:
         app._engine.add_box(1, 1, 20, 20)
         assert app.save_current() is None
         assert p.read_text(encoding="utf-8").splitlines() == ["0 0.5 0.5 0.2 0.2", "nope"]
+
+    def test_a_read_only_image_refuses_a_drawn_box(self, app, folder):
+        p = folder / "labels" / "detect" / "a.txt"
+        p.write_text("0 0.5 0.5 0.2 0.2\nnope\n", encoding="utf-8")
+        app._annotate_tab.load_image()
+        app.clear_banner()
+        tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
+        tab.on_button_press(click_at(tab, 420, 360))
+        tab.on_button_release(click_at(tab, 520, 440))
+        assert len(app.document.annotations) == 1
+        assert app.banner_text.startswith("Read-only")
+
+    def test_a_read_only_image_refuses_a_verdict(self, app, folder):
+        p = folder / "labels" / "detect" / "a.txt"
+        p.write_text("0 0.5 0.5 0.2 0.2\nnope\n", encoding="utf-8")
+        app._annotate_tab.load_image()
+        app._review_panel.focus_item(0)
+        assert app.queue[0].kind == "fp"
+        app.accept_item()
+        assert app.verdicts == {} and len(app.document.annotations) == 1
+        assert app.banner_text.startswith("Read-only")
+
+    def test_a_corrupt_manifest_is_quarantined_and_reported(self, app, folder):
+        (folder / "predictions" / "manifest.json").write_text("{not json", encoding="utf-8")
+        app._init_folder(str(folder))
+        assert not (folder / "predictions" / "manifest.json").exists()
+        assert list((folder / "predictions").glob("manifest.json.corrupt-*"))
+        assert "manifest.json could not be read" in app.banner_text
 
     def test_unreadable_image_is_skipped_and_reported(self, app, folder):
         (folder / "aa_bad.jpg").write_bytes(b"not an image")

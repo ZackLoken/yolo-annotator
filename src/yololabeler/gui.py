@@ -8,7 +8,6 @@ toolbar, status bar, class registry, folder loading and session stats.
 import math
 import os
 import sys
-import json
 import time
 import getpass
 import datetime
@@ -25,7 +24,8 @@ from yololabeler.state_io import AnnotationStats, read_json_or_quarantine
 from yololabeler.annotation.engine import AnnotationEngine
 from yololabeler.annotation.tab import AnnotateTab
 from yololabeler.keybindings import KEY_BINDINGS
-from yololabeler.predictions.store import read_manifest
+from yololabeler.label_io import write_json_atomic
+from yololabeler.predictions.store import MANIFEST_NAME, read_manifest
 from yololabeler.review.engine import ReviewEngine, apply_accept, apply_reject, build_queue
 from yololabeler.review.panel import ReviewPanel
 from yololabeler.utils import (
@@ -557,15 +557,34 @@ class YoloLabeler:
         self._annotate_tab.redo_last()
         self._review_panel.refresh()
 
+    def _editable(self):
+        """Whether the current image accepts edits; a label file that failed to parse makes it read-only."""
+        if not self.load_errors:
+            return True
+        self.show_banner(
+            f"Read-only: {len(self.load_errors)} label lines could not be read "
+            f"({'; '.join(self.load_errors)}). Fix the file, then step away and back.")
+        return False
+
     def _apply_verdict(self, item, apply):
-        """Undo point, mutate, save, then record the verdict; returns apply's second element."""
+        """Undo point, mutate, save, then record the verdict.
+
+        Returns (True, apply's second element) once the labels are on disk, or
+        (False, None) when the image is read-only or the save failed, with the
+        change rolled back so no verdict is recorded for an unwritten change.
+        """
+        if not self._editable():
+            return False, None
         self._engine.push_undo()
         action, result = apply(item)
-        # Labels first, so a crash cannot leave a verdict for an unwritten change.
-        self.save_current()
+        if self.save_current() is not None:
+            self._engine.undo_snapshot()
+            self._redo_stack.pop()
+            self._review_panel.refresh(keep_focus=True)
+            return False, None
         self._review.record_verdict(self.images[self.index], item, action, self._current_user)
         self._mark_image_annotated()
-        return result
+        return True, result
 
     def _act_on_item(self, apply):
         """Shared body of accept and reject: record the verdict, then move on.
@@ -578,7 +597,9 @@ class YoloLabeler:
             return
         # Taken before the verdict: rejecting a model miss removes it from the path.
         path = [qi.key for qi in self._sweep_items()]
-        self._apply_verdict(item, apply)
+        applied, _ = self._apply_verdict(item, apply)
+        if not applied:
+            return
         # A reject can resolve the image's last flag, which changes the Flagged image list.
         self._rebuild_filter()
         self._update_filter_label()
@@ -637,8 +658,10 @@ class YoloLabeler:
         if item is None or self.predictions_blind:
             return
         if item.annotation is None:
-            created = self._apply_verdict(
+            applied, created = self._apply_verdict(
                 item, lambda it: apply_accept(self.document, it, self._current_user))
+            if not applied:
+                return
             self._review_panel.refresh(keep_focus=True)
             ann_id = created.id
         else:
@@ -736,7 +759,9 @@ class YoloLabeler:
         """Record an accepted verdict for the queue item a hand-drawn annotation forms.
 
         A person drew it, so it is ground truth already and never waits in the
-        queue for a review action. Called after the annotation is added.
+        queue for a review action. Called after the annotation is added. The
+        labels are saved first, so a verdict is never recorded for a shape
+        that is not on disk.
         """
         self._review_panel.refresh(keep_focus=True)
         if self.predictions_blind or self.document is None or not self.matches:
@@ -745,6 +770,8 @@ class YoloLabeler:
         item = next((qi for qi in items
                      if qi.annotation is not None and qi.annotation.id == ann.id), None)
         if item is None or item.key in self.verdicts:
+            return
+        if self.save_current() is not None:
             return
         self._review.record_verdict(self.images[self.index], item, "accepted",
                                     self._current_user)
@@ -898,6 +925,11 @@ class YoloLabeler:
         self._load_stats()
         self._load_completed_from_stats()
         self._load_review_state()
+        _, moved = read_json_or_quarantine(os.path.join(folder, "predictions", MANIFEST_NAME))
+        if moved:
+            self.show_banner(
+                f"predictions/manifest.json could not be read and was moved to "
+                f"{os.path.basename(moved)}. The confidence cutoff falls back to the default.")
         self.conf_threshold = self._review.conf_threshold
         self._review_panel._show_threshold()
         # Prepopulate image_status for every image in the folder
@@ -1526,8 +1558,7 @@ class YoloLabeler:
                 entry["color"] = self.class_colors[cid]
             data[str(cid)] = entry
         try:
-            with open(classes_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            write_json_atomic(classes_path, data)
         except OSError as e:
             self.show_banner(f"Could not save classes.json: {e.strerror or e}")
 

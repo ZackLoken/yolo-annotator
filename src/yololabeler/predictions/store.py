@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 from dataclasses import dataclass
 from typing import List, Tuple
 
 from yololabeler.label_io import parse_label_file, write_json_atomic
+from yololabeler.state_io import read_json_or_quarantine
 
 MANIFEST_NAME = "manifest.json"
 HASH_LENGTH = 12  # spec 3.2
@@ -58,12 +58,13 @@ def load_predictions(pred_detect_dir, pred_segment_dir, stem, width, height):
 
 
 def read_manifest(predictions_dir):
-    """Return the parsed manifest.json under predictions_dir, or None if absent."""
-    path = os.path.join(str(predictions_dir), MANIFEST_NAME)
-    if not os.path.exists(path):
-        return None
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    """Return the parsed manifest.json under predictions_dir, or None if absent.
+
+    A manifest that fails to parse is quarantined beside its folder, like every
+    other state file, and read as absent.
+    """
+    data, _moved = read_json_or_quarantine(os.path.join(str(predictions_dir), MANIFEST_NAME))
+    return data
 
 
 def write_manifest(predictions_dir, manifest):

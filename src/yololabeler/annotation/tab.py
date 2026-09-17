@@ -631,6 +631,8 @@ class AnnotateTab:
             self._legend_open = not self._legend_open
             self.display_image()
             return
+        if not self.app._editable():
+            return
         if self.app.mode == "box":
             self._box_press(event)
         else:
@@ -678,7 +680,7 @@ class AnnotateTab:
 
     def on_right_click(self, event):
         a = self.app
-        if self._in_legend(event):
+        if self._in_legend(event) or not a._editable():
             return
         if a.mode == "polygon" and a.current_polygon:
             a.current_polygon = []

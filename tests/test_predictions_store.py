@@ -74,3 +74,9 @@ class TestManifest:
     def test_round_trip(self, tmp_path):
         write_manifest(tmp_path, {"model": "nathan_v15"})
         assert read_manifest(tmp_path)["model"] == "nathan_v15"
+
+    def test_corrupt_manifest_is_quarantined_and_read_as_absent(self, tmp_path):
+        (tmp_path / "manifest.json").write_text("{not json", encoding="utf-8")
+        assert read_manifest(tmp_path) is None
+        assert not (tmp_path / "manifest.json").exists()
+        assert list(tmp_path.glob("manifest.json.corrupt-*"))
