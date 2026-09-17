@@ -439,6 +439,43 @@ class TestRenderSelection:
         tab.render()
         assert len(corner_handles()) == 4
 
+    def test_hovering_a_box_outline_shows_its_corner_handles(self, app):
+        tab = app._annotate_tab
+        tab.fit_to_window()
+        app.queue = []
+        app._review_show_pred = False
+        ann = app.document.annotations[0]
+        tab._on_motion(motion_at(tab, *top_edge_mid(ann)))
+        assert app._hovered_annotation_id == ann.id
+        tab.render()
+        (x1, y1), (x2, y2) = ann.points
+        corners = [tab.image_to_canvas(x, y) for x, y in ((x1, y1), (x2, y1), (x2, y2), (x1, y2))]
+        canvas = tab.canvas
+        handles = [i for i in canvas.find_all() if canvas.type(i) == "rectangle"
+                   and canvas.itemcget(i, "fill") == "white"
+                   and any(((canvas.coords(i)[0] + canvas.coords(i)[2]) / 2,
+                            (canvas.coords(i)[1] + canvas.coords(i)[3]) / 2)
+                           == pytest.approx(c, abs=0.5) for c in corners)]
+        assert len(handles) == 4
+        tab._on_motion(motion_at(tab, 5, 5))
+        assert app._hovered_annotation_id is None
+
+    def test_polygon_label_sits_at_the_top_left_of_its_bounds(self, app):
+        tab = app._annotate_tab
+        app.queue = []
+        app._review_show_pred = False
+        app._select_class_for_filter_and_draw(0)
+        app._set_mode("polygon")
+        tab.scale, tab.offset_x, tab.offset_y = 1.0, 0.0, 0.0
+        ann = new_annotation("polygon", ((200, 200), (100, 100), (200, 100)), 0, "tester")
+        app.document.add(ann)
+        tab.render()
+        canvas = tab.canvas
+        label = f"0: {app.class_names[0]}"
+        spots = {tuple(canvas.coords(i)) for i in canvas.find_all()
+                 if canvas.type(i) == "text" and canvas.itemcget(i, "text") == label}
+        assert (102.0, 98.0) in spots
+
     def test_unselected_polygon_is_drawn_once_in_the_class_colour(self, app):
         tab = app._annotate_tab
         app.queue = []
@@ -527,6 +564,42 @@ class TestPolygonInteraction:
         tab.on_button_press(click_at(tab, 50, 50))
         tab.redo_last()
         assert app.current_polygon == [(50, 50)]
+
+    def test_a_click_inside_a_polygon_starts_a_new_one(self, app):
+        tab, ann = polygon_setup(app)
+        tab.on_button_press(click_at(tab, 170, 130))
+        assert app._selected_annotation_id is None
+        assert app.current_polygon == [(170, 130)]
+
+    def test_a_click_on_a_polygon_outline_selects_it(self, app):
+        tab, ann = polygon_setup(app)
+        tab.on_button_press(click_at(tab, 150, 100))
+        assert app._selected_annotation_id == ann.id
+        assert app.current_polygon == []
+
+    def test_a_right_click_on_a_polygon_outline_deletes_it_and_inside_does_not(self, app):
+        tab, ann = polygon_setup(app)
+        tab.on_right_click(click_at(tab, 170, 130))
+        assert any(a.id == ann.id for a in app.document.annotations)
+        tab.on_right_click(click_at(tab, 150, 100))
+        assert all(a.id != ann.id for a in app.document.annotations)
+
+    def test_dragging_a_vertex_onto_the_opposite_edge_rolls_back(self, app):
+        tab, ann = polygon_setup(app)
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, 200, 100))
+        tab.on_move_press(click_at(tab, 150, 150))
+        tab.on_button_release(click_at(tab, 150, 150))
+        assert app.document.get(ann.id).points == ann.points
+        assert app._redo_stack == []
+
+    def test_a_flat_polygon_is_discarded_with_a_banner(self, app):
+        tab, _ = polygon_setup(app)
+        for ix, iy in ((300, 300), (350, 350), (400, 400)):
+            tab.on_button_press(click_at(tab, ix, iy))
+        tab._on_double_click(click_at(tab, 400, 400))
+        assert len(app.document.annotations) == 2
+        assert app.current_polygon == [] and "no area" in app.banner_text
 
     def test_clicking_a_selected_polygons_vertex_starts_a_polygon_there(self, app):
         tab, ann = polygon_setup(app)

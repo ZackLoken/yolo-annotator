@@ -4,7 +4,7 @@ import pytest
 
 from yololabeler.matching import (
     point_to_segment_dist, point_in_polygon,
-    box_iou, polygon_iou, box_to_points, compute_matches,
+    box_iou, polygon_iou, polygon_area, box_to_points, compute_matches,
 )
 from shapely.geometry import Polygon as ShapelyPolygon
 
@@ -90,6 +90,21 @@ class TestPolygonIou:
         g1 = ShapelyPolygon([(0, 0), (1, 0), (1, 1), (0, 1)])
         g2 = ShapelyPolygon([(5, 5), (6, 5), (6, 6), (5, 6)])
         assert polygon_iou(g1, g1.area, g2, g2.area) == 0.0
+
+
+# ── polygon_area ────────────────────────────────────────────────────────────
+
+class TestPolygonArea:
+    def test_square(self):
+        assert polygon_area([(0, 0), (10, 0), (10, 10), (0, 10)]) == pytest.approx(100)
+
+    def test_triangle_in_either_winding(self):
+        assert polygon_area([(0, 0), (10, 0), (0, 10)]) == pytest.approx(50)
+        assert polygon_area([(0, 0), (0, 10), (10, 0)]) == pytest.approx(50)
+
+    def test_collinear_and_short_are_zero(self):
+        assert polygon_area([(0, 0), (5, 5), (10, 10)]) == 0
+        assert polygon_area([(0, 0), (5, 5)]) == 0
 
 
 # ── box_to_points ───────────────────────────────────────────────────────────

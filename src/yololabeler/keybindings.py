@@ -61,13 +61,15 @@ MOUSE_HELP = (
     ("Drag a box outline", "Move the whole box", "box"),
     ("Drag a corner", "Resize; the opposite corner stays fixed (selected box)", "box"),
     ("Right-click a box outline", "Delete box", "box"),
-    ("Left-click", "Place vertex / select polygon", "polygon"),
+    ("Left-click", "Place vertex (anywhere off a polygon outline, including inside a polygon)", "polygon"),
     ("Left-click (Stream on)", "Start / pause laying vertices as the pointer moves", "polygon"),
     ("Double-click", "Close polygon", "polygon"),
+    ("Click a polygon outline", "Select it", "polygon"),
     ("Drag vertex", "Move vertex (selected polygon)", "polygon"),
     ("Click vertex", "Start a new polygon on it (selected polygon)", "polygon"),
     ("Click edge", "Insert vertex (selected polygon)", "polygon"),
-    ("Right-click", "Delete vertex / polygon", "polygon"),
+    ("Right-click a vertex", "Delete vertex (selected polygon)", "polygon"),
+    ("Right-click a polygon outline", "Delete polygon", "polygon"),
     ("Click Legend", "Open / close the symbology legend (lower left)", "always"),
 )
 

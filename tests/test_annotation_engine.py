@@ -63,6 +63,12 @@ class TestCreation:
         assert engine.close_current_polygon() is None
         assert engine.state.document.annotations == []
 
+    def test_close_polygon_discards_a_flat_one(self, engine):
+        engine.state.current_polygon = [(0, 0), (10, 10), (20, 20), (30, 30)]
+        assert engine.close_current_polygon() is None
+        assert engine.state.document.annotations == []
+        assert engine.state.current_polygon == [] and engine.state._undo_stack == []
+
 
 # ── Undo / redo ─────────────────────────────────────────────────────────────
 

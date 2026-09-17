@@ -16,7 +16,8 @@ from PIL import Image, ImageTk
 
 from yololabeler import keybindings
 from yololabeler.annotation.document import load_document
-from yololabeler.matching import point_to_segment_dist, point_in_polygon
+from yololabeler.annotation.engine import polygon_is_degenerate
+from yololabeler.matching import point_to_segment_dist
 from yololabeler.rendering import place_label
 from yololabeler.review.engine import build_queue
 from yololabeler.review.layer import (
@@ -506,38 +507,31 @@ class AnnotateTab:
         if not _motion_throttled:
             self._update_snap_indicator()
 
-        # Polygon hover detection
-        if not _motion_throttled and a.mode == "polygon":
+        # Hover: the shape whose outline is under the pointer shows its handles.
+        if not _motion_throttled:
             self._motion_last_time = now
-            ix, iy = self.canvas_to_image(event.x, event.y)
             new_hover = None
-            hover_thr = 25
-            # Vertices get a wider hit radius while a polygon is being drawn.
-            vertex_thr = hover_thr + 5 if a.current_polygon else hover_thr
-            vhit = self._find_nearest_vertex(event.x, event.y, threshold=vertex_thr)
-            if vhit:
-                new_hover = vhit[0]
-            else:
-                ehit = self._find_nearest_edge_selected(event.x, event.y, threshold=hover_thr)
-                if ehit is not None:
-                    new_hover = ehit
+            if a.mode == "polygon":
+                hover_thr = 25
+                # Vertices get a wider hit radius while a polygon is being drawn.
+                vertex_thr = hover_thr + 5 if a.current_polygon else hover_thr
+                vhit = self._find_nearest_vertex(event.x, event.y, threshold=vertex_thr)
+                if vhit:
+                    new_hover = vhit[0]
                 else:
-                    for ann in self.visible_annotations():
-                        if ann.kind != "polygon":
-                            continue
-                        if self._point_in_polygon(ix, iy, ann.points):
-                            new_hover = ann.id
-                            break
+                    outlined = self._polygon_at_outline(event.x, event.y)
+                    if outlined is not None:
+                        new_hover = outlined.id
+            else:
+                outlined = self._box_at_outline(event.x, event.y)
+                if outlined is not None:
+                    new_hover = outlined.id
+                cursor = "fleur" if outlined is not None else "cross"
+                if self.canvas.cget("cursor") != cursor:
+                    self.canvas.config(cursor=cursor)
             if new_hover != a._hovered_annotation_id:
                 a._hovered_annotation_id = new_hover
                 self._request_redraw()
-        elif a.mode != "polygon":
-            if a._hovered_annotation_id is not None:
-                a._hovered_annotation_id = None
-            on_outline = self._box_at_outline(event.x, event.y) is not None
-            cursor = "fleur" if on_outline else "cross"
-            if self.canvas.cget("cursor") != cursor:
-                self.canvas.config(cursor=cursor)
 
         # Polygon preview line
         if a.mode == "polygon" and a.current_polygon:
@@ -713,8 +707,6 @@ class AnnotateTab:
             self.display_image()
             return
 
-        click_ix, click_iy = self.canvas_to_image(event.x, event.y)
-
         sel_id = a._selected_annotation_id
         if a.mode == "polygon" and sel_id is not None:
             if self._alive(sel_id):
@@ -723,12 +715,16 @@ class AnnotateTab:
                     event.x, event.y, threshold=10)
                 if vertex_hit and vertex_hit[0] == sel_id:
                     vi = vertex_hit[1]
-                    self._push_undo()
-                    if len(selected.points) <= 3:
+                    new_pts = list(selected.points)
+                    new_pts.pop(vi)
+                    if len(new_pts) < 3:
+                        self._push_undo()
                         self._delete_annotation(sel_id)
+                    elif polygon_is_degenerate(new_pts):
+                        # Dropping this vertex would flatten the polygon; leave it be.
+                        return
                     else:
-                        new_pts = list(selected.points)
-                        new_pts.pop(vi)
+                        self._push_undo()
                         self.engine.set_points(sel_id, new_pts)
                     self._clear_drag_state()
                     a._mark_image_annotated()
@@ -736,42 +732,19 @@ class AnnotateTab:
                     self.display_image()
                     a.update_title()
                     return
-                if self._point_in_polygon(click_ix, click_iy,
-                                          selected.points):
-                    self._push_undo()
-                    self._delete_annotation(sel_id)
-                    self._clear_drag_state()
-                    a._mark_image_annotated()
-                    a._review_panel.refresh(keep_focus=True)
-                    self.display_image()
-                    a.update_title()
-                    return
             a._selected_annotation_id = None
             self.display_image()
-            return
 
-        outlined = self._box_at_outline(event.x, event.y)
+        outlined = (self._box_at_outline(event.x, event.y) if a.mode == "box"
+                    else self._polygon_at_outline(event.x, event.y))
         if outlined is not None:
             self._push_undo()
+            self._clear_drag_state()
             self._delete_annotation(outlined.id)
             a._mark_image_annotated()
             a._review_panel.refresh(keep_focus=True)
             self.display_image()
             a.update_title()
-            return
-
-        for ann in self.visible_annotations():
-            if ann.kind != "polygon":
-                continue
-            if self._point_in_polygon(click_ix, click_iy, ann.points):
-                self._push_undo()
-                self._clear_drag_state()
-                self._delete_annotation(ann.id)
-                a._mark_image_annotated()
-                a._review_panel.refresh(keep_focus=True)
-                self.display_image()
-                a.update_title()
-                return
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Box mode
@@ -1090,13 +1063,11 @@ class AnnotateTab:
                     a._selected_annotation_id = vhit[0]
                     self.display_image()
                     return
-            for ann in self.visible_annotations():
-                if ann.kind != "polygon":
-                    continue
-                if self._point_in_polygon(ix, iy, ann.points):
-                    a._selected_annotation_id = ann.id
-                    self.display_image()
-                    return
+            outlined = self._polygon_at_outline(event.x, event.y)
+            if outlined is not None:
+                a._selected_annotation_id = outlined.id
+                self.display_image()
+                return
 
             if just_deselected:
                 self.display_image()
@@ -1162,20 +1133,29 @@ class AnnotateTab:
                 self._start_polygon(vx, vy)
             return
         self._vertex_press = None
+        started = self._vertex_drag_started
         self._vertex_drag_started = False
         if a._dragging_vertex is not None:
             ann_id = a._dragging_vertex[0]
-            a._mark_image_annotated()
             a._dragging_vertex = None
             a._drag_orig_pos = None
             self.canvas.config(cursor="cross")
+            if started and self._alive(ann_id) and polygon_is_degenerate(
+                    a.document.get(ann_id).points):
+                # Roll the flattened polygon back and drop the snapshot undo_snapshot
+                # pushed onto the redo stack so Ctrl+Y cannot restore it.
+                if self.engine.undo_snapshot():
+                    a._redo_stack.pop()
+                self.display_image()
+                return
+            a._mark_image_annotated()
             self._refresh_review_after_edit(ann_id, a.images[a.index])
 
     def _close_polygon(self):
         a = self.app
         added = self.engine.close_current_polygon()
         if not added:
-            self.display_image()
+            a.show_banner("Polygon discarded: it has no area.")
             return
         a._mark_image_annotated()
         a._record_annotation_added()
@@ -1219,25 +1199,38 @@ class AnnotateTab:
                     best = (ann.id, vi)
         return best
 
-    def _find_nearest_edge_selected(self, cx, cy, threshold=6):
-        a = self.app
-        ann_id = a._selected_annotation_id
-        if not self._alive(ann_id):
-            return None
-        ann = a.document.get(ann_id)
-        if ann.kind != "polygon":
-            return None
+    def _polygon_outline_distance(self, ann, cx, cy):
+        """Canvas-pixel distance from (cx, cy) to the nearest edge of a polygon annotation."""
         points = ann.points
         n = len(points)
-        for ei in range(n):
-            ax, ay = self.image_to_canvas(*points[ei])
-            bx, by = self.image_to_canvas(*points[(ei + 1) % n])
-            dist = point_to_segment_dist(cx, cy, ax, ay, bx, by)
-            if dist < threshold:
-                return ann_id
-        return None
+        canvas_pts = [self.image_to_canvas(*p) for p in points]
+        return min(point_to_segment_dist(cx, cy, *canvas_pts[i], *canvas_pts[(i + 1) % n])
+                   for i in range(n))
 
-    _point_in_polygon = staticmethod(point_in_polygon)
+    def _polygon_at_outline(self, cx, cy):
+        """The visible polygon whose outline is nearest (cx, cy) within BOX_EDGE_HIT_RADIUS, or None.
+
+        Like boxes, polygons are picked by their outline, never their interior,
+        so a press inside one can start a new polygon there.
+        """
+        a = self.app
+        self._ensure_poly_bboxes()
+        qix, qiy = self.canvas_to_image(cx, cy)
+        img_thr = BOX_EDGE_HIT_RADIUS / self.scale if self.scale > 0 else 1e9
+        best, best_d = None, BOX_EDGE_HIT_RADIUS
+        for ann in self.visible_annotations():
+            if ann.kind != "polygon" or len(ann.points) < 2:
+                continue
+            bbox = a._poly_bboxes.get(ann.id)
+            if bbox is not None:
+                bx1, by1, bx2, by2 = bbox
+                if (qix + img_thr < bx1 or qix - img_thr > bx2
+                        or qiy + img_thr < by1 or qiy - img_thr > by2):
+                    continue
+            d = self._polygon_outline_distance(ann, cx, cy)
+            if d <= best_d:
+                best, best_d = ann, d
+        return best
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Navigation
@@ -1411,12 +1404,13 @@ class AnnotateTab:
                 canvas.create_rectangle(
                     cx1, cy1, cx2, cy2, outline=SELECTION_COLOR if is_selected else color,
                     width=line_w + 1 if is_selected else line_w)
-                if is_selected:
-                    r = sel_vert_r
+                if is_selected or ann.id == a._hovered_annotation_id:
+                    r = sel_vert_r if is_selected else vert_r
                     for hx, hy in ((cx1, cy1), (cx2, cy1), (cx2, cy2), (cx1, cy2)):
                         canvas.create_rectangle(
                             hx - r, hy - r, hx + r, hy + r,
-                            fill="white", outline=SELECTION_COLOR, width=2)
+                            fill="white", outline=SELECTION_COLOR if is_selected else color,
+                            width=2 if is_selected else 1)
                 _halo(cx1 + 2, cy1 - 2, anchor="sw",
                       text=f"{class_id}: {class_name}",
                       fill=color,
@@ -1460,7 +1454,8 @@ class AnnotateTab:
                         cx - r, cy - r, cx + r, cy + r,
                         fill=fill, outline="white", width=2 if is_selected else 1)
             if points:
-                lx, ly = self.image_to_canvas(*points[0])
+                lx, ly = self.image_to_canvas(min(p[0] for p in points),
+                                              min(p[1] for p in points))
                 _halo(lx + 2, ly - 2, anchor="sw",
                       text=f"{class_id}: {class_name}",
                       fill=color,

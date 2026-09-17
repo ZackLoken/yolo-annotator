@@ -67,6 +67,19 @@ def polygon_iou(geom1, area1, geom2, area2):
         return 0.0
 
 
+def polygon_area(points):
+    """The unsigned area of a simple polygon given as (x, y) vertices, by the shoelace formula."""
+    n = len(points)
+    if n < 3:
+        return 0.0
+    twice = 0.0
+    for i in range(n):
+        x1, y1 = points[i]
+        x2, y2 = points[(i + 1) % n]
+        twice += x1 * y2 - x2 * y1
+    return abs(twice) / 2
+
+
 def box_to_points(box):
     """Convert ``(x1, y1, x2, y2, ...)`` to four polygon vertices."""
     x1, y1, x2, y2 = box[0], box[1], box[2], box[3]

@@ -116,13 +116,15 @@ for the same list, filtered to the current mode.
 | Move the whole box | Drag a box outline | box |
 | Resize; the opposite corner stays fixed (selected box) | Drag a corner | box |
 | Delete box | Right-click a box outline | box |
-| Place vertex / select polygon | Left-click | polygon |
+| Place vertex (anywhere off a polygon outline, including inside a polygon) | Left-click | polygon |
 | Start / pause laying vertices as the pointer moves | Left-click (Stream on) | polygon |
 | Close polygon | Double-click | polygon |
+| Select it | Click a polygon outline | polygon |
 | Move vertex (selected polygon) | Drag vertex | polygon |
 | Start a new polygon on it (selected polygon) | Click vertex | polygon |
 | Insert vertex (selected polygon) | Click edge | polygon |
-| Delete vertex / polygon | Right-click | polygon |
+| Delete vertex (selected polygon) | Right-click a vertex | polygon |
+| Delete polygon | Right-click a polygon outline | polygon |
 | Open / close the symbology legend (lower left) | Click Legend | always |
 <!-- controls:end -->
 
@@ -133,9 +135,13 @@ A new vertex is laid each time the pointer moves 6 screen pixels, so the spacing
 looks the same at every zoom. Snapping (`s`) pulls a placed or streamed vertex onto
 an existing vertex within 15 screen pixels, never onto a point along an edge, so a
 shared boundary reuses the neighbour's own vertices; a dashed ring marks the vertex
-a click would snap to. With snapping on, a click that snaps to a vertex starts a
-new polygon there rather than selecting the polygon under it, and clicking (not
-dragging) a vertex of the selected polygon does the same.
+a click would snap to. A polygon, like a box, is picked by its outline and never
+by its interior, so a click inside one starts a new polygon there, e.g. for a bur
+that sits inside its neighbour's outline. With snapping on, a click that snaps to
+a vertex also starts a new polygon there rather than selecting the polygon it
+belongs to, and clicking (not dragging) a vertex of the selected polygon does the
+same. A polygon closed with no area, or a vertex drag or delete that would
+flatten one, is refused; the shape keeps its previous geometry.
 
 ---
 
@@ -318,9 +324,10 @@ viewport or leave unsaved work behind.
 - Vertex streaming and vertex snapping: continuous vertex placement while moving the
   mouse (`v`), snapped to nearby existing vertices (`s`)
 - Full vertex editing: drag, insert on an edge, and right-click delete on the
-  selected polygon; a box is selected, moved and right-click deleted by its
-  outline and resized from a corner, so a drag starting inside a box draws a
-  new one, e.g. for a bur that sits inside its neighbour's box;
+  selected polygon; both kinds are selected and right-click deleted by their
+  outline, never their interior, so a press inside a shape draws a new one,
+  e.g. for a bur that sits inside its neighbour's; a box is moved by its
+  outline and resized from a corner; hovering an outline shows its handles;
   insert-on-edge remains polygon-only; snapshot undo / redo (`Ctrl+Z` /
   `Ctrl+Y`) covers drawing, accept, reject and edit alike
 - Multi-class support: dropdown selector, inline "Add" for new classes, per-class

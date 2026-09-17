@@ -3,10 +3,18 @@
 import os
 
 from yololabeler.annotation.document import new_annotation, save_document
+from yololabeler.matching import polygon_area
 from yololabeler.state import AppState
 
 # Snapshot count kept for undo; value carried over from the original implementation.
 UNDO_DEPTH = 30
+# Image px squared; the square of the annotate tab's MIN_BOX_SIDE (3), provisional (2026-09-17).
+MIN_POLYGON_AREA = 9
+
+
+def polygon_is_degenerate(points):
+    """Whether a polygon has under three vertices or less than MIN_POLYGON_AREA of area."""
+    return len(points) < 3 or polygon_area(points) < MIN_POLYGON_AREA
 
 
 class AnnotationEngine:
@@ -97,13 +105,13 @@ class AnnotationEngine:
         return a
 
     def close_current_polygon(self):
-        """Finalize the in-progress polygon, clamped to image bounds; None if under 3 vertices."""
+        """Finalize the in-progress polygon, clamped to image bounds; None and discarded if degenerate."""
         s = self.state
-        if len(s.current_polygon) < 3:
-            s.current_polygon = []
-            return None
         clamped = [(max(0, min(s.img_width, x)), max(0, min(s.img_height, y)))
                    for x, y in s.current_polygon]
+        if polygon_is_degenerate(clamped):
+            s.current_polygon = []
+            return None
         self.push_undo()
         a = new_annotation("polygon", clamped, s.active_class, s._current_user)
         s.document.add(a)
