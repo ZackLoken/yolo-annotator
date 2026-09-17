@@ -114,6 +114,23 @@ def poly_app(poly_folder):
 # ── annotate ────────────────────────────────────────────────────────────────
 
 class TestAnnotate:
+    def test_load_image_renders_once(self, app):
+        tab = app._annotate_tab
+        renders = []
+        tab.render = lambda: renders.append(1)
+        tab.load_image()
+        app.root.update()
+        assert len(renders) == 1
+
+    def test_renaming_the_class_redraws_its_labels_at_once(self, app, monkeypatch):
+        tab = app._annotate_tab
+        app._select_class_for_filter_and_draw(0)
+        monkeypatch.setattr(app, "_class_name_dialog", lambda text, title: "hazelnut")
+        app._rename_class_dialog()
+        labels = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_all()
+                  if tab.canvas.type(i) == "text"]
+        assert any(t.startswith("0: hazelnut") for t in labels)
+
     def test_loads_document(self, app):
         assert app.document is not None
         assert [a.kind for a in app.document.annotations] == ["box"]
@@ -1824,13 +1841,53 @@ class TestCommentFlag:
     def test_flag_marker_and_badge_are_drawn(self, app):
         panel, tab = app._review_panel, app._annotate_tab
         panel.focus_item(0)
+        assert panel.current_item().kind == "fp"
         app.ask_flag_comment = lambda heading, existing: ("save", "")
         app.comment_on_item()
         tab.render()
-        assert tab.canvas.find_withtag("flag")
+        labels = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_all()
+                  if tab.canvas.type(i) == "text"]
+        # The focused FP's own label ends with the mark; nothing floats beside it.
+        assert any(t.endswith(" ?") and "(0.80)" in t for t in labels)
+        assert not tab.canvas.find_withtag("flag")
         badge = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_withtag("badge")
                  if tab.canvas.type(i) == "text"]
         assert badge[0].endswith("flagged")
+        # Once focus moves on, the unlabelled FP carries the mark alone.
+        panel.step(1)
+        tab.render()
+        assert tab.canvas.find_withtag("flag")
+
+    def test_a_flagged_annotation_label_ends_with_the_mark(self, app):
+        panel, tab = app._review_panel, app._annotate_tab
+        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.kind == "tp"))
+        app.ask_flag_comment = lambda heading, existing: ("save", "")
+        app.comment_on_item()
+        app._select_class_for_filter_and_draw(0)
+        app.queue = []
+        tab.render()
+        labels = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_all()
+                  if tab.canvas.type(i) == "text"]
+        assert f"0: {app.class_names[0]} ?" in labels
+
+    def test_c_comments_on_the_selected_annotation_over_the_focused_item(self, app):
+        panel, tab = app._review_panel, app._annotate_tab
+        app._select_class_for_filter_and_draw(1)
+        panel.focus_item(0)
+        assert panel.current_item().kind == "fp"
+        focused_key = panel.current_item().key
+        tab.fit_to_window()
+        tab.on_button_press(click_at(tab, 420, 360))
+        tab.on_button_release(click_at(tab, 520, 440))
+        drawn = app.document.annotations[-1]
+        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.key == focused_key))
+        tab.select_annotation(drawn.id)
+        headings = []
+        app.ask_flag_comment = lambda heading, existing: headings.append(heading) or ("save", "?")
+        app.comment_on_item()
+        assert headings[0].startswith("FN")
+        assert app._review.open_flag("a.jpg", drawn.id)["kind"] == "fn"
+        assert app._review.open_flag("a.jpg", focused_key) is None
 
     def test_reopening_passes_the_open_flag_and_resolve_clears_it(self, app):
         panel = app._review_panel

@@ -136,7 +136,7 @@ class YoloLabeler:
         # Review data
         'queue', 'queue_index',
         'predictions', 'predictions_rejected', 'predictions_blind',
-        'matches', 'shape_statuses', 'flag_markers', 'conf_threshold',
+        'matches', 'shape_statuses', 'flag_markers', 'flagged_shapes', 'conf_threshold',
         '_review_filter_type', '_review_filter_class', '_review_status_filter',
         '_review_show_pred', '_review_state',
         '_annotation_visible',
@@ -676,22 +676,28 @@ class YoloLabeler:
         self.canvas.focus_set()
 
     def comment_on_item(self):
-        """Open the comment dialog for the focused item and save or resolve its flag.
+        """Open the comment dialog for the selected annotation, else the focused item, and save or resolve its flag.
 
-        With no review queue (a blind image, or one without predictions) it acts
-        on the selected annotation instead. A flag is independent of the verdict,
+        A selected annotation wins over the focus, so a box drawn around a
+        questionable miss can be flagged while the prediction next to it stays
+        in focus; its flag lives under its queue item's key when it has one,
+        else under the annotation's id. A flag is independent of the verdict,
         and saving with an empty comment still flags it.
         """
         if not self.images or self.document is None:
             return
         img_name = self.images[self.index]
-        item = None if self.predictions_blind else self._review_panel.current_item()
+        selected = (self.document.get(self._selected_annotation_id)
+                    if self._annotate_tab._alive(self._selected_annotation_id) else None)
+        if selected is not None:
+            item = self._annotate_tab._unfiltered_item_for(selected.id)
+        else:
+            item = None if self.predictions_blind else self._review_panel.current_item()
         if item is not None:
             key, kind, class_id = self._review.flag_key(img_name, item), item.kind, item.class_id
             heading = f"{kind.upper()}  "
-        elif self._annotate_tab._alive(self._selected_annotation_id):
-            ann = self.document.get(self._selected_annotation_id)
-            key, kind, class_id = ann.id, None, ann.class_id
+        elif selected is not None:
+            key, kind, class_id = selected.id, None, selected.class_id
             heading = "Annotation  "
         else:
             self.show_banner("Select an annotation or focus a review item to comment on it.")
@@ -901,6 +907,7 @@ class YoloLabeler:
         self.verdicts = {}
         self.predictions, self.predictions_rejected, self.predictions_blind = [], [], False
         self.queue, self.matches, self.shape_statuses, self.flag_markers = [], {}, None, {}
+        self.flagged_shapes = set()
         self._review_panel.update_labels()
         self.labels_dir = os.path.join(folder, "labels")
         self.detect_dir = os.path.join(self.labels_dir, "detect")
@@ -1543,6 +1550,8 @@ class YoloLabeler:
         self._refresh_class_dropdown()
         self._save_classes_file()
         self.update_title()
+        if self.original_image is not None:
+            self._annotate_tab.display_image()
 
     def _select_class_by_id(self, class_id):
         if class_id in self.class_names:

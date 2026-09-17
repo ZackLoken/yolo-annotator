@@ -408,7 +408,7 @@ Edit / Reject, followed by the focused item's type, position and verdict (e.g.
 
 Annotations are solid and predictions dashed at the same zoom-scaled width; a
 rejected prediction is dotted. While Predictions is ticked on an image that has
-predictions, both are coloured by review status: green accepted, yellow not
+predictions, both are coloured by review status: green accepted, orange not
 reviewed, red rejected. A match's prediction and annotation share one status.
 With Predictions unticked, on a blind image, or on an image with no predictions,
 annotations are drawn in their class colour instead. The focused item is
@@ -469,9 +469,12 @@ in the sidecar.
 `c` opens a comment box for the focused item, prediction or annotation alike.
 Enter saves it and flags the item, with or without a comment; a flag is
 independent of the verdict, so an item can be flagged before it is judged or
-after. A flagged item carries a white `?` with a black halo at its top-right corner (on its
-annotation when it has one), the badge adds "flagged", and the status bar counts
-flags next to the TP/FP/FN counts. Pressing `c` on a flagged item shows who
+after. A flagged item's label ends with `?` (on its annotation when it has one;
+a flagged prediction that has no label of its own carries a white `?` alone),
+the badge adds "flagged", and the status bar counts flags next to the TP/FP/FN
+counts. With an annotation selected, `c` comments on that annotation rather
+than the focused item, so a box drawn around a questionable miss can be flagged
+while the prediction beside it stays in focus. Pressing `c` on a flagged item shows who
 flagged it and when, and who last edited the comment, with Save flag to edit the
 comment and Resolve flag to close it; a resolved flag stays in
 `review_stats.json` with who resolved it and when. Review status "Flagged"

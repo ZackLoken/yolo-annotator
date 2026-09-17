@@ -78,6 +78,7 @@ class AppState:
         self.matches = {}              # compute_matches output for the current image
         self.shape_statuses = None     # shape id -> review status, rebuilt with matches
         self.flag_markers = {}         # open-flagged item key -> points its marker sits on
+        self.flagged_shapes = set()    # ids of the shapes whose label carries the flag mark
         self.conf_threshold = 0.25     # mirrored from ReviewEngine.conf_threshold
         self._review_filter_type = "all"
         self._review_filter_class = "all"

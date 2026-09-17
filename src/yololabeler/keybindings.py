@@ -78,8 +78,8 @@ def _applies(when, mode, has_queue, has_pair):
     """Decide whether a binding or mouse row applies to the current context."""
     if when == "always":
         return True
-    if when == "polygon":
-        return mode == "polygon"
+    if when in ("polygon", "box"):
+        return mode == when
     if when == "queue":
         return has_queue
     return has_pair
@@ -102,9 +102,9 @@ def help_lines(mode, has_queue, has_pair):
         lines.append(f"  {b.label:<16}{b.description}")
     lines.append("")
     lines.append("── Mouse ──")
-    # mouse reference is shown in full; "when" only labels the README Mode column
     for label, description, when in MOUSE_HELP:
-        lines.append(f"  {label:<20}{description}")
+        if _applies(when, mode, has_queue, has_pair):
+            lines.append(f"  {label:<30}{description}")
     return lines
 
 

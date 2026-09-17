@@ -156,25 +156,37 @@ def shape_statuses(document, predictions, matches, verdicts):
     return statuses
 
 
-def flag_markers(document, predictions, matches, open_keys):
-    """Map each open-flagged key to the points its marker is drawn at.
+def _flagged(document, predictions, matches, open_keys):
+    """Yield (flag key, shape) for each open flag with a shape left to mark.
 
     With matches, a key is a queue item's key or its annotation's id, and the
-    marker sits on the annotation when there is one, else on the prediction.
-    Without matches (a blind image, or no predictions), only annotation-id keys
-    can be shown. Keys with nothing left to draw on are left out.
+    shape is the annotation when there is one, else the prediction. Without
+    matches (a blind image, or no predictions), only annotation-id keys can be
+    shown. Keys with nothing left to draw on are left out.
     """
     if document is None:
-        return {}
+        return
     if not matches:
-        return {ann.id: ann.points for ann in document.annotations if ann.id in open_keys}
-    markers = {}
+        for ann in document.annotations:
+            if ann.id in open_keys:
+                yield ann.id, ann
+        return
     for item in build_queue(document, predictions, matches, {}):
         if item.key in open_keys:
-            markers[item.key] = (item.annotation or item.prediction).points
+            yield item.key, item.annotation or item.prediction
         elif item.annotation is not None and item.annotation.id in open_keys:
-            markers[item.annotation.id] = item.annotation.points
-    return markers
+            yield item.annotation.id, item.annotation
+
+
+def flag_markers(document, predictions, matches, open_keys):
+    """Map each open-flagged key to the points of the shape that carries its mark."""
+    return {key: shape.points
+            for key, shape in _flagged(document, predictions, matches, open_keys)}
+
+
+def flagged_shapes(document, predictions, matches, open_keys):
+    """The ids of the shapes that carry a flag mark: an item's annotation, else its prediction."""
+    return {shape.id for _, shape in _flagged(document, predictions, matches, open_keys)}
 
 
 def apply_accept(document, item, user):

@@ -12,15 +12,27 @@ from __future__ import annotations
 import tkinter.font as tkFont
 from dataclasses import dataclass
 
-from yololabeler.rendering import halo_text, place_label
+from yololabeler.rendering import place_label
 
 # Highlighter blue for focus and selection; the user chose it over yellow (2026-09-16).
 SELECTION_COLOR = "#00BFFF"
-# The user chose green/yellow/red for accepted/not reviewed/rejected (2026-09-16); the hex values are provisional.
-STATUS_COLORS = {"accepted": "#00FF00", "not_reviewed": "#FFFF00", "rejected": "#FF0000"}
-# White with a black halo; the user chose it (2026-09-16).
+# Green/orange/red for accepted/not reviewed/rejected; the user swapped yellow for orange
+# as easier on the eyes (2026-09-17). The hex values are provisional.
+STATUS_COLORS = {"accepted": "#00FF00", "not_reviewed": "#FF8C00", "rejected": "#FF0000"}
+# The mark a flagged shape's label ends with; drawn alone, white with a black
+# halo, on a flagged prediction that has no label of its own. The user chose it (2026-09-16).
 FLAG_COLOR = "#FFFFFF"
 FLAG_MARK = "?"
+
+
+def label_text(class_id, class_names, flagged, confidence=None):
+    """The label a shape is drawn with: "id: name", the confidence when given, the flag mark when flagged."""
+    text = f"{class_id}: {class_names.get(class_id, str(class_id))}"
+    if confidence is not None:
+        text += f" ({confidence:.2f})"
+    if flagged:
+        text += f" {FLAG_MARK}"
+    return text
 
 
 def status_colors_active(state, show_pred):
@@ -112,15 +124,11 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
                 continue
             _draw_shape(canvas, to_canvas, p.kind, p.points, outline=color_of(p),
                         width=line_w, fill="", dash=dash_of(p), tags="pred")
-
-    if show_gt or show_pred:
-        flag_font = (font_family, label_size + 4, "bold")
-        for points in state.flag_markers.values():
-            xs = [p[0] for p in points]
-            ys = [p[1] for p in points]
-            mx, my = to_canvas(max(xs), min(ys))
-            halo_text(canvas, mx + 3, my - 3, FLAG_MARK, FLAG_COLOR, anchor="sw",
-                      font=flag_font, tags="flag")
+            if p.id in state.flagged_shapes:
+                # An unlabelled prediction carries the mark alone where its label would sit.
+                lx, ly = _label_anchor(to_canvas, p.points)
+                place_label(canvas, placed_labels, lx + 2, ly - 2, FLAG_MARK, FLAG_COLOR,
+                            anchor="sw", font=font, tags="flag")
 
     if focused is None:
         return
@@ -143,10 +151,9 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
 
     labelled = ann if ann is not None else pred
     if labelled is not None and labelled.id != selected_id:
-        name = class_names.get(focused.class_id, str(focused.class_id))
-        text = f"{focused.class_id}: {name}"
-        if focused.prediction is not None:
-            text += f" ({focused.prediction.confidence:.2f})"
+        confidence = focused.prediction.confidence if focused.prediction is not None else None
+        text = label_text(focused.class_id, class_names, labelled.id in state.flagged_shapes,
+                          confidence)
         lx, ly = _label_anchor(to_canvas, labelled.points)
         place_label(canvas, placed_labels, lx + 2, ly - 2, text,
                     color_of(labelled), anchor="sw", font=font)

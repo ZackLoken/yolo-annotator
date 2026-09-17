@@ -36,14 +36,16 @@ class TestHelpLines:
         text = "\n".join(help_lines("polygon", has_queue=True, has_pair=True))
         for b in KEY_BINDINGS:
             assert b.label in text, b.action
-        for label, _, _ in MOUSE_HELP:
-            assert label in text
+        for label, _, when in MOUSE_HELP:
+            assert (label in text) == (when != "box"), label
 
     def test_polygon_only_rows_hidden_in_box_mode(self):
         text = "\n".join(help_lines("box", has_queue=False, has_pair=False))
         assert "Toggle vertex snapping" not in text
         assert "Accept focused item" not in text
         assert "Toggle box / polygon mode" in text
+        assert "Drag vertex" not in text and "Close polygon" not in text
+        assert "Drag a corner" in text and "Middle-click drag" in text
 
 
 # ── README ──────────────────────────────────────────────────────────────────

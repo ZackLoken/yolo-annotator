@@ -22,7 +22,7 @@ from yololabeler.rendering import place_label
 from yololabeler.review.engine import build_queue
 from yololabeler.review.layer import (
     FLAG_COLOR, FLAG_MARK, SELECTION_COLOR, STATUS_COLORS, LayerStyle, draw_prediction_layer,
-    status_color, status_colors_active,
+    label_text, status_color, status_colors_active,
 )
 from yololabeler.utils import auto_orient_image
 
@@ -37,6 +37,7 @@ SNAP_RADIUS = 15              # canvas px radius for snapping to an existing ver
 SNAP_INDICATOR_RADIUS = 7     # canvas px radius of the dashed snap-target ring
 SNAP_INDICATOR_COLOR = "#FFE7B1"
 CLICK_SLOP = 3                # canvas px a press may move and still count as a click; provisional
+HELP_FONT_SIZE = 11           # pt; the banner's 14 filled half a laptop screen, the user asked for smaller (2026-09-17)
 FG_COLOR = "#E0E0E0"
 CANVAS_BG = "#2D2D2D"
 LEGEND_BG = "#1A1A1A"
@@ -82,6 +83,8 @@ class AnnotateTab:
         self._motion_last_time = 0.0
         self._resize_after_id = None
         self._fast_resample = False
+        # True while load_image runs, so its many refreshes render once, at the end.
+        self._loading = False
 
         # Mouse tracking
         self._mouse_canvas_x = 0
@@ -155,9 +158,20 @@ class AnnotateTab:
     #  Load image
     # ──────────────────────────────────────────────────────────────────────────
     def load_image(self):
+        """Load the image at a.index with its labels and predictions, then render once."""
         a = self.app
         if not a.images or not a.image_folder:
             return
+        self._loading = True
+        try:
+            self._load_image()
+        finally:
+            self._loading = False
+        if a.original_image is not None:
+            self.display_image()
+
+    def _load_image(self):
+        a = self.app
         if a.index >= len(a.images):
             a.index = 0
         if a.index < 0:
@@ -213,7 +227,7 @@ class AnnotateTab:
         a.img_width, a.img_height = a.original_image.size
         a._image_start_time = time.time()
 
-        self.fit_to_window()
+        self._initial_fit()
         rejected, sidecar_moved = self.load_document_for_current_image()
         a.load_errors = rejected
         messages = []
@@ -240,7 +254,6 @@ class AnnotateTab:
         a._review_panel.refresh(keep_focus=False)
         a._review_panel.focus_item(a._review_panel.first_unreviewed(), switch_class=False)
         a._review_panel.update_labels()
-        self.display_image()
         a.update_title()
         a._update_status()
 
@@ -386,7 +399,7 @@ class AnnotateTab:
     #  Display (throttled)
     # ──────────────────────────────────────────────────────────────────────────
     def _request_redraw(self):
-        if not self._redraw_pending:
+        if not self._redraw_pending and not self._loading:
             self._redraw_pending = True
             self.app.root.after_idle(self._do_redraw)
 
@@ -395,10 +408,8 @@ class AnnotateTab:
         self.display_image()
 
     def display_image(self):
-        self.render()
-
-    def draw_help_overlay(self):
-        self.render_help()
+        if not self._loading:
+            self.render()
 
     def toggle_help(self, event=None):
         a = self.app
@@ -1394,7 +1405,7 @@ class AnnotateTab:
                 color = status_color(statuses, ann.id)
             else:
                 color = a._get_class_color(class_id)
-            class_name = a.class_names.get(class_id, str(class_id))
+            label = label_text(class_id, a.class_names, ann.id in a.flagged_shapes)
             if ann.kind == "box":
                 (x1, y1), (x2, y2) = ann.points
                 if x2 < vis_x1 or x1 > vis_x2 or y2 < vis_y1 or y1 > vis_y2:
@@ -1411,9 +1422,7 @@ class AnnotateTab:
                             hx - r, hy - r, hx + r, hy + r,
                             fill="white", outline=SELECTION_COLOR if is_selected else color,
                             width=2 if is_selected else 1)
-                _halo(cx1 + 2, cy1 - 2, anchor="sw",
-                      text=f"{class_id}: {class_name}",
-                      fill=color,
+                _halo(cx1 + 2, cy1 - 2, anchor="sw", text=label, fill=color,
                       font=(a.font_family, label_size, "bold"))
                 continue
 
@@ -1456,9 +1465,7 @@ class AnnotateTab:
             if points:
                 lx, ly = self.image_to_canvas(min(p[0] for p in points),
                                               min(p[1] for p in points))
-                _halo(lx + 2, ly - 2, anchor="sw",
-                      text=f"{class_id}: {class_name}",
-                      fill=color,
+                _halo(lx + 2, ly - 2, anchor="sw", text=label, fill=color,
                       font=(a.font_family, label_size, "bold"))
 
         if a.current_polygon:
@@ -1523,7 +1530,7 @@ class AnnotateTab:
         style = LayerStyle()
         if status_colors_active(a, a._review_show_pred) is not None:
             rows = [(("class", STATUS_COLORS["accepted"]), "Green: accepted"),
-                    (("class", STATUS_COLORS["not_reviewed"]), "Yellow: not reviewed"),
+                    (("class", STATUS_COLORS["not_reviewed"]), "Orange: not reviewed"),
                     (("class", STATUS_COLORS["rejected"]), "Red: rejected")]
         else:
             rows = [(("class", a._get_class_color(cid)),
@@ -1533,7 +1540,7 @@ class AnnotateTab:
             (("line", FG_COLOR, style.dash), "Dashed: prediction"),
             (("line", FG_COLOR, style.rejected_dash), "Dotted: rejected prediction"),
             (("halo",), "Blue glow: item in review focus"),
-            (("flag",), f"White {FLAG_MARK}: flagged for a second look (c)"),
+            (("flag",), f"{FLAG_MARK} after the label: flagged for a second look (c)"),
             (("selected",), "Blue with handles: selected for editing"),
             (("snap",), "Dashed ring: snap target"),
         ]
@@ -1576,11 +1583,10 @@ class AnnotateTab:
                                font=font, tags="legend")
         self._legend_bbox = (x0, panel_y0, x0 + max(panel_w, chip_w), chip_y1)
 
-    def _draw_block(self, lines, y0):
+    def _draw_block(self, lines, y0, font_size=14):
         """Draw a padded text block at x 10, y0, shared by the banner and the help overlay; returns its height."""
         canvas = self.canvas
         font_family = "Menlo" if sys.platform == "darwin" else "Consolas"
-        font_size = 14
         pad = 14
 
         fnt = tkFont.Font(family=font_family, size=font_size)
@@ -1610,5 +1616,4 @@ class AnnotateTab:
         item = a._review_panel.current_item()
         help_lines = keybindings.help_lines(
             a.mode, has_queue=bool(a.queue), has_pair=bool(item and item.annotation))
-
-        self._draw_block(help_lines, y0)
+        self._draw_block(help_lines, y0, font_size=HELP_FONT_SIZE)

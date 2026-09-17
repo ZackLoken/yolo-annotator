@@ -8,7 +8,9 @@ import tkinter as tk
 import customtkinter as ctk
 
 from yololabeler.predictions.store import load_predictions
-from yololabeler.review.engine import build_queue, flag_markers, match_document, shape_statuses
+from yololabeler.review.engine import (
+    build_queue, flag_markers, flagged_shapes, match_document, shape_statuses,
+)
 
 # Palette constants duplicated from gui.py to avoid a circular import
 FG_COLOR = "#E0E0E0"
@@ -135,9 +137,11 @@ class ReviewPanel:
         a = self.app
         if a.document is None or a.predictions_blind or not a.predictions:
             a.queue, a.matches, a.shape_statuses = [], {}, None
-            a.flag_markers = (flag_markers(a.document, [], {},
-                                           self.engine.open_flag_keys(a.images[a.index]))
-                              if a.images and a.document is not None else {})
+            a.flag_markers, a.flagged_shapes = {}, set()
+            if a.images and a.document is not None:
+                open_keys = self.engine.open_flag_keys(a.images[a.index])
+                a.flag_markers = flag_markers(a.document, [], {}, open_keys)
+                a.flagged_shapes = flagged_shapes(a.document, [], {}, open_keys)
             # No queue here, so there is nothing to recompute the image's review
             # status from; a status earned before is left as it was.
             self.update_labels()
@@ -153,6 +157,7 @@ class ReviewPanel:
                               a._review_status_filter, open_keys)
         a.shape_statuses = shape_statuses(a.document, a.predictions, a.matches, a.verdicts)
         a.flag_markers = flag_markers(a.document, a.predictions, a.matches, open_keys)
+        a.flagged_shapes = flagged_shapes(a.document, a.predictions, a.matches, open_keys)
         a.queue_index = 0
         if previous is not None:
             for i, item in enumerate(a.queue):
