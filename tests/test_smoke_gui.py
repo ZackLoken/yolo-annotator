@@ -487,6 +487,8 @@ class TestRenderSelection:
                             (canvas.coords(i)[1] + canvas.coords(i)[3]) / 2)
                            == pytest.approx(c, abs=0.5) for c in corners)]
         assert len(handles) == 4
+        # Hover checks are throttled to ~60 fps; a fast machine lands the next motion inside it.
+        tab._motion_last_time = 0.0
         tab._on_motion(motion_at(tab, 5, 5))
         assert app._hovered_annotation_id is None
 
