@@ -238,6 +238,19 @@ class TestBoxEditing:
             [app.img_width - (x2 - x1), app.img_height - (y2 - y1),
              app.img_width, app.img_height])
 
+    def test_shift_drag_from_inside_moves_the_selected_box(self, app):
+        tab = app._annotate_tab
+        ann = app.document.annotations[0]
+        tab.scale, tab.offset_x, tab.offset_y = 1.0, 0.0, 0.0
+        tab.select_annotation(ann.id)
+        cx, cy = box_center(ann)
+        tab.on_shift_press(click_at(tab, cx, cy))
+        tab.on_move_press(click_at(tab, cx + 30, cy - 10))
+        tab.on_button_release(click_at(tab, cx + 30, cy - 10))
+        (x1, y1), (x2, y2) = app.document.get(ann.id).points
+        (ox1, oy1), (ox2, oy2) = ann.points
+        assert (x1, y1, x2, y2) == pytest.approx((ox1 + 30, oy1 - 10, ox2 + 30, oy2 - 10))
+
     def test_a_box_wider_than_the_image_still_drags(self, app):
         tab = app._annotate_tab
         ann_id = app.document.annotations[0].id
@@ -617,6 +630,23 @@ class TestPolygonInteraction:
         tab._on_double_click(click_at(tab, 400, 400))
         assert len(app.document.annotations) == 2
         assert app.current_polygon == [] and "no area" in app.banner_text
+
+    def test_shift_drag_moves_the_selected_polygon_whole(self, app):
+        tab, ann = polygon_setup(app)
+        tab.select_annotation(ann.id)
+        tab.on_shift_press(click_at(tab, 170, 130))
+        tab.on_move_press(click_at(tab, 180, 150))
+        tab.on_button_release(click_at(tab, 180, 150))
+        moved = app.document.get(ann.id).points
+        assert moved == tuple((x + 10, y + 20) for x, y in ann.points)
+        assert len(app._undo_stack) == 1
+
+    def test_shift_press_off_the_selected_polygon_is_an_ordinary_press(self, app):
+        tab, ann = polygon_setup(app)
+        tab.select_annotation(ann.id)
+        tab.on_shift_press(click_at(tab, 400, 400))
+        assert tab._shape_move is None
+        assert app._selected_annotation_id is None
 
     def test_clicking_a_selected_polygons_vertex_starts_a_polygon_there(self, app):
         tab, ann = polygon_setup(app)
@@ -1853,10 +1883,11 @@ class TestCommentFlag:
         badge = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_withtag("badge")
                  if tab.canvas.type(i) == "text"]
         assert badge[0].endswith("flagged")
-        # Once focus moves on, the unlabelled FP carries the mark alone.
+        # Once focus moves on, the FP keeps a label of its own, mark included.
         panel.step(1)
         tab.render()
-        assert tab.canvas.find_withtag("flag")
+        fp_labels = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_withtag("pred_label")]
+        assert fp_labels and all(t == "1: class_1 (0.80) ?" for t in fp_labels)
 
     def test_a_flagged_annotation_label_ends_with_the_mark(self, app):
         panel, tab = app._review_panel, app._annotate_tab

@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 from yololabeler import keybindings
 from yololabeler.annotation.document import load_document
 from yololabeler.annotation.engine import polygon_is_degenerate
-from yololabeler.matching import point_to_segment_dist
+from yololabeler.matching import point_in_polygon, point_to_segment_dist
 from yololabeler.rendering import place_label
 from yololabeler.review.engine import build_queue
 from yololabeler.review.layer import (
@@ -100,6 +100,8 @@ class AnnotateTab:
         # A press on a selected polygon's vertex: a drag moves it, a click starts a polygon there
         self._vertex_press = None
         self._vertex_drag_started = False
+        # Shift+drag of the selected shape: (id, original points, press image point, dirty)
+        self._shape_move = None
 
     def build(self, parent):
         """Create the annotate canvas and bind events."""
@@ -114,6 +116,7 @@ class AnnotateTab:
         c = self.canvas
         c.bind("<Configure>", self._on_canvas_configure)
         c.bind("<ButtonPress-1>", self.on_button_press)
+        c.bind("<Shift-ButtonPress-1>", self.on_shift_press)
         c.bind("<B1-Motion>", self.on_move_press)
         c.bind("<ButtonRelease-1>", self.on_button_release)
         c.bind("<Double-Button-1>", self._on_double_click)
@@ -183,6 +186,7 @@ class AnnotateTab:
         a._dragging_vertex = None
         a._drag_orig_pos = None
         self._clear_box_edit_state()
+        self._shape_move = None
         self._poly_preview_line = None
         self._snap_indicator_item = None
         a._stream_active = False
@@ -642,7 +646,9 @@ class AnnotateTab:
     def on_move_press(self, event):
         if self._legend_press:
             return
-        if self.app.mode == "box":
+        if self._shape_move is not None:
+            self._shape_drag(event)
+        elif self.app.mode == "box":
             self._box_drag(event)
         else:
             self._poly_drag(event)
@@ -651,10 +657,68 @@ class AnnotateTab:
         if self._legend_press:
             self._legend_press = False
             return
-        if self.app.mode == "box":
+        if self._shape_move is not None:
+            self._shape_move_release()
+        elif self.app.mode == "box":
             self._box_release(event)
         else:
             self._poly_release(event)
+
+    # ── Shift+drag: move the selected shape whole ─────────────────────────────
+    def _on_selected_shape(self, ann, cx, cy):
+        """Whether canvas point (cx, cy) lies on or inside the shape."""
+        if ann.kind == "box":
+            (x1, y1), (x2, y2) = ann.points
+            ix, iy = self.canvas_to_image(cx, cy)
+            inside = x1 <= ix <= x2 and y1 <= iy <= y2
+            return inside or self._box_outline_distance(ann, cx, cy) <= BOX_EDGE_HIT_RADIUS
+        ix, iy = self.canvas_to_image(cx, cy)
+        return (point_in_polygon(ix, iy, ann.points)
+                or self._polygon_outline_distance(ann, cx, cy) <= BOX_EDGE_HIT_RADIUS)
+
+    def on_shift_press(self, event):
+        """Start moving the selected shape whole; a Shift press elsewhere is an ordinary press."""
+        a = self.app
+        sel_id = a._selected_annotation_id
+        if (self._in_legend(event) or not a._annotation_visible or not self._alive(sel_id)
+                or not a._editable()):
+            self.on_button_press(event)
+            return
+        ann = a.document.get(sel_id)
+        if not self._on_selected_shape(ann, event.x, event.y):
+            self.on_button_press(event)
+            return
+        self._shape_move = (sel_id, ann.points, self.canvas_to_image(event.x, event.y), False)
+        self.canvas.config(cursor="fleur")
+
+    def _shape_drag(self, event):
+        a = self.app
+        sel_id, origin, (start_ix, start_iy), dirty = self._shape_move
+        if not self._alive(sel_id):
+            self._shape_move = None
+            self.canvas.config(cursor="cross")
+            return
+        ix, iy = self.canvas_to_image(event.x, event.y)
+        xs = [p[0] for p in origin]
+        ys = [p[1] for p in origin]
+        dx = _clamp_delta(ix - start_ix, -min(xs), a.img_width - max(xs))
+        dy = _clamp_delta(iy - start_iy, -min(ys), a.img_height - max(ys))
+        if not dirty:
+            self._push_undo()
+            self._shape_move = (sel_id, origin, (start_ix, start_iy), True)
+        self.engine.set_points(sel_id, [(x + dx, y + dy) for x, y in origin])
+        self.display_image()
+
+    def _shape_move_release(self):
+        a = self.app
+        sel_id, _, _, dirty = self._shape_move
+        self._shape_move = None
+        self.canvas.config(cursor="cross")
+        if dirty and self._alive(sel_id):
+            a._mark_image_annotated()
+            self._refresh_review_after_edit(sel_id, a.images[a.index])
+        self.display_image()
+        a.update_title()
 
     def _on_double_click(self, event):
         a = self.app
@@ -669,6 +733,7 @@ class AnnotateTab:
 
     def _clear_drag_state(self):
         self.engine.clear_drag_state()
+        self._shape_move = None
         self.canvas.config(cursor="cross")
 
     def _delete_annotation(self, ann_id):

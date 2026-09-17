@@ -56,6 +56,7 @@ MOUSE_HELP = (
     ("Scroll", "Pan up / down", "always"),
     ("Shift+Scroll", "Pan left / right", "always"),
     ("Middle-click drag", "Pan", "always"),
+    ("Shift+drag the selected shape", "Move it whole, box or polygon", "always"),
     ("Left-click drag", "Draw a box (anywhere off a box outline, including inside a box)", "box"),
     ("Click a box outline", "Select it", "box"),
     ("Drag a box outline", "Move the whole box", "box"),
