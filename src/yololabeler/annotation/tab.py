@@ -213,12 +213,16 @@ class AnnotateTab:
         a._image_start_time = time.time()
 
         self.fit_to_window()
-        rejected = self.load_document_for_current_image()
+        rejected, sidecar_moved = self.load_document_for_current_image()
         a.load_errors = rejected
         messages = []
         if skipped:
             messages.append(f"{len(skipped)} images could not be opened and were "
                             f"skipped ({'; '.join(skipped)}).")
+        if sidecar_moved:
+            messages.append(f"This image's sidecar could not be read and was moved to "
+                            f"{os.path.basename(sidecar_moved)}. Its annotations keep their "
+                            f"geometry but lose their authors and provenance.")
         if rejected:
             messages.append(f"{len(rejected)} label lines could not be read "
                             f"({'; '.join(rejected)}). This image will not be saved until they are fixed.")
@@ -306,19 +310,22 @@ class AnnotateTab:
     #  Load the document for the current image
     # ──────────────────────────────────────────────────────────────────────────
     def load_document_for_current_image(self):
-        """Read label files plus sidecar into a.document. Returns rejected-line messages."""
+        """Read label files plus sidecar into a.document.
+
+        Returns (rejected-line messages, quarantined sidecar path or None).
+        """
         a = self.app
         img_name = a.images[a.index]
         detect, segment, sidecar = self.engine.label_paths()
         legacy_authors = a._stats_store.pop_legacy_authors(img_name)
-        a.document, rejected = load_document(
+        a.document, rejected, sidecar_moved = load_document(
             img_name, a.img_width, a.img_height, detect, segment, sidecar,
             legacy_authors=legacy_authors)
         if legacy_authors is not None:
             a._save_stats()
         a._register_class_ids({ann.class_id for ann in a.document.annotations})
         self._invalidate_poly_bboxes()
-        return rejected
+        return rejected, sidecar_moved
 
     # ── Visibility and selection ──────────────────────────────────────────────
 

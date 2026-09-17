@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
-import json
 import os
 import uuid
 from dataclasses import dataclass
@@ -20,6 +19,7 @@ from yololabeler.label_io import (
     format_detect_line, format_segment_line, parse_label_file,
     write_detect_labels, write_json_atomic, write_segment_labels,
 )
+from yololabeler.state_io import read_json_or_quarantine
 
 Point = Tuple[float, float]
 
@@ -139,18 +139,19 @@ def save_document(doc, detect_path, segment_path, sidecar_path):
 
 
 def _read_sidecar(sidecar_path):
-    """Records keyed by (kind, line, occurrence), so identical lines stay distinct."""
-    if not os.path.exists(sidecar_path):
-        return {}
-    with open(sidecar_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    """Records keyed by (kind, line, occurrence), so identical lines stay distinct.
+
+    Returns (records, moved_path); a sidecar that fails to parse is quarantined
+    like every other state file and moved_path names where it went.
+    """
+    data, moved = read_json_or_quarantine(sidecar_path)
     records, seen = {}, {}
-    for r in data.get("annotations", []):
+    for r in (data or {}).get("annotations", []):
         pair = (r["kind"], r["line"])
         occurrence = seen.get(pair, 0)
         seen[pair] = occurrence + 1
         records[(*pair, occurrence)] = r
-    return records
+    return records, moved
 
 
 def _from_row(kind, row, record, author):
@@ -176,13 +177,14 @@ def _canonical(row, kind, width, height):
 
 def load_document(image_name, width, height, detect_path, segment_path,
                   sidecar_path, legacy_authors=None):
-    """Join label lines with the sidecar. Returns (document, rejected-line messages).
+    """Join label lines with the sidecar.
 
+    Returns (document, rejected-line messages, quarantined sidecar path or None).
     legacy_authors is an optional (box_authors, polygon_authors) pair from the old
     annotation_stats.json layout, applied by position only to lines that have no
     sidecar record.
     """
-    records = _read_sidecar(sidecar_path)
+    records, sidecar_moved = _read_sidecar(sidecar_path)
     box_authors, poly_authors = legacy_authors or ([], [])
     doc = Document(image_name, width, height)
     rejected: List[str] = []
@@ -197,4 +199,4 @@ def load_document(image_name, width, height, detect_path, segment_path,
             seen[pair] = occurrence + 1
             author = authors[pos] if pos < len(authors) else ""
             doc.add(_from_row(kind, row, records.get((*pair, occurrence)), author))
-    return doc, rejected
+    return doc, rejected, sidecar_moved

@@ -895,6 +895,13 @@ class YoloLabeler:
         self.image_folder = folder
         self.images = sorted([f for f in os.listdir(folder) if is_image_file(f)])
         print(f"[YoloLabeler] Opened folder: {folder} ({len(self.images)} images)")
+        # The previous folder's image must not outlive it, or a save lands here.
+        self.document = None
+        self.load_errors = []
+        self.verdicts = {}
+        self.predictions, self.predictions_rejected, self.predictions_blind = [], [], False
+        self.queue, self.matches, self.shape_statuses, self.flag_markers = [], {}, None, {}
+        self._review_panel.update_labels()
         self.labels_dir = os.path.join(folder, "labels")
         self.detect_dir = os.path.join(self.labels_dir, "detect")
         self.segment_dir = os.path.join(self.labels_dir, "segment")

@@ -1,5 +1,7 @@
 """Tests for yololabeler.annotation.document, the per-image annotation record."""
 
+from pathlib import Path
+
 import pytest
 
 from yololabeler.annotation.document import (
@@ -85,7 +87,7 @@ class TestRoundTrip:
                            prediction_id="abc:0", confidence=0.8)
         doc.add(a)
         save_document(doc, d, s, side)
-        loaded, rejected = load_document("a.jpg", 100, 200, d, s, side)
+        loaded, rejected, _ = load_document("a.jpg", 100, 200, d, s, side)
         assert rejected == []
         b = loaded.annotations[0]
         assert (b.id, b.author, b.source, b.prediction_id, b.confidence) == \
@@ -93,6 +95,15 @@ class TestRoundTrip:
         # pytest.approx (9.0.2) rejects nested tuples; compare corner by corner.
         assert b.points[0] == pytest.approx(BOX[0])
         assert b.points[1] == pytest.approx(BOX[1])
+
+    def test_corrupt_sidecar_is_quarantined_and_the_labels_still_load(self, tmp_path):
+        d, s, side = paths(tmp_path)
+        d.write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+        side.write_text("{not json", encoding="utf-8")
+        loaded, rejected, moved = load_document("a.jpg", 100, 200, d, s, side)
+        assert rejected == [] and len(loaded.annotations) == 1
+        assert loaded.annotations[0].source == "unknown"
+        assert moved and not side.exists() and Path(moved).exists()
 
     def test_empty_document_removes_files(self, tmp_path):
         d, s, side = paths(tmp_path)
@@ -103,7 +114,7 @@ class TestRoundTrip:
     def test_line_without_record_is_unknown(self, tmp_path):
         d, s, side = paths(tmp_path)
         d.write_text("0 0.500000 0.500000 0.200000 0.200000\n", encoding="utf-8")
-        loaded, _ = load_document("a.jpg", 100, 200, d, s, side)
+        loaded, _, _ = load_document("a.jpg", 100, 200, d, s, side)
         a = loaded.annotations[0]
         assert a.source == "unknown" and a.author == "" and len(a.id) == 36
 
@@ -113,13 +124,13 @@ class TestRoundTrip:
         doc.add(new_annotation("box", BOX, 2, "zack"))
         save_document(doc, d, s, side)
         d.unlink()
-        loaded, _ = load_document("a.jpg", 100, 200, d, s, side)
+        loaded, _, _ = load_document("a.jpg", 100, 200, d, s, side)
         assert loaded.annotations == []
 
     def test_rejected_lines_reported(self, tmp_path):
         d, s, side = paths(tmp_path)
         d.write_text("0 0.5 0.5 0.2 0.2\nnope\n", encoding="utf-8")
-        loaded, rejected = load_document("a.jpg", 100, 200, d, s, side)
+        loaded, rejected, _ = load_document("a.jpg", 100, 200, d, s, side)
         assert len(loaded.annotations) == 1
         assert rejected == [f"{d}: line 2"]
 
@@ -133,7 +144,7 @@ class TestRoundTrip:
         doc.add(second)
         save_document(doc, d, s, side)
         assert len(d.read_text(encoding="utf-8").splitlines()) == 2
-        loaded, _ = load_document("a.jpg", 100, 200, d, s, side)
+        loaded, _, _ = load_document("a.jpg", 100, 200, d, s, side)
         assert [a.id for a in loaded.annotations] == [first.id, second.id]
         assert [a.author for a in loaded.annotations] == ["zack", "nathan"]
         assert loaded.remove(first.id).author == "zack"
@@ -142,7 +153,7 @@ class TestRoundTrip:
     def test_legacy_authors_by_position(self, tmp_path):
         d, s, side = paths(tmp_path)
         d.write_text("0 0.5 0.5 0.2 0.2\n1 0.5 0.5 0.2 0.2\n", encoding="utf-8")
-        loaded, _ = load_document("a.jpg", 100, 200, d, s, side,
+        loaded, _, _ = load_document("a.jpg", 100, 200, d, s, side,
                                   legacy_authors=(["nathan", ""], []))
         assert [a.author for a in loaded.annotations] == ["nathan", ""]
         assert loaded.annotations[0].source == "unknown"

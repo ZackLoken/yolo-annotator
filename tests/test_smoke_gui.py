@@ -1278,6 +1278,30 @@ class TestOpenFolder:
         assert any("No images found" in app.canvas.itemcget(i, "text")
                    for i in app.canvas.find_all() if app.canvas.type(i) == "text")
 
+    def test_an_empty_folder_leaves_no_stale_queue_behind(self, app, folder, monkeypatch):
+        app._review_panel.focus_item(0)
+        empty = folder / "empty"
+        empty.mkdir()
+        monkeypatch.setattr(guimod.filedialog, "askdirectory", lambda **kw: str(empty))
+        app._open_folder()
+        assert app.document is None and app.queue == [] and app.predictions == []
+        # Each of these used to index images[0] of an empty list.
+        app._review_panel.on_type_changed("FP")
+        app._review_panel.on_status_changed("Reviewed")
+        app.accept_item()
+        app.reject_item()
+        app.edit_pair()
+        assert app._review_panel.accept_btn.cget("state") == "disabled"
+
+    def test_a_corrupt_sidecar_is_reported_and_the_image_stays_editable(self, app, folder):
+        side = folder / "state" / "annotations" / "a.json"
+        side.parent.mkdir(parents=True, exist_ok=True)
+        side.write_text("{not json", encoding="utf-8")
+        app._annotate_tab.load_image()
+        assert "sidecar could not be read" in app.banner_text
+        assert app.load_errors == [] and len(app.document.annotations) == 1
+        assert app._editable()
+
 
 # ── rename class ────────────────────────────────────────────────────────────
 
