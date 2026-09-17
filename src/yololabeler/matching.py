@@ -177,7 +177,10 @@ def compute_matches(gt_boxes, gt_polygons, pred_boxes, pred_polygons,
             for pi in pred_indices:
                 p_type = pred_items[pi][0]
                 p_data = pred_items[pi][4]
-                if gt_type == 'box' and p_type == 'box':
+                if gt_type != p_type:
+                    # A box never matches a polygon: a folder reviews one kind against the same kind.
+                    continue
+                if gt_type == 'box':
                     iou = box_iou(gt_data, p_data)
                 else:
                     g1, a1 = _get_gt_geom(gi)

@@ -163,6 +163,13 @@ class TestComputeMatches:
         assert len(result['fp']) == 0
         assert len(result['fn']) == 0
 
+    def test_a_box_never_matches_a_polygon(self):
+        pts = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        result = compute_matches([], [(pts, 0)], [(0, 0, 10, 10, 0, 0.9)], [], iou_threshold=0.5)
+        assert result['tp'] == [] and len(result['fp']) == 1 and len(result['fn']) == 1
+        result = compute_matches([(0, 0, 10, 10, 0)], [], [], [(pts, 0, 0.9)], iou_threshold=0.5)
+        assert result['tp'] == [] and len(result['fp']) == 1 and len(result['fn']) == 1
+
     def test_greedy_best_iou_wins(self):
         """When two predictions match the same GT, the higher-IoU pair wins."""
         gt = [(0, 0, 10, 10, 0)]
