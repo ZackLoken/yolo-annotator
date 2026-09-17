@@ -642,6 +642,9 @@ class YoloLabeler:
         def apply(item):
             result = apply_reject(self.document, item)
             if item.annotation is not None:
+                if self._selected_annotation_id == item.annotation.id:
+                    self._selected_annotation_id = None
+                self._engine.invalidate_poly_bboxes()
                 self._review.resolve_flag(self.images[self.index], item.annotation.id,
                                           self._current_user, note="rejected")
             return result
@@ -1327,7 +1330,7 @@ class YoloLabeler:
             store.set_completion(img_name, self._current_user, blind,
                                  len(self.document.annotations) if self.document else 0,
                                  None if blind else self._current_model_name(),
-                                 len(self.flag_markers))
+                                 len(self._review.open_flag_keys(img_name)))
             store.set_image_status(img_name, "complete")
             self._completed_images.add(img_name)
         else:

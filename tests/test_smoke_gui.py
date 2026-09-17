@@ -753,10 +753,13 @@ class TestActions:
         tab.on_move_press(click_at(tab, 10, 10))
         tab.on_button_release(click_at(tab, 10, 10))
         # The drag alone pulls the GT below the IoU threshold, and the strip says so.
-        # The carried verdict covers the new FN, so only the other FP is left.
-        assert panel.counts_label.cget("text") == "TP 0  FP 2  FN 1  (1 not reviewed)"
-        assert panel.item_label.cget("text").startswith("FP")
-        assert app.verdicts[key] == before
+        # The verdict moves to the new FN, so both FPs are left, and focus follows the edit.
+        assert panel.counts_label.cget("text") == "TP 0  FP 2  FN 1  (2 not reviewed)"
+        assert panel.item_label.cget("text").startswith("FN")
+        assert key not in app.verdicts
+        ann_id = panel.current_item().annotation.id
+        assert {k: v for k, v in app.verdicts[ann_id].items() if k in ("action", "by", "at")} == {
+            k: v for k, v in before.items() if k in ("action", "by", "at")}
 
     def test_drawing_an_unrelated_box_records_nothing_for_the_focused_item(self, app):
         panel, tab = app._review_panel, app._annotate_tab
@@ -958,8 +961,59 @@ class TestVerdictCarriesForward:
         assert app.verdicts[ann.id]["kind"] == "fn"
         assert app.verdicts[ann.id]["by"] == before_pred["by"]
         assert app.verdicts[ann.id]["at"] == before_pred["at"]
-        assert app.verdicts[pred_key] == before_pred
+        # The prediction left behind is an unreviewed FP again, not a green one.
+        assert pred_key not in app.verdicts
         assert disk_verdicts(folder)[ann.id]["action"] == "accepted"
+        assert pred_key not in disk_verdicts(folder)
+        assert app._review_panel.current_item().key == ann.id
+
+    def test_an_edit_off_focus_still_moves_the_verdict(self, app):
+        tab = app._annotate_tab
+        pred_key = focus_kind(app, "tp").key
+        app.accept_item()
+        ann = unfiltered_item_for(app, next(
+            a.id for a in app.document.annotations)).annotation
+        focus_kind(app, "fp")
+        assert app._review_panel.current_item().annotation is None
+        tab.fit_to_window()
+        drag_box_to(tab, ann, 576, 432)
+        assert unfiltered_item_for(app, ann.id).kind == "fn"
+        assert app.verdicts[ann.id]["action"] == "accepted"
+        assert pred_key not in app.verdicts
+
+    def test_deleting_a_polygon_vertex_moves_the_verdict(self, poly_app):
+        app = poly_app
+        tab = app._annotate_tab
+        ann = app.document.annotations[0]
+        # Shifted right so the match holds at IoU 0.52 and drops to 0.19 once a corner goes.
+        app._engine.set_points(ann.id, ((232, 144), (360, 144), (360, 240), (232, 240)))
+        app._review_panel.refresh(keep_focus=False)
+        pred_key = focus_kind(app, "tp").key
+        app.accept_item()
+        tab.fit_to_window()
+        tab.select_annotation(ann.id)
+        tab.on_right_click(click_at(tab, 232, 144))
+        assert len(app.document.get(ann.id).points) == 3
+        assert unfiltered_item_for(app, ann.id).kind == "fn"
+        assert app.verdicts[ann.id]["action"] == "accepted"
+        assert pred_key not in app.verdicts
+
+    def test_deleting_a_matched_annotation_drops_its_verdict(self, app):
+        tab = app._annotate_tab
+        item = focus_kind(app, "tp")
+        app.accept_item()
+        assert item.key in app.verdicts
+        app._select_class_for_filter_and_draw(0)
+        tab.fit_to_window()
+        tab.on_right_click(click_at(tab, *top_edge_mid(item.annotation)))
+        assert all(a.id != item.annotation.id for a in app.document.annotations)
+        assert item.key not in app.verdicts
+
+    def test_rejecting_the_selected_annotation_clears_the_selection(self, app):
+        item = focus_kind(app, "tp")
+        app._annotate_tab.select_annotation(item.annotation.id)
+        app.reject_item()
+        assert app._selected_annotation_id is None
 
     def test_an_edit_that_stays_matched_adds_no_verdict(self, app):
         tab = app._annotate_tab
@@ -1656,6 +1710,19 @@ class TestCommentFlag:
         app.comment_on_item()
         panel.on_status_changed("Flagged")
         assert [q.key for q in app.queue] == [key]
+
+    def test_completion_counts_a_flag_on_a_prediction_hidden_by_the_threshold(self, app):
+        panel = app._review_panel
+        panel.focus_item(0)
+        item = panel.current_item()
+        assert item.kind == "fp" and item.prediction.confidence == pytest.approx(0.8)
+        app.ask_flag_comment = lambda heading, existing: ("save", "")
+        app.comment_on_item()
+        panel.set_threshold(0.85)
+        assert app.flag_markers == {}
+        app._complete_var.set(True)
+        app._on_complete_toggled()
+        assert app._stats_store.completion("a.jpg")["open_flags"] == 1
 
     def test_completion_records_open_flags_and_image_filter_finds_the_image(self, app):
         app._review_panel.focus_item(0)

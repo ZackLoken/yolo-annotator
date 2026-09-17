@@ -671,10 +671,19 @@ class AnnotateTab:
         self.canvas.config(cursor="cross")
 
     def _delete_annotation(self, ann_id):
-        """Delete an annotation and resolve an open flag keyed by it, which has nothing left to open from."""
+        """Delete an annotation, dropping its item's verdict and resolving an open flag keyed by it.
+
+        The verdict goes because the item it judged is gone: a miss has no key
+        left, and a match's prediction is an unreviewed FP again. The flag has
+        nothing left to open from.
+        """
         a = self.app
+        img_name = a.images[a.index]
+        item = self._unfiltered_item_for(ann_id)
         self.engine.delete_annotation(ann_id)
-        a._review.resolve_flag(a.images[a.index], ann_id, a._current_user, note="deleted")
+        if item is not None:
+            a._review.remove_verdict(img_name, item.key)
+        a._review.resolve_flag(img_name, ann_id, a._current_user, note="deleted")
         a._rebuild_filter()
         a._update_filter_label()
 
@@ -708,7 +717,7 @@ class AnnotateTab:
                         self.engine.set_points(sel_id, new_pts)
                     self._clear_drag_state()
                     a._mark_image_annotated()
-                    a._review_panel.refresh(keep_focus=True)
+                    self._refresh_review_after_edit(sel_id, a.images[a.index])
                     self.display_image()
                     a.update_title()
                     return
@@ -752,26 +761,45 @@ class AnnotateTab:
     # ──────────────────────────────────────────────────────────────────────────
     #  Box mode
     # ──────────────────────────────────────────────────────────────────────────
-    def _refresh_review_after_edit(self, ann_id, img_name):
-        """Refresh the review queue after a GT geometry edit, and if the edit
-        demoted a verdicted match to a freshly-unverdicted item under a new
-        key, carry the prior verdict forward so the reviewer isn't asked to
-        re-confirm geometry they just fixed. Its flag history moves with it."""
+    def _unfiltered_item_for(self, ann_id):
+        """The queue item holding that annotation under no filters, or None."""
         a = self.app
-        item = a._review_panel.current_item()
-        if item is None or item.annotation is None or item.annotation.id != ann_id:
-            return
-        old_key, old_verdict = item.key, a.verdicts.get(item.key)
+        if a.document is None or a.predictions_blind or not a.matches:
+            return None
+        items = build_queue(a.document, a.predictions, a.matches, a.verdicts)
+        return next((qi for qi in items
+                     if qi.annotation is not None and qi.annotation.id == ann_id), None)
+
+    def _refresh_review_after_edit(self, ann_id, img_name):
+        """Refresh the review queue after a GT geometry edit, moving its verdict with it.
+
+        When the edit reclassifies the item under a new key (a match that
+        became a miss, say), the verdict and flag history move to the new key,
+        so the reviewer is not asked to re-confirm geometry they just fixed and
+        the prediction left behind is unreviewed again. Focus follows the
+        edited annotation when its new item is in the visible queue.
+        """
+        a = self.app
+        old_item = self._unfiltered_item_for(ann_id)
         a._review_panel.refresh(keep_focus=True)
-        all_items = build_queue(a.document, a.predictions, a.matches, a.verdicts)
-        new_item = next((qi for qi in all_items
-                         if qi.annotation is not None and qi.annotation.id == ann_id), None)
-        if new_item is None or new_item.key == old_key:
+        if old_item is None:
             return
-        a._review.carry_flags(img_name, old_key, new_item.key)
-        if old_verdict is not None and new_item.key not in a.verdicts:
-            a._review.carry_verdict(img_name, new_item, old_verdict)
+        new_item = self._unfiltered_item_for(ann_id)
+        if new_item is None or new_item.key == old_item.key:
+            return
+        a._review.carry_flags(img_name, old_item.key, new_item.key)
+        old_verdict = a.verdicts.get(old_item.key)
+        if old_verdict is not None:
+            if new_item.key not in a.verdicts:
+                a._review.carry_verdict(img_name, new_item, old_verdict)
+            a._review.remove_verdict(img_name, old_item.key)
         a._review_panel.refresh(keep_focus=True)
+        for i, qi in enumerate(a.queue):
+            if qi.key == new_item.key:
+                a.queue_index = i
+                break
+        a._review_panel.update_labels()
+        self.display_image()
 
     def _clear_box_edit_state(self):
         a = self.app

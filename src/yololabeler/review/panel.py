@@ -138,10 +138,8 @@ class ReviewPanel:
             a.flag_markers = (flag_markers(a.document, [], {},
                                            self.engine.open_flag_keys(a.images[a.index]))
                               if a.images and a.document is not None else {})
-            # Blind mode empties the queue without touching a single verdict, so
-            # recomputing the status from it would report every image not_started.
-            if a.images and not a.predictions_blind:
-                self.engine.update_img_status(a.images[a.index])
+            # No queue here, so there is nothing to recompute the image's review
+            # status from; a status earned before is left as it was.
             self.update_labels()
             a._annotate_tab.display_image()
             return
