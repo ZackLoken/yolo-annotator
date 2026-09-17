@@ -840,10 +840,13 @@ class YoloLabeler:
     def _set_mode(self, mode):
         """Switch annotation mode and update the toolbar buttons to match.
 
-        Leaving polygon mode discards any in-progress polygon, selection,
-        drag and streaming state, since none of them apply to boxes.
+        Either way the selection, hover and any drag are dropped, since the
+        other mode's editing gestures must never land on them. Leaving polygon
+        mode also discards the in-progress polygon and streaming state.
         """
         self.mode = mode
+        self._selected_annotation_id = None
+        self._annotate_tab._clear_drag_state()
         if mode == "polygon":
             self.mode_btn.configure(text="Mode: Polygon \u2b21")
             self.stream_btn.configure(state="normal")
@@ -851,12 +854,9 @@ class YoloLabeler:
         else:
             self.mode_btn.configure(text="Mode: Box \u25ad")
             self.current_polygon = []
-            self._dragging_vertex = None
-            self._drag_orig_pos = None
-            self._selected_annotation_id = None
+            self._vertex_redo_stack.clear()
             self._stream_mode = False
             self._stream_active = False
-            self._annotate_tab._clear_box_edit_state()
             self.stream_btn.configure(text="Stream: Off", state="disabled")
             self.snap_btn.configure(state="disabled")
 
@@ -1164,6 +1164,7 @@ class YoloLabeler:
                 return
             if self.current_polygon:
                 self.current_polygon = []
+                self._vertex_redo_stack.clear()
                 self._annotate_tab.display_image()
                 return
             if self._selected_annotation_id is not None:

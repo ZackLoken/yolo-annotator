@@ -221,6 +221,18 @@ class TestBoxEditing:
             [app.img_width - (x2 - x1), app.img_height - (y2 - y1),
              app.img_width, app.img_height])
 
+    def test_a_box_wider_than_the_image_still_drags(self, app):
+        tab = app._annotate_tab
+        ann_id = app.document.annotations[0].id
+        app._engine.set_points(ann_id, ((-20, -10), (700, 500)))
+        ann = app.document.get(ann_id)
+        tab.scale, tab.offset_x, tab.offset_y = 0.5, 100.0, 100.0
+        drag_box_to(tab, ann, 345, 250)
+        (x1, y1), (x2, y2) = app.document.get(ann.id).points
+        # A small drag moves both corners by the same few pixels; it used to pin x1 at 0.
+        assert 0 < x1 + 20 < 10 and x2 - 700 == pytest.approx(x1 + 20)
+        assert 0 < y1 + 10 < 10 and y2 - 500 == pytest.approx(y1 + 10)
+
     def test_a_degenerate_resize_rolls_back_and_cannot_be_redone(self, app):
         tab, ann = box_setup(app)
         before = ann.points
@@ -477,6 +489,45 @@ def motion_at(tab, ix, iy):
 
 
 class TestPolygonInteraction:
+    def test_switching_to_polygon_mode_drops_a_selected_box(self, app):
+        tab = app._annotate_tab
+        box = app.document.annotations[0]
+        tab.select_annotation(box.id)
+        app._set_mode("polygon")
+        assert app._selected_annotation_id is None
+        # A press on the box's old edge in polygon mode must not edit the box.
+        tab.scale, tab.offset_x, tab.offset_y = 1.0, 0.0, 0.0
+        tab.on_button_press(click_at(tab, *top_edge_mid(box)))
+        tab.on_button_release(click_at(tab, *top_edge_mid(box)))
+        assert len(app.document.get(box.id).points) == 2
+
+    def test_undoing_the_only_pending_vertex_keeps_the_last_closed_polygon(self, app):
+        tab, ann = polygon_setup(app)
+        tab.on_button_press(click_at(tab, 300, 300))
+        tab.on_button_press(click_at(tab, 400, 300))
+        tab.on_button_press(click_at(tab, 400, 400))
+        tab._on_double_click(click_at(tab, 400, 400))
+        closed = app.document.annotations[-1]
+        assert closed.id != ann.id and app.current_polygon == []
+        tab.on_button_press(click_at(tab, 50, 50))
+        assert app.current_polygon == [(50, 50)]
+        tab.undo_last()
+        assert app.current_polygon == []
+        assert closed in app.document.annotations
+        tab.redo_last()
+        assert app.current_polygon == [(50, 50)]
+
+    def test_an_abandoned_polygon_leaves_nothing_to_redo(self, app):
+        tab, _ = polygon_setup(app)
+        tab.on_button_press(click_at(tab, 300, 300))
+        tab.on_button_press(click_at(tab, 400, 300))
+        tab.undo_last()
+        assert app._vertex_redo_stack == [(400, 300)]
+        app._on_escape()
+        tab.on_button_press(click_at(tab, 50, 50))
+        tab.redo_last()
+        assert app.current_polygon == [(50, 50)]
+
     def test_clicking_a_selected_polygons_vertex_starts_a_polygon_there(self, app):
         tab, ann = polygon_setup(app)
         tab.select_annotation(ann.id)

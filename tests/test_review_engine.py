@@ -204,6 +204,13 @@ class TestActions:
         assert created.confidence == pytest.approx(0.9) and created.author == "ren"
         assert created.points == ((500.0, 20.0), (560.0, 80.0)) and created.class_id == 0
 
+    def test_accept_clamps_an_edge_of_frame_prediction_to_the_image(self, scene):
+        doc, preds = scene
+        preds = preds[:1] + [pred("h:1", -20, -10, 700, 500)]
+        item = of_kind(build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {}), "fp")
+        _, created = apply_accept(doc, item, "ren")
+        assert created.points == ((0.0, 0.0), (640.0, 480.0))
+
     def test_accept_tp_and_fn_change_nothing(self, scene):
         doc, preds = scene
         queue = build_queue(doc, preds, match_document(doc, preds, 0.6, 0.5), {})

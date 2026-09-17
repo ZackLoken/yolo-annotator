@@ -178,10 +178,12 @@ def flag_markers(document, predictions, matches, open_keys):
 
 
 def apply_accept(document, item, user):
-    """Accept the item; an fp becomes an annotation (spec 3.3)."""
+    """Accept the item; an fp becomes an annotation clamped to the image (spec 3.3)."""
     if item.kind == "fp":
         p = item.prediction
-        created = new_annotation(p.kind, p.points, p.class_id, user, source="accepted",
+        points = [(max(0, min(document.width, x)), max(0, min(document.height, y)))
+                  for x, y in p.points]
+        created = new_annotation(p.kind, points, p.class_id, user, source="accepted",
                                  prediction_id=p.id, confidence=p.confidence)
         document.add(created)
         return "accepted", created

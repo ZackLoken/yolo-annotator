@@ -42,6 +42,13 @@ LEGEND_BG = "#1A1A1A"
 LEGEND_BORDER = "#444444"
 
 
+def _clamp_delta(delta, lo, hi):
+    """delta held within [lo, hi]; unclamped when lo exceeds hi, a shape too large to fit."""
+    if lo > hi:
+        return delta
+    return max(lo, min(hi, delta))
+
+
 class AnnotateTab:
     """Annotate canvas: drawing, zoom/pan, snapping, rendering, undo/redo."""
 
@@ -693,6 +700,7 @@ class AnnotateTab:
             return
         if a.mode == "polygon" and a.current_polygon:
             a.current_polygon = []
+            a._vertex_redo_stack.clear()
             a._stream_active = False
             a._last_stream_pos = None
             self.display_image()
@@ -919,8 +927,8 @@ class AnnotateTab:
                 return
             (ox1, oy1), (ox2, oy2), start_ix, start_iy = a._box_edit_origin
             ix, iy = self.canvas_to_image(event.x, event.y)
-            dx = max(-ox1, min(a.img_width - ox2, ix - start_ix))
-            dy = max(-oy1, min(a.img_height - oy2, iy - start_iy))
+            dx = _clamp_delta(ix - start_ix, -ox1, a.img_width - ox2)
+            dy = _clamp_delta(iy - start_iy, -oy1, a.img_height - oy2)
             if not a._box_edit_dirty:
                 self._push_undo()
                 a._box_edit_dirty = True
@@ -1013,7 +1021,7 @@ class AnnotateTab:
 
         sel_id = a._selected_annotation_id
         if sel_id is not None:
-            if self._alive(sel_id):
+            if self._alive(sel_id) and a.document.get(sel_id).kind == "polygon":
                 pts_sel = a.document.get(sel_id).points
                 best_vi, best_vd = None, 8
                 for vi, (px, py) in enumerate(pts_sel):
@@ -1097,6 +1105,7 @@ class AnnotateTab:
             return
         ix, iy = self._clamp(*self._maybe_snap(ix, iy))
         a.current_polygon = [(ix, iy)]
+        a._vertex_redo_stack.clear()
         if a._stream_mode:
             a._stream_active = True
             a._last_stream_pos = (ix, iy)
@@ -1259,26 +1268,22 @@ class AnnotateTab:
         self.engine.push_undo()
 
     def undo_last(self, event=None):
+        """Take back the last in-progress vertex, or else the last document change."""
         a = self.app
         if a.current_polygon:
-            pt = a.current_polygon.pop()
-            a._vertex_redo_stack.append(pt)
-            if a.current_polygon:
-                self.display_image()
-                return
+            a._vertex_redo_stack.append(a.current_polygon.pop())
             self.display_image()
-            if not a._undo_stack:
-                return
+            return
         if self.engine.undo_snapshot():
             self.canvas.config(cursor="cross")
             self.display_image()
             a.update_title()
 
     def redo_last(self, event=None):
+        """Put back the last undone in-progress vertex, or else the last undone document change."""
         a = self.app
-        if a.current_polygon and a._vertex_redo_stack:
-            pt = a._vertex_redo_stack.pop()
-            a.current_polygon.append(pt)
+        if a._vertex_redo_stack:
+            a.current_polygon.append(a._vertex_redo_stack.pop())
             self.display_image()
             return
         if self.engine.redo_snapshot():
