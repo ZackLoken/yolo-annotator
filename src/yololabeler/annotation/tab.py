@@ -141,9 +141,7 @@ class AnnotateTab:
         c.bind("<Shift-Button-4>", self._on_shift_mousewheel_linux)
         c.bind("<Shift-Button-5>", self._on_shift_mousewheel_linux)
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Coordinate conversion
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Coordinate conversion ─────────────────────────────────────────────────
     def canvas_to_image(self, cx, cy):
         ix = (cx - self.offset_x) / self.scale
         iy = (cy - self.offset_y) / self.scale
@@ -154,9 +152,7 @@ class AnnotateTab:
         cy = iy * self.scale + self.offset_y
         return cx, cy
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Load image
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Load image ────────────────────────────────────────────────────────────
     def load_image(self):
         """Load the image at a.index with its labels and predictions, then render once."""
         a = self.app
@@ -320,9 +316,7 @@ class AnnotateTab:
                 best_idx = i
         return best_idx
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Load the document for the current image
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Load the document for the current image ───────────────────────────────
     def load_document_for_current_image(self):
         """Read label files plus sidecar into a.document.
 
@@ -373,9 +367,7 @@ class AnnotateTab:
         a._selected_annotation_id = ann_id
         self.display_image()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Canvas resize debounce
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Canvas resize debounce ────────────────────────────────────────────────
     def _on_canvas_configure(self, event=None):
         a = self.app
         if a.original_image is None:
@@ -395,9 +387,7 @@ class AnnotateTab:
         self._initial_fit()
         self.display_image()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Display (throttled)
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Display (throttled) ───────────────────────────────────────────────────
     def _request_redraw(self):
         if not self._redraw_pending and not self._loading:
             self._redraw_pending = True
@@ -416,9 +406,7 @@ class AnnotateTab:
         a.show_help = not a.show_help
         self.display_image()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Scroll / Zoom / Pan
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Scroll / Zoom / Pan ───────────────────────────────────────────────────
     def _on_mousewheel(self, event):
         delta = event.delta
         if sys.platform == "darwin":
@@ -491,9 +479,7 @@ class AnnotateTab:
         self.pan_start_y = None
         self.canvas.config(cursor="cross")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Mouse motion
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Mouse motion ──────────────────────────────────────────────────────────
     def _on_motion(self, event):
         a = self.app
         self._mouse_canvas_x = event.x
@@ -556,9 +542,7 @@ class AnnotateTab:
                 except tk.TclError:
                     pass
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Vertex snapping
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Vertex snapping ───────────────────────────────────────────────────────
     def _clamp(self, ix, iy):
         """Clamp an image point to the image bounds."""
         a = self.app
@@ -636,9 +620,7 @@ class AnnotateTab:
             return best_pt
         return (ix, iy)
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Mouse event dispatch
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Mouse event dispatch ──────────────────────────────────────────────────
     def _in_legend(self, event):
         """True when a canvas point falls on the drawn legend chip or panel."""
         box = self._legend_bbox
@@ -757,9 +739,7 @@ class AnnotateTab:
             self.display_image()
             a.update_title()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Box mode
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Box mode ──────────────────────────────────────────────────────────────
     def _unfiltered_item_for(self, ann_id):
         """The queue item holding that annotation under no filters, or None."""
         a = self.app
@@ -977,9 +957,7 @@ class AnnotateTab:
         a.accept_drawn_annotation(added)
         a.update_title()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Polygon mode
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Polygon mode ──────────────────────────────────────────────────────────
     def _poly_press(self, event):
         a = self.app
         ix, iy = self.canvas_to_image(event.x, event.y)
@@ -1174,18 +1152,14 @@ class AnnotateTab:
         a.accept_drawn_annotation(added)
         a.update_title()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Polygon spatial index
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Polygon spatial index ─────────────────────────────────────────────────
     def _invalidate_poly_bboxes(self):
         self.engine.invalidate_poly_bboxes()
 
     def _ensure_poly_bboxes(self):
         self.engine.ensure_poly_bboxes()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Polygon geometry helpers
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Polygon geometry helpers ──────────────────────────────────────────────
     def _find_nearest_vertex(self, cx, cy, threshold=8):
         a = self.app
         self._ensure_poly_bboxes()
@@ -1243,9 +1217,7 @@ class AnnotateTab:
                 best, best_d = ann, d
         return best
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Navigation
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Navigation ────────────────────────────────────────────────────────────
     def next_index(self):
         """The index a step forward lands on, honouring the active image filter."""
         a = self.app
@@ -1272,9 +1244,7 @@ class AnnotateTab:
             return
         a.go_to_image(a.index - 1)
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Undo / Redo
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Undo / Redo ───────────────────────────────────────────────────────────
     def _push_undo(self):
         self.engine.push_undo()
 
@@ -1302,9 +1272,7 @@ class AnnotateTab:
             self.display_image()
             a.update_title()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Save annotations
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Save annotations ──────────────────────────────────────────────────────
     def save_annotations(self):
         """Save the current document. Returns None or the engine's error message."""
         a = self.app
@@ -1313,9 +1281,7 @@ class AnnotateTab:
                   f"({len(a.document.annotations)} annotations)")
         return self.engine.save()
 
-    # ══════════════════════════════════════════════════════════════════════════
-    #  Rendering (absorbed from AnnotateRenderer)
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Rendering (absorbed from AnnotateRenderer) ────────────────────────────
     def render(self):
         a = self.app
         if a.original_image is None:

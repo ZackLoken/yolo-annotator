@@ -1,4 +1,4 @@
-"""YOLO label file I/O — parse and write detect / segment label files.
+"""YOLO label file I/O: parse and write detect and segment label files.
 
 All functions are pure (no GUI dependencies) and operate on file paths
 with explicit image dimensions for coordinate conversion.

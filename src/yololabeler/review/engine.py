@@ -1,7 +1,7 @@
-"""ReviewEngine — Review logic, detection matching, accept/reject.
+"""ReviewEngine: review logic, prediction matching, verdicts and flags.
 
-GUI-free.  Operates on an AppState instance.  Can be instantiated
-headlessly for programmatic use (AI agents, training pipelines, CLI).
+GUI-free. Operates on an AppState instance and can be instantiated headlessly
+for scripts, AI agents and training pipelines.
 """
 
 import datetime

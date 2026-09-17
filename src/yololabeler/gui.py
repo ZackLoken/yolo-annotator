@@ -71,7 +71,7 @@ OVERVIEW_ZOOM = 0.33
 # ── Dark Theme Palette ─────────────────────────────────────────────────────────
 BG_COLOR = "#1E1E1E"       # dark gray background
 FG_COLOR = "#E0E0E0"       # light gray text
-ACCENT = "#507754"          # SI green — buttons, highlights
+ACCENT = "#507754"          # SI green: buttons, highlights
 ACCENT_HOVER = "#608864"    # slightly lighter green for hovers
 CANVAS_BG = "#2D2D2D"      # canvas background
 ENTRY_BG = "#2A2A2A"       # entry/combo background
@@ -89,7 +89,7 @@ SI_ELDERBERRY = "#2A194E"
 SI_SAGE = "#889E6E"
 SI_LEAF_GREEN = "#6F9382"
 
-# High-contrast default class colors — visible against natural/outdoor scenes
+# High-contrast default class colors, visible against natural/outdoor scenes
 DEFAULT_CLASS_COLORS = [
     "#FF0000",  # Red
     "#00FFFF",  # Cyan
@@ -216,9 +216,7 @@ class YoloLabeler:
 
         self._start_timer_display()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Toolbar (top)
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Toolbar (top) ─────────────────────────────────────────────────────────
     def _build_toolbar(self):
         self.toolbar = ctk.CTkFrame(self.root, fg_color=BG_COLOR, height=44, 
                                     corner_radius=0)
@@ -372,9 +370,7 @@ class YoloLabeler:
                            fg_color=BORDER_COLOR)
         sep.pack(side="left", padx=6, fill="y")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Status bar (bottom)
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Status bar (bottom) ───────────────────────────────────────────────────
     def _build_status_bar(self):
         self.status_bar = ctk.CTkFrame(self.root, fg_color=BG_COLOR,
                                        height=32, corner_radius=0)
@@ -437,9 +433,7 @@ class YoloLabeler:
         if self.original_image is not None:
             self._annotate_tab.display_image()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Icon and logo
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Icon and logo ─────────────────────────────────────────────────────────
     def _set_window_icon(self):
         """Set the window/taskbar icon from the bundled app_icon assets.
 
@@ -475,9 +469,7 @@ class YoloLabeler:
                      font=(self.font_family, 13, "bold"),
                      text_color=ACCENT).pack(side="left", padx=(4, 4))
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Bindings
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Bindings ──────────────────────────────────────────────────────────────
     @property
     def ACTIONS(self):
         """Every Binding.action in KEY_BINDINGS mapped to the method that runs it."""
@@ -840,9 +832,7 @@ class YoloLabeler:
             self.banner_text = None
             self._annotate_tab.display_image()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Mode toggle
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Mode toggle ───────────────────────────────────────────────────────────
     def _set_mode(self, mode):
         """Switch annotation mode and update the toolbar buttons to match.
 
@@ -872,9 +862,7 @@ class YoloLabeler:
         self.update_title()
         self._update_status()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Stream toggle (v key or button)
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Stream toggle (v key or button) ───────────────────────────────────────
     def _toggle_stream(self, event=None):
         self._stream_mode = not self._stream_mode
         if self._stream_mode:
@@ -884,9 +872,7 @@ class YoloLabeler:
             self._stream_active = False
             self._last_stream_pos = None
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Snap toggle
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Snap toggle ───────────────────────────────────────────────────────────
     def _toggle_snap(self, event=None):
         self.snap_enabled = not self.snap_enabled
         if self.snap_enabled:
@@ -894,9 +880,7 @@ class YoloLabeler:
         else:
             self.snap_btn.configure(text="Snap: Off")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Folder initialisation
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Folder initialisation ─────────────────────────────────────────────────
     def _init_folder(self, folder):
         self.image_folder = folder
         self.images = sorted([f for f in os.listdir(folder) if is_image_file(f)])
@@ -987,7 +971,6 @@ class YoloLabeler:
             dest_name = "review_stats.json" if name == "review_state.json" else name
             new = os.path.join(self.state_dir, dest_name)
             if os.path.exists(new):
-                # state/ already has the file — skip (don't overwrite)
                 continue
             shutil.move(old, new)
             print(f"[YoloLabeler] Migrated {name} → state/{dest_name}")
@@ -1040,9 +1023,7 @@ class YoloLabeler:
             canvas.coords(items[0], canvas.winfo_width() // 2,
                           canvas.winfo_height() // 2)
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Open folder
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Open folder ───────────────────────────────────────────────────────────
     def _open_folder(self):
         with suppress_tk_mac_warnings():
             new_folder = filedialog.askdirectory(
@@ -1071,9 +1052,7 @@ class YoloLabeler:
         self._session_total_adds = 0
         self._annotate_tab.load_image()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Quit
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Quit ──────────────────────────────────────────────────────────────────
     def _quit(self):
         if self.image_folder and self.images:
             error = self.save_current()
@@ -1186,9 +1165,7 @@ class YoloLabeler:
                 self._annotate_tab._clear_drag_state()
                 self._annotate_tab.display_image()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Time tracking
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Time tracking ─────────────────────────────────────────────────────────
     def _stats_path(self):
         if self.image_folder:
             return os.path.join(self.state_dir, "annotation_stats.json")
@@ -1315,9 +1292,7 @@ class YoloLabeler:
         self._timer_after_id = self.root.after(
             1000, self._update_timer_display)
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Image status & filtering
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Image status & filtering ──────────────────────────────────────────────
     def _load_completed_from_stats(self):
         """Populate _completed_images set from stats JSON on folder load."""
         self._completed_images = set()
@@ -1410,9 +1385,7 @@ class YoloLabeler:
             self.total_label.configure(
                 text=f"/ {len(self._filtered_indices)}")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Class management
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Class management ──────────────────────────────────────────────────────
     def _get_class_color(self, class_id):
         if class_id in self.class_colors:
             return self.class_colors[class_id]
@@ -1582,9 +1555,7 @@ class YoloLabeler:
         except OSError as e:
             self.show_banner(f"Could not save classes.json: {e.strerror or e}")
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Class colors
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Class colors ──────────────────────────────────────────────────────────
     def _update_color_btn(self):
         color = self._get_class_color(self.active_class)
         self.color_btn.config(bg=color, activebackground=color)
@@ -1756,9 +1727,7 @@ class YoloLabeler:
                 self.class_colors[cid] = entry["color"]
         return moved
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Title & counter
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Title & counter ───────────────────────────────────────────────────────
     def update_title(self):
         if not self.images:
             return
@@ -1791,9 +1760,7 @@ class YoloLabeler:
         self._blind_var.set(self._stats_store.is_blind(img_name))
         self._refresh_class_dropdown()
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Editable image counter
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Editable image counter ────────────────────────────────────────────────
     def _on_counter_enter(self, event=None):
         text = self.counter_entry.get().strip()
         if not text:
@@ -1829,9 +1796,7 @@ class YoloLabeler:
             else:
                 self.counter_entry.insert(0, str(self.index + 1))
 
-    # ──────────────────────────────────────────────────────────────────────────
-    #  Shared helpers
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Shared helpers ────────────────────────────────────────────────────────
     def _register_class_ids(self, class_ids):
         """Add placeholder names for class ids seen in files but not in classes.json."""
         unknown = [cid for cid in class_ids if cid not in self.class_names]
@@ -1843,9 +1808,7 @@ class YoloLabeler:
         self._save_classes_file()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  MAIN
-# ══════════════════════════════════════════════════════════════════════════════
+# ── MAIN ──────────────────────────────────────────────────────────────────────
 
 def main():
     """Entry point for the yololabeler command."""

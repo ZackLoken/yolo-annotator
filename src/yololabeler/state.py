@@ -1,5 +1,4 @@
-"""AppState — Single source of truth for all annotation data.
-"""
+"""AppState: the single source of truth for all annotation and review data."""
 
 
 class AppState:

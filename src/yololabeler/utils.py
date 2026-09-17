@@ -1,4 +1,4 @@
-"""Shared utilities — font loading, image orientation, Tk helpers."""
+"""Shared utilities: font loading, image orientation, Tk helpers."""
 
 import os
 import sys
