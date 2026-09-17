@@ -111,6 +111,7 @@ for the same list, filtered to the current mode.
 | Pan up / down | Scroll | always |
 | Pan left / right | Shift+Scroll | always |
 | Pan | Middle-click drag | always |
+| Move it whole, box or polygon | Shift+drag the selected shape | always |
 | Draw a box (anywhere off a box outline, including inside a box) | Left-click drag | box |
 | Select it | Click a box outline | box |
 | Move the whole box | Drag a box outline | box |
@@ -326,8 +327,9 @@ viewport or leave unsaved work behind.
 - Full vertex editing: drag, insert on an edge, and right-click delete on the
   selected polygon; both kinds are selected and right-click deleted by their
   outline, never their interior, so a press inside a shape draws a new one,
-  e.g. for a bur that sits inside its neighbour's; a box is moved by its
-  outline and resized from a corner; hovering an outline shows its handles;
+  e.g. for a bur that sits inside its neighbour's; Shift+drag moves the
+  selected shape whole, box or polygon, and a box also moves by its outline
+  and resizes from a corner; hovering an outline shows its handles;
   insert-on-edge remains polygon-only; snapshot undo / redo (`Ctrl+Z` /
   `Ctrl+Y`) covers drawing, accept, reject and edit alike
 - Multi-class support: dropdown selector, inline "Add" for new classes, per-class
@@ -373,7 +375,8 @@ alongside the annotation tools, no separate mode to enter.
 ### The queue
 
 Every prediction above the confidence threshold is matched against ground-truth
-annotations of the same class, all candidate pairs scored by IoU and assigned
+annotations of the same class and kind (a box prediction never matches a
+polygon annotation, or the reverse), all candidate pairs scored by IoU and assigned
 greedily, highest-IoU first, so each annotation and each prediction participates
 in at most one match. The queue is the flattened result: unmatched predictions,
 model misses (a ground-truth annotation no prediction matched) and matches,
@@ -413,9 +416,10 @@ reviewed, red rejected. A match's prediction and annotation share one status.
 With Predictions unticked, on a blind image, or on an image with no predictions,
 annotations are drawn in their class colour instead. The focused item is
 marked by a highlighter-blue glow under it, and the one thing that is selected
-for editing is drawn in that blue with vertex or corner handles. Only the focused
-item carries a label, a single "class: name (confidence)" on its annotation when
-it has one, otherwise on its prediction. The Legend chip in the lower left of
+for editing is drawn in that blue with vertex or corner handles. Every annotation
+carries a "class: name" label; a prediction is labelled, with its confidence,
+only when it is the focused item or an FP, since a TP's label already sits on
+its annotation. The Legend chip in the lower left of
 the canvas opens a key to all of this; click it again to close it.
 
 ### Accept and reject
@@ -469,10 +473,9 @@ in the sidecar.
 `c` opens a comment box for the focused item, prediction or annotation alike.
 Enter saves it and flags the item, with or without a comment; a flag is
 independent of the verdict, so an item can be flagged before it is judged or
-after. A flagged item's label ends with `?` (on its annotation when it has one;
-a flagged prediction that has no label of its own carries a white `?` alone),
-the badge adds "flagged", and the status bar counts flags next to the TP/FP/FN
-counts. With an annotation selected, `c` comments on that annotation rather
+after. A flagged item's label ends with `?` (on its annotation when it has one,
+else on the prediction), the badge adds "flagged", and the status bar counts
+flags next to the TP/FP/FN counts. With an annotation selected, `c` comments on that annotation rather
 than the focused item, so a box drawn around a questionable miss can be flagged
 while the prediction beside it stays in focus. Pressing `c` on a flagged item shows who
 flagged it and when, and who last edited the comment, with Save flag to edit the

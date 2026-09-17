@@ -136,6 +136,15 @@ def build_queue(document, predictions, matches, verdicts, filter_type="all",
     return [item for item in ordered if keep_status(item)]
 
 
+def unmatched_prediction_ids(predictions, matches):
+    """The ids of the predictions matches left as FPs; empty until matching has run."""
+    if not matches:
+        return set()
+    pboxes, ppolys = _split_predictions(predictions)
+    return {(pboxes if p_type == "box" else ppolys)[idx].id
+            for p_type, idx, _cid, _conf in matches["fp"]}
+
+
 def shape_statuses(document, predictions, matches, verdicts):
     """Map each queue item's prediction id and annotation id to its review status.
 

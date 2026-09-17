@@ -11,6 +11,7 @@ from yololabeler.state import AppState
 from yololabeler.review.engine import (
     DEFAULT_CONF_THRESHOLD, QueueItem, ReviewEngine, apply_accept, apply_reject,
     build_queue, flag_markers, match_document, shape_statuses, spatial_order,
+    unmatched_prediction_ids,
 )
 
 
@@ -171,6 +172,14 @@ class TestSpatialOrder:
 
 
 # ── shape_statuses ──────────────────────────────────────────────────────────
+
+class TestUnmatchedPredictionIds:
+    def test_fps_only_and_empty_before_matching(self, scene):
+        doc, preds = scene
+        assert unmatched_prediction_ids(preds, {}) == set()
+        matches = match_document(doc, preds, 0.6, 0.5)
+        assert unmatched_prediction_ids(preds, matches) == {"h:1"}
+
 
 class TestShapeStatuses:
     def test_none_without_matches(self, scene):

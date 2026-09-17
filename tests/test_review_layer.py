@@ -4,9 +4,9 @@ import tkinter as tk
 
 import pytest
 
-from yololabeler.annotation.document import new_annotation
+from yololabeler.annotation.document import Document, new_annotation
 from yololabeler.predictions.store import Prediction
-from yololabeler.review.engine import QueueItem
+from yololabeler.review.engine import QueueItem, match_document
 from yololabeler.review.layer import (
     SELECTION_COLOR, STATUS_COLORS, LayerStyle, draw_prediction_layer,
 )
@@ -121,6 +121,15 @@ class TestDrawPredictionLayer:
         assert len(focus) == 1 and canvas.itemcget(focus[0], "outline") == "#FF0000"
         assert label_texts(canvas) == {"0: burr (0.90)"}
         assert "FP  not reviewed" in texts(canvas)
+
+    def test_an_unfocused_fp_gets_a_label_and_a_tp_prediction_does_not(self, canvas):
+        s = make_state()
+        doc = Document("a.jpg", 300, 300)
+        doc.add(new_annotation("box", ((12, 12), (52, 52)), 0, "z"))
+        s.matches = match_document(doc, s.predictions, 0.5, s.conf_threshold)
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
+                              LayerStyle(), red)
+        assert label_texts(canvas) == {"0: burr (0.80)"}
 
     def test_focused_rejected_prediction_keeps_the_rejected_dash(self, canvas):
         s = make_state()

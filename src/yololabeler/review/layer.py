@@ -13,14 +13,15 @@ import tkinter.font as tkFont
 from dataclasses import dataclass
 
 from yololabeler.rendering import place_label
+from yololabeler.review.engine import unmatched_prediction_ids
 
 # Highlighter blue for focus and selection; the user chose it over yellow (2026-09-16).
 SELECTION_COLOR = "#00BFFF"
 # Green/orange/red for accepted/not reviewed/rejected; the user swapped yellow for orange
 # as easier on the eyes (2026-09-17). The hex values are provisional.
 STATUS_COLORS = {"accepted": "#00FF00", "not_reviewed": "#FF8C00", "rejected": "#FF0000"}
-# The mark a flagged shape's label ends with; drawn alone, white with a black
-# halo, on a flagged prediction that has no label of its own. The user chose it (2026-09-16).
+# The mark a flagged shape's label ends with; the user chose it (2026-09-16). The
+# colour is the legend swatch's; on the canvas the mark takes its label's colour.
 FLAG_COLOR = "#FFFFFF"
 FLAG_MARK = "?"
 
@@ -90,7 +91,7 @@ def _label_anchor(to_canvas, points):
 def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
                           label_size, show_gt, show_pred, style=LayerStyle(),
                           class_color=None, placed_labels=None, line_w=2):
-    """Draw predictions, the focused item and the badge. Only the focus gets a label.
+    """Draw predictions, the focused item and the badge; the focus and every FP get a label.
 
     class_color, when given, maps a class id to that class's hex colour.
     placed_labels, when given, is the render pass's shared list of label boxes
@@ -119,16 +120,19 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
         return style.rejected_dash if rejected else style.dash
 
     if show_pred:
+        # An FP has no annotation to carry a label, so it gets its own; a TP's sits on its GT.
+        unmatched = unmatched_prediction_ids(state.predictions, state.matches)
         for p in state.predictions:
             if p.confidence < state.conf_threshold or p.id == focused_pred_id:
                 continue
             _draw_shape(canvas, to_canvas, p.kind, p.points, outline=color_of(p),
                         width=line_w, fill="", dash=dash_of(p), tags="pred")
-            if p.id in state.flagged_shapes:
-                # An unlabelled prediction carries the mark alone where its label would sit.
+            if p.id in unmatched:
                 lx, ly = _label_anchor(to_canvas, p.points)
-                place_label(canvas, placed_labels, lx + 2, ly - 2, FLAG_MARK, FLAG_COLOR,
-                            anchor="sw", font=font, tags="flag")
+                text = label_text(p.class_id, class_names, p.id in state.flagged_shapes,
+                                  p.confidence)
+                place_label(canvas, placed_labels, lx + 2, ly - 2, text, color_of(p),
+                            anchor="sw", font=font, tags="pred_label")
 
     if focused is None:
         return
