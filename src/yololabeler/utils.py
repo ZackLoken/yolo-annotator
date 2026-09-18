@@ -49,6 +49,8 @@ def _load_custom_fonts():
     _get_font_family never names a family that is not available.
     """
     global _CUSTOM_FONT_LOADED
+    if _CUSTOM_FONT_LOADED:
+        return True
     paths = _existing_font_paths()
     if not paths:
         return False
@@ -57,10 +59,9 @@ def _load_custom_fonts():
             import ctypes
             FR_PRIVATE = 0x10
             gdi32 = ctypes.windll.gdi32
-            for path in paths:
-                gdi32.AddFontResourceExW(path, FR_PRIVATE, 0)
-            _CUSTOM_FONT_LOADED = True
-            return True
+            added = [gdi32.AddFontResourceExW(path, FR_PRIVATE, 0) for path in paths]
+            _CUSTOM_FONT_LOADED = any(added)
+            return _CUSTOM_FONT_LOADED
         except Exception:
             return False
     elif sys.platform == "darwin":
@@ -72,10 +73,7 @@ def _load_custom_fonts():
                 ct = ctypes.cdll.LoadLibrary(ct_path)
                 cf_path = ctypes.util.find_library("CoreFoundation")
                 cf = ctypes.cdll.LoadLibrary(cf_path)
-                # Declare the pointer types before calling either function. Without
-                # them ctypes assumes a C int return, which truncates the 64-bit
-                # CFURLRef, so CoreText receives a bad address and the process dies
-                # with a segmentation fault before the first window is drawn.
+                # Undeclared, ctypes truncates the 64-bit CFURLRef to int and CoreText segfaults.
                 cf.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
                 cf.CFURLCreateFromFileSystemRepresentation.argtypes = [
                     ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_bool]
@@ -83,15 +81,17 @@ def _load_custom_fonts():
                 ct.CTFontManagerRegisterFontsForURL.restype = ctypes.c_bool
                 ct.CTFontManagerRegisterFontsForURL.argtypes = [
                     ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p]
+                registered = False
                 for path in paths:
                     encoded = path.encode("utf-8")
                     url_ref = cf.CFURLCreateFromFileSystemRepresentation(
                         None, encoded, len(encoded), False)
                     if url_ref:
-                        ct.CTFontManagerRegisterFontsForURL(url_ref, 1, None)
+                        if ct.CTFontManagerRegisterFontsForURL(url_ref, 1, None):
+                            registered = True
                         cf.CFRelease(url_ref)
-                _CUSTOM_FONT_LOADED = True
-                return True
+                _CUSTOM_FONT_LOADED = registered
+                return registered
         except Exception:
             return False
     return False
