@@ -72,12 +72,24 @@ def _load_custom_fonts():
                 ct = ctypes.cdll.LoadLibrary(ct_path)
                 cf_path = ctypes.util.find_library("CoreFoundation")
                 cf = ctypes.cdll.LoadLibrary(cf_path)
+                # Declare the pointer types before calling either function. Without
+                # them ctypes assumes a C int return, which truncates the 64-bit
+                # CFURLRef, so CoreText receives a bad address and the process dies
+                # with a segmentation fault before the first window is drawn.
+                cf.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
+                cf.CFURLCreateFromFileSystemRepresentation.argtypes = [
+                    ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_bool]
+                cf.CFRelease.argtypes = [ctypes.c_void_p]
+                ct.CTFontManagerRegisterFontsForURL.restype = ctypes.c_bool
+                ct.CTFontManagerRegisterFontsForURL.argtypes = [
+                    ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p]
                 for path in paths:
                     encoded = path.encode("utf-8")
                     url_ref = cf.CFURLCreateFromFileSystemRepresentation(
                         None, encoded, len(encoded), False)
                     if url_ref:
                         ct.CTFontManagerRegisterFontsForURL(url_ref, 1, None)
+                        cf.CFRelease(url_ref)
                 _CUSTOM_FONT_LOADED = True
                 return True
         except Exception:
