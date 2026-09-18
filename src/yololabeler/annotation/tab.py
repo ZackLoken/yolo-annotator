@@ -342,7 +342,11 @@ class AnnotateTab:
     # ── Visibility and selection ──────────────────────────────────────────────
 
     def visible_annotations(self):
-        """Annotations drawn right now, in draw order; hit-testing uses the same list."""
+        """Annotations drawn right now, in draw order; hit-testing uses the same list.
+
+        The class dropdown's "All" lifts the class filter but not the kind filter,
+        so Box mode still draws only boxes.
+        """
         a = self.app
         if a.document is None or not a._annotation_visible:
             return []
@@ -352,7 +356,8 @@ class AnnotateTab:
         for ann in a.document.annotations:
             if ann.id == a._selected_annotation_id or (focus_pair and ann.id == focus_pair.id):
                 out.append(ann)
-            elif ann.kind == a.mode and ann.class_id == a.active_class:
+            elif ann.kind == a.mode and (a._review_filter_class == "all"
+                                         or ann.class_id == a.active_class):
                 out.append(ann)
         return out
 

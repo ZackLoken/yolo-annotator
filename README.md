@@ -387,7 +387,10 @@ path over the items they keep; the Review status filter only hides items, so
 judging one never reorders the rest. After an accept or reject the focus moves
 to the next unreviewed item along the path. Class selection lives in the top toolbar
 alongside the drawing controls, with an "All" option; Type and Review status are
-dropdowns in the status bar. Review status filters on verdict presence, so "Not
+dropdowns in the status bar. Choosing a class filters the queue and limits the
+canvas to that class; "All" lifts the class limit so every class is drawn, but
+not the mode limit, so Box mode still draws only boxes. Drawing needs a class,
+so it is blocked while "All" is selected. Review status filters on verdict presence, so "Not
 reviewed" means no verdict yet, whatever the type. (Image status, in the top
 toolbar, is the separate per-image Complete / Partial / Unannotated filter.) An
 annotation you draw yourself is recorded as `accepted` the moment it is added,

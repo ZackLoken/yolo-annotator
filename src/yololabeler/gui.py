@@ -1427,6 +1427,8 @@ class YoloLabeler:
             self.class_dropdown.set(items[0])
 
     def _on_class_selected(self, choice):
+        """Act on a class dropdown pick, clearing any banner the pick answers."""
+        self.clear_banner()
         if choice == "<New Class>":
             self._add_class_dialog()
             return

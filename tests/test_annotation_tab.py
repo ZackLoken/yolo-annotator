@@ -45,7 +45,23 @@ class TestVisibleAnnotations:
     def test_other_class_is_hidden(self, tab):
         tab.app.mode = "box"
         tab.app.active_class = 0
+        tab.app._review_filter_class = 0
         add(tab, "box", 1)
+        assert tab.visible_annotations() == []
+
+    def test_all_class_filter_shows_every_class(self, tab):
+        tab.app.mode = "box"
+        tab.app.active_class = 0
+        tab.app._review_filter_class = "all"
+        zero = add(tab, "box", 0)
+        other = add(tab, "box", 1)
+        assert tab.visible_annotations() == [zero, other]
+
+    def test_all_class_filter_still_hides_the_other_kind(self, tab):
+        tab.app.mode = "box"
+        tab.app.active_class = 0
+        tab.app._review_filter_class = "all"
+        add(tab, "polygon", 1)
         assert tab.visible_annotations() == []
 
     def test_selected_annotation_of_other_kind_is_visible(self, tab):
@@ -58,6 +74,7 @@ class TestVisibleAnnotations:
     def test_selected_annotation_of_other_class_is_visible(self, tab):
         tab.app.mode = "box"
         tab.app.active_class = 0
+        tab.app._review_filter_class = 0
         ann = add(tab, "box", 7)
         tab.app._selected_annotation_id = ann.id
         assert tab.visible_annotations() == [ann]

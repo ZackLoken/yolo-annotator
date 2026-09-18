@@ -169,10 +169,23 @@ class TestAnnotate:
         assert app._image_start_time is not None
 
     def test_hidden_class_is_not_a_delete_target(self, app):
-        app._select_class_by_id(0)
+        app._select_class_for_filter_and_draw(0)
         app.class_names[1] = "other"
-        app._select_class_by_id(1)
+        app._select_class_for_filter_and_draw(1)
         assert app._annotate_tab.visible_annotations() == []
+
+    def test_the_all_class_filter_shows_every_class(self, app):
+        app.class_names[1] = "other"
+        app.document.add(new_annotation("box", ((10, 10), (60, 60)), 1, "tester"))
+        app._select_class_for_filter_and_draw(0)
+        assert [a.class_id for a in app._annotate_tab.visible_annotations()] == [0]
+        app._on_class_selected("All")
+        assert [a.class_id for a in app._annotate_tab.visible_annotations()] == [0, 1]
+
+    def test_picking_a_class_clears_the_draw_prompt_banner(self, app):
+        app.show_banner("Select a class before drawing.")
+        app._on_class_selected(f"0: {app.class_names[0]} (1)")
+        assert app.banner_text is None
 
 
 # ── box editing ─────────────────────────────────────────────────────────────
