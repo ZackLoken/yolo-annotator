@@ -1432,10 +1432,11 @@ class AnnotateTab:
             is_selected = (ann.id == a._selected_annotation_id)
             if ann.id == gold_ann_id and not is_selected:
                 continue
+            label_fill = a._get_class_color(class_id)
             if statuses is not None:
                 color = status_color(statuses, ann.id)
             else:
-                color = a._get_class_color(class_id)
+                color = label_fill
             label = label_text(class_id, a.class_names, ann.id in a.flagged_shapes)
             if ann.kind == "box":
                 (x1, y1), (x2, y2) = ann.points
@@ -1453,7 +1454,7 @@ class AnnotateTab:
                             hx - r, hy - r, hx + r, hy + r,
                             fill="white", outline=SELECTION_COLOR if is_selected else color,
                             width=2 if is_selected else 1)
-                _halo(cx1 + 2, cy1 - 2, anchor="sw", text=label, fill=color,
+                _halo(cx1 + 2, cy1 - 2, anchor="sw", text=label, fill=label_fill,
                       font=(a.font_family, label_size, "bold"))
                 continue
 
@@ -1496,7 +1497,7 @@ class AnnotateTab:
             if points:
                 lx, ly = self.image_to_canvas(min(p[0] for p in points),
                                               min(p[1] for p in points))
-                _halo(lx + 2, ly - 2, anchor="sw", text=label, fill=color,
+                _halo(lx + 2, ly - 2, anchor="sw", text=label, fill=label_fill,
                       font=(a.font_family, label_size, "bold"))
 
         if a.current_polygon:
@@ -1559,13 +1560,18 @@ class AnnotateTab:
             return
 
         style = LayerStyle()
+        class_rows = [(("class", a._get_class_color(cid)),
+                       f"{cid}: {a.class_names.get(cid, cid)}")
+                      for cid in self._legend_classes()]
         if status_colors_active(a, a._review_show_pred) is not None:
-            rows = [(("class", STATUS_COLORS["accepted"]), "Green: accepted"),
+            rows = [(("heading",), "Outline: review status"),
+                    (("class", STATUS_COLORS["accepted"]), "Green: accepted"),
                     (("class", STATUS_COLORS["not_reviewed"]), "Orange: not reviewed"),
-                    (("class", STATUS_COLORS["rejected"]), "Red: rejected")]
+                    (("class", STATUS_COLORS["rejected"]), "Red: rejected"),
+                    (("heading",), "Label text: class")]
+            rows += class_rows
         else:
-            rows = [(("class", a._get_class_color(cid)),
-                     f"{cid}: {a.class_names.get(cid, cid)}") for cid in self._legend_classes()]
+            rows = class_rows
         rows += [
             (("line", FG_COLOR, None), "Solid: annotation (ground truth)"),
             (("line", FG_COLOR, style.dash), "Dashed: prediction"),
@@ -1585,6 +1591,10 @@ class AnnotateTab:
             cy = panel_y0 + pad + line_h * i + line_h / 2
             sx0, sx1 = x0 + pad, x0 + pad + swatch_w
             kind = swatch[0]
+            if kind == "heading":
+                canvas.create_text(sx0, cy, anchor="w", text=text, fill=FG_COLOR,
+                                   font=(a.font_family, 12, "bold"), tags="legend")
+                continue
             if kind == "class":
                 canvas.create_rectangle(sx0, cy - 5, sx1, cy + 5, outline=swatch[1],
                                         width=3, fill="", tags="legend")

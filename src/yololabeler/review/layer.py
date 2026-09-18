@@ -1,10 +1,12 @@
 """Draw the prediction layer and the focused pair on the annotate canvas (spec 4.5).
 
 An annotation is drawn solid, a prediction dashed, a rejected prediction dotted.
-While predictions are shown on an image that has them, every shape is coloured
-by its review status (state.shape_statuses); otherwise by its class. The review
-focus is marked by a highlighter-blue halo under the focused shape rather than
-by recolouring it. Needs a Tk canvas; not headless.
+While predictions are shown on an image that has them, every shape's outline is
+coloured by its review status (state.shape_statuses); otherwise by its class. A
+shape's label text is always its class colour, so class identity stays readable
+while the outline carries the status. The review focus is marked by a
+highlighter-blue halo under the focused shape rather than by recolouring it.
+Needs a Tk canvas; not headless.
 """
 
 from __future__ import annotations
@@ -112,7 +114,10 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
     def color_of(shape):
         if statuses is not None:
             return status_color(statuses, shape.id)
-        return class_color(shape.class_id) if class_color else style.pred_color
+        return label_color_of(shape.class_id)
+
+    def label_color_of(class_id):
+        return class_color(class_id) if class_color else style.pred_color
 
     def dash_of(prediction):
         verdict = state.verdicts.get(prediction.id)
@@ -131,7 +136,8 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
                 lx, ly = _label_anchor(to_canvas, p.points)
                 text = label_text(p.class_id, class_names, p.id in state.flagged_shapes,
                                   p.confidence)
-                place_label(canvas, placed_labels, lx + 2, ly - 2, text, color_of(p),
+                place_label(canvas, placed_labels, lx + 2, ly - 2, text,
+                            label_color_of(p.class_id),
                             anchor="sw", font=font, tags="pred_label")
 
     if focused is None:
@@ -160,7 +166,7 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
                           confidence)
         lx, ly = _label_anchor(to_canvas, labelled.points)
         place_label(canvas, placed_labels, lx + 2, ly - 2, text,
-                    color_of(labelled), anchor="sw", font=font)
+                    label_color_of(focused.class_id), anchor="sw", font=font)
 
     if show_gt or show_pred:
         verdict = state.verdicts.get(focused.key)

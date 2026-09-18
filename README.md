@@ -335,8 +335,8 @@ viewport or leave unsaved work behind.
 - Multi-class support: dropdown selector, inline "Add" for new classes, per-class
   colors
 - Prediction layer: import model output, matched against ground truth by IoU, and
-  drawn as a dashed overlay coloured by review status, with the focused item
-  highlighted
+  drawn as a dashed overlay outlined by review status, labelled in class colour,
+  with the focused item highlighted
 - Accept in place: promote an unmatched prediction straight into an annotation
   with its geometry, class and provenance recorded, no separate review pass
 - Queue over every image: unmatched predictions, model misses and matches,
@@ -411,10 +411,12 @@ Edit / Reject, followed by the focused item's type, position and verdict (e.g.
 
 Annotations are solid and predictions dashed at the same zoom-scaled width; a
 rejected prediction is dotted. While Predictions is ticked on an image that has
-predictions, both are coloured by review status: green accepted, orange not
+predictions, both are outlined by review status: green accepted, orange not
 reviewed, red rejected. A match's prediction and annotation share one status.
 With Predictions unticked, on a blind image, or on an image with no predictions,
-annotations are drawn in their class colour instead. The focused item is
+annotations are outlined in their class colour instead. A shape's label text is
+always drawn in its class colour, whichever colour the outline carries, so class
+identity stays readable during review. The focused item is
 marked by a highlighter-blue glow under it, and the one thing that is selected
 for editing is drawn in that blue with vertex or corner handles. Every annotation
 carries a "class: name" label; a prediction is labelled, with its confidence,

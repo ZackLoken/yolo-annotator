@@ -701,6 +701,30 @@ class TestLegend:
         assert not tab._legend_open
         assert len(app.document.annotations) == count and app.rect is None
 
+    def legend_texts(self, tab):
+        """Every text string the open legend panel draws."""
+        canvas = tab.canvas
+        return [canvas.itemcget(i, "text") for i in canvas.find_withtag("legend")
+                if canvas.type(i) == "text"]
+
+    def test_reviewing_keys_the_outline_and_label_colours_separately(self, app):
+        tab = app._annotate_tab
+        tab._legend_open = True
+        tab.render()
+        texts = self.legend_texts(tab)
+        assert "Outline: review status" in texts
+        assert "Label text: class" in texts
+        assert "Green: accepted" in texts
+
+    def test_without_predictions_the_legend_keys_classes_only(self, app):
+        tab = app._annotate_tab
+        app._review_show_pred = False
+        tab._legend_open = True
+        tab.render()
+        texts = self.legend_texts(tab)
+        assert "Outline: review status" not in texts
+        assert "Label text: class" not in texts
+
 
 class TestRenderFocus:
     def test_focused_annotation_is_haloed_in_its_status_colour(self, app):

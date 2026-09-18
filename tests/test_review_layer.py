@@ -59,6 +59,14 @@ def label_texts(canvas):
     return set(texts(canvas)) - badge
 
 
+def label_fills(canvas, tag=None):
+    """Distinct label fills, ignoring the badge and the black halo copies of each label."""
+    badge = set(canvas.find_withtag("badge"))
+    items = canvas.find_withtag(tag) if tag else canvas.find_all()
+    return {canvas.itemcget(i, "fill") for i in items
+            if canvas.type(i) == "text" and i not in badge} - {"black"}
+
+
 # ── draw_prediction_layer ───────────────────────────────────────────────────
 
 class TestDrawPredictionLayer:
@@ -225,3 +233,26 @@ class TestStatusColours:
         assert canvas.itemcget(gt[0], "outline") == STATUS_COLORS["not_reviewed"]
         pred = canvas.find_withtag("pred_focus")
         assert canvas.itemcget(pred[0], "outline") == STATUS_COLORS["not_reviewed"]
+
+    def test_an_fp_label_keeps_the_class_colour_while_its_outline_takes_the_status(self, canvas):
+        s = make_state()
+        s.matches = match_document(Document("a.jpg", 300, 300), s.predictions, 0.5,
+                                   s.conf_threshold)
+        s.shape_statuses = {"h:0": "accepted", "h:2": "accepted"}
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
+                              LayerStyle(), red)
+        assert label_fills(canvas, "pred_label") == {"#FF0000"}
+        for item in canvas.find_withtag("pred"):
+            assert canvas.itemcget(item, "outline") == STATUS_COLORS["accepted"]
+
+    def test_the_focused_label_keeps_the_class_colour_while_its_geometry_takes_the_status(self, canvas):
+        s = make_state()
+        ann = new_annotation("box", ((12, 12), (52, 52)), 0, "z")
+        s.queue = [QueueItem("tp", s.predictions[0], ann, 0.9)]
+        s.queue_index = 0
+        s.shape_statuses = {"h:0": "accepted", ann.id: "accepted"}
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
+                              LayerStyle(), red)
+        assert label_fills(canvas) == {"#FF0000"}
+        assert canvas.itemcget(canvas.find_withtag("gt_focus")[0],
+                               "outline") == STATUS_COLORS["accepted"]
