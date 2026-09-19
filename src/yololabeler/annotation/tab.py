@@ -1537,11 +1537,20 @@ class AnnotateTab:
         self._update_snap_indicator()
 
     def _legend_classes(self):
-        """Class ids drawn on this image, from its annotations and predictions."""
+        """Class ids drawn right now: the visible annotations and the predictions shown.
+
+        Both follow the canvas's own rules, so the Labels and Predictions toggles,
+        the mode, the class filter and the focused item decide the rows.
+        """
         a = self.app
-        ids = {ann.class_id for ann in a.document.annotations} if a.document else set()
+        ids = {ann.class_id for ann in self.visible_annotations()}
         if a._review_show_pred and not a.predictions_blind:
-            ids |= {p.class_id for p in a.predictions if p.confidence >= a.conf_threshold}
+            focused = a._review_panel.current_item()
+            focused_pred_id = focused.prediction.id if focused and focused.prediction else None
+            ids |= {p.class_id for p in a.predictions
+                    if p.confidence >= a.conf_threshold and (
+                        a._review_filter_class == "all" or p.class_id == a._review_filter_class
+                        or p.id == focused_pred_id)}
         return sorted(ids)
 
     def render_legend(self):

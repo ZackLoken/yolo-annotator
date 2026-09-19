@@ -770,6 +770,20 @@ class TestLegend:
         assert canvas.itemcget(keyed[0], "fill") == app._get_class_color(0)
         assert "class_0" in self.legend_texts(tab)
 
+    def test_the_class_rows_follow_what_the_canvas_draws(self, app):
+        tab = app._annotate_tab
+        tab._legend_open = True
+        app._select_class_for_filter_and_draw(1)
+        tab.render()
+        texts = self.legend_texts(tab)
+        assert "class_1" in texts and "class_0" not in texts
+        app._on_class_selected("All")
+        app._visible_var.set(False)
+        app._on_visible_toggled()
+        app._review_show_pred = False
+        tab.render()
+        assert "Class label" not in self.legend_texts(tab)
+
     def test_the_in_focus_row_survives_a_class_filter_that_empties_the_queue(self, app):
         tab = app._annotate_tab
         tab._legend_open = True
