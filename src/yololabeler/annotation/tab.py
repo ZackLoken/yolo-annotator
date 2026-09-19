@@ -1564,28 +1564,23 @@ class AnnotateTab:
             self._legend_bbox = (x0, chip_y0, x0 + chip_w, chip_y1)
             return
 
-        style = LayerStyle()
-        class_rows = [(("class", a._get_class_color(cid)),
-                       f"{cid}: {a.class_names.get(cid, cid)}")
-                      for cid in self._legend_classes()]
+        rows = []
         if status_colors_active(a, a._review_show_pred) is not None:
-            rows = [(("heading",), "Outline: review status"),
-                    (("class", STATUS_COLORS["accepted"]), "Green: accepted"),
-                    (("class", STATUS_COLORS["not_reviewed"]), "Orange: not reviewed"),
-                    (("class", STATUS_COLORS["rejected"]), "Red: rejected"),
-                    (("heading",), "Label text: class")]
-            rows += class_rows
-        else:
-            rows = class_rows
-        rows += [
-            (("line", FG_COLOR, None), "Solid: annotation (ground truth)"),
-            (("line", FG_COLOR, style.dash), "Dashed: prediction"),
-            (("line", FG_COLOR, style.rejected_dash), "Dotted: rejected prediction"),
-            (("halo",), "Blue glow: item in review focus"),
-            (("flag",), f"{FLAG_MARK} after the label: flagged for a second look (c)"),
-            (("selected",), "Blue with handles: selected for editing"),
-            (("snap",), "Dashed ring: snap target"),
-        ]
+            rows += [(("heading",), "Review status: annotation | prediction"),
+                     (("status", STATUS_COLORS["accepted"]), "Accepted"),
+                     (("status", STATUS_COLORS["not_reviewed"]), "Not reviewed"),
+                     (("status", STATUS_COLORS["rejected"]), "Rejected")]
+        rows.append((("heading",), "Class label"))
+        rows += [(("class", a._get_class_color(cid), cid),
+                  str(a.class_names.get(cid, cid)))
+                 for cid in self._legend_classes()]
+        rows.append((("heading",), "Marks"))
+        if a.queue:
+            rows.append((("halo",), "In focus"))
+        rows += [(("flag",), "Flagged"),
+                 (("selected",), "Selected annotation")]
+        if a.mode == "polygon" and a.snap_enabled:
+            rows.append((("snap",), "Snap target"))
         text_w = max(fnt.measure(text) for _, text in rows)
         panel_w = pad * 3 + swatch_w + text_w
         panel_y1 = chip_y0 - 4
@@ -1601,11 +1596,16 @@ class AnnotateTab:
                                    font=(a.font_family, 12, "bold"), tags="legend")
                 continue
             if kind == "class":
-                canvas.create_rectangle(sx0, cy - 5, sx1, cy + 5, outline=swatch[1],
-                                        width=3, fill="", tags="legend")
-            elif kind == "line":
-                canvas.create_line(sx0, cy, sx1, cy, fill=swatch[1], width=3,
-                                   dash=swatch[2] or "", tags="legend")
+                canvas.create_text((sx0 + sx1) / 2, cy, text=str(swatch[2]), fill=swatch[1],
+                                   font=(a.font_family, 13, "bold"), tags="legend")
+            elif kind == "status":
+                bar = (sx0 + sx1) / 2
+                canvas.create_line(sx0, cy, bar - 4, cy, fill=swatch[1], width=3,
+                                   tags="legend")
+                canvas.create_line(bar, cy - 6, bar, cy + 6, fill=FG_COLOR, width=1,
+                                   tags="legend")
+                canvas.create_line(bar + 4, cy, sx1, cy, fill=swatch[1], width=3,
+                                   dash=LayerStyle().dash, tags="legend")
             elif kind == "halo":
                 canvas.create_line(sx0, cy, sx1, cy, fill=SELECTION_COLOR, width=7,
                                    tags="legend")

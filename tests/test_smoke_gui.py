@@ -720,23 +720,58 @@ class TestLegend:
         return [canvas.itemcget(i, "text") for i in canvas.find_withtag("legend")
                 if canvas.type(i) == "text"]
 
-    def test_reviewing_keys_the_outline_and_label_colours_separately(self, app):
+    def test_reviewing_keys_status_then_classes_then_marks(self, app):
         tab = app._annotate_tab
         tab._legend_open = True
         tab.render()
         texts = self.legend_texts(tab)
-        assert "Outline: review status" in texts
-        assert "Label text: class" in texts
-        assert "Green: accepted" in texts
+        assert "Review status: annotation | prediction" in texts
+        assert "Accepted" in texts
+        assert texts.index("Accepted") < texts.index("Class label") < texts.index("Marks")
 
-    def test_without_predictions_the_legend_keys_classes_only(self, app):
+    def test_without_predictions_the_legend_drops_the_review_status_section(self, app):
         tab = app._annotate_tab
         app._review_show_pred = False
         tab._legend_open = True
         tab.render()
         texts = self.legend_texts(tab)
-        assert "Outline: review status" not in texts
-        assert "Label text: class" not in texts
+        assert "Review status: annotation | prediction" not in texts
+        assert "Accepted" not in texts
+        assert "Class label" in texts and "Marks" in texts
+
+    def test_a_class_row_is_keyed_by_its_id_in_the_class_colour(self, app):
+        tab = app._annotate_tab
+        tab._legend_open = True
+        tab.render()
+        canvas = tab.canvas
+        keyed = [i for i in canvas.find_withtag("legend")
+                 if canvas.type(i) == "text" and canvas.itemcget(i, "text") == "0"]
+        assert len(keyed) == 1
+        assert canvas.itemcget(keyed[0], "fill") == app._get_class_color(0)
+        assert "class_0" in self.legend_texts(tab)
+
+    def test_the_in_focus_row_needs_a_queue(self, app):
+        tab = app._annotate_tab
+        tab._legend_open = True
+        tab.render()
+        assert "In focus" in self.legend_texts(tab)
+        app.go_to_image(1)
+        tab._legend_open = True
+        tab.render()
+        assert app.queue == [] and "In focus" not in self.legend_texts(tab)
+
+    def test_the_snap_row_is_keyed_only_where_the_ring_can_appear(self, app):
+        tab = app._annotate_tab
+        tab._legend_open = True
+        app.mode, app.snap_enabled = "polygon", True
+        tab.render()
+        assert "Snap target" in self.legend_texts(tab)
+        app.snap_enabled = False
+        tab.render()
+        assert "Snap target" not in self.legend_texts(tab)
+        app.mode, app.snap_enabled = "box", True
+        tab.render()
+        assert "Snap target" not in self.legend_texts(tab)
 
 
 class TestRenderFocus:
