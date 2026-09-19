@@ -412,15 +412,16 @@ shape, focused or not. The step arrows sit in the status bar right of Accept /
 Edit / Reject, followed by the focused item's type, position and verdict (e.g.
 "FP 2 / 16  not reviewed").
 
-Annotations are solid and predictions dashed at the same zoom-scaled width; a
-rejected prediction is dotted. While Predictions is ticked on an image that has
-predictions, both are outlined by review status: green accepted, orange not
-reviewed, red rejected. A match's prediction and annotation share one status.
+Annotations are solid and predictions dashed at the same zoom-scaled width, so
+the line style says whose shape it is. While Predictions is ticked on an image
+that has predictions, both are outlined by review status: green accepted, orange
+not reviewed, red rejected. A match's prediction and annotation share one status.
 With Predictions unticked, on a blind image, or on an image with no predictions,
 annotations are outlined in their class colour instead. A shape's label text is
 always drawn in its class colour, whichever colour the outline carries, so class
 identity stays readable during review. The focused item is
-marked by a highlighter-blue glow under it, and the one thing that is selected
+marked by a highlighter-blue glow under every shape it has, its prediction and
+its annotation alike, and the one thing that is selected
 for editing is drawn in that blue with vertex or corner handles. Every annotation
 carries a "class: name" label; a prediction is labelled, with its confidence,
 only when it is the focused item or an FP, since a TP's label already sits on

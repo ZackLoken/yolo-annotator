@@ -108,12 +108,12 @@ class TestDrawPredictionLayer:
         kinds = [canvas.type(i) for i in canvas.find_withtag("pred")]
         assert kinds.count("rectangle") == 1 and kinds.count("polygon") == 1
 
-    def test_rejected_prediction_uses_the_rejected_dash_and_no_fill(self, canvas):
+    def test_rejected_prediction_is_dashed_like_any_other_and_has_no_fill(self, canvas):
         s = make_state()
         s.verdicts = {"h:0": {"action": "rejected"}}
         draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
         rect = [i for i in canvas.find_withtag("pred") if canvas.type(i) == "rectangle"][0]
-        assert canvas.itemcget(rect, "dash") == LayerStyle().rejected_dash
+        assert canvas.itemcget(rect, "dash") == LayerStyle().dash
         assert canvas.itemcget(rect, "fill") == ""
         assert canvas.itemcget(rect, "stipple") == ""
 
@@ -139,7 +139,7 @@ class TestDrawPredictionLayer:
                               LayerStyle(), red)
         assert label_texts(canvas) == {"0: burr (0.80)"}
 
-    def test_focused_rejected_prediction_keeps_the_rejected_dash(self, canvas):
+    def test_focused_rejected_prediction_stays_dashed(self, canvas):
         s = make_state()
         s.queue = [QueueItem("fp", s.predictions[0], None, None)]
         s.queue_index = 0
@@ -147,9 +147,9 @@ class TestDrawPredictionLayer:
         draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
         focus = canvas.find_withtag("pred_focus")
         assert len(focus) == 1
-        assert canvas.itemcget(focus[0], "dash") == LayerStyle().rejected_dash
+        assert canvas.itemcget(focus[0], "dash") == LayerStyle().dash
 
-    def test_focused_pair_halos_the_gt_and_shows_one_label(self, canvas):
+    def test_focused_pair_halos_both_shapes_and_shows_one_label(self, canvas):
         s = make_state()
         ann = new_annotation("box", ((12, 12), (52, 52)), 0, "z")
         s.queue = [QueueItem("tp", s.predictions[0], ann, 0.9)]
@@ -159,10 +159,23 @@ class TestDrawPredictionLayer:
                               LayerStyle(), red)
         gt = canvas.find_withtag("gt_focus")
         assert len(gt) == 1 and canvas.itemcget(gt[0], "outline") == "#FF0000"
+        pred = canvas.find_withtag("pred_focus")
         halo = canvas.find_withtag("focus_halo")
-        assert len(halo) == 1 and canvas.coords(halo[0]) == canvas.coords(gt[0])
+        assert len(halo) == 2
+        assert {tuple(canvas.coords(i)) for i in halo} == {tuple(canvas.coords(gt[0])),
+                                                           tuple(canvas.coords(pred[0]))}
         assert label_texts(canvas) == {"0: burr (0.90)"}
         assert "TP  accepted" in texts(canvas)
+
+    def test_focused_prediction_keeps_the_callers_line_width(self, canvas):
+        s = make_state()
+        ann = new_annotation("box", ((12, 12), (52, 52)), 0, "z")
+        s.queue = [QueueItem("tp", s.predictions[0], ann, 0.9)]
+        s.queue_index = 0
+        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
+                              LayerStyle(), red, line_w=5)
+        focus = canvas.find_withtag("pred_focus")
+        assert len(focus) == 1 and float(canvas.itemcget(focus[0], "width")) == 5.0
 
     def test_focused_gt_is_left_to_the_selection_drawing_when_selected(self, canvas):
         s = make_state()

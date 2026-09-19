@@ -775,19 +775,20 @@ class TestLegend:
 
 
 class TestRenderFocus:
-    def test_focused_annotation_is_haloed_in_its_status_colour(self, app):
+    def test_both_shapes_of_the_focused_pair_are_haloed(self, app):
         tab = app._annotate_tab
-        app._review_panel.focus_item(len(app.queue) - 1)
-        ann = app.queue[app.queue_index].annotation
-        assert ann is not None
+        tp = next(q for q in app.queue if q.kind == "tp")
+        app._review_panel.focus_item(app.queue.index(tp))
         tab.render()
         canvas = tab.canvas
         gt = canvas.find_withtag("gt_focus")
+        pred = canvas.find_withtag("pred_focus")
         halo = canvas.find_withtag("focus_halo")
-        assert len(gt) == 1 and len(halo) == 1
+        assert len(gt) == 1 and len(pred) == 1 and len(halo) == 2
         assert canvas.itemcget(gt[0], "outline") == STATUS_COLORS["not_reviewed"]
-        assert canvas.itemcget(halo[0], "outline") == SELECTION_COLOR
-        assert canvas.coords(halo[0]) == canvas.coords(gt[0])
+        assert {canvas.itemcget(h, "outline") for h in halo} == {SELECTION_COLOR}
+        assert {tuple(canvas.coords(h)) for h in halo} == {tuple(canvas.coords(gt[0])),
+                                                           tuple(canvas.coords(pred[0]))}
 
     def test_accepting_turns_the_pair_green_and_hiding_predictions_restores_class_colour(
             self, app):
@@ -808,12 +809,16 @@ class TestRenderFocus:
 
     def test_editing_the_focused_pair_draws_it_as_selected(self, app):
         tab = app._annotate_tab
-        app._review_panel.focus_item(len(app.queue) - 1)
+        tp = next(q for q in app.queue if q.kind == "tp")
+        app._review_panel.focus_item(app.queue.index(tp))
         ann = app.queue[app.queue_index].annotation
         app.edit_pair()
         tab.render()
-        assert tab.canvas.find_withtag("gt_focus") == ()
-        assert tab.canvas.find_withtag("focus_halo") == ()
+        canvas = tab.canvas
+        assert canvas.find_withtag("gt_focus") == ()
+        halo = canvas.find_withtag("focus_halo")
+        pred = canvas.find_withtag("pred_focus")
+        assert len(halo) == 1 and canvas.coords(halo[0]) == canvas.coords(pred[0])
         assert SELECTION_COLOR in [c for c, _ in shapes_at(tab, ann.points)]
 
 

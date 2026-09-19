@@ -1,11 +1,12 @@
 """Draw the prediction layer and the focused pair on the annotate canvas (spec 4.5).
 
-An annotation is drawn solid, a prediction dashed, a rejected prediction dotted.
-While predictions are shown on an image that has them, every shape's outline is
-coloured by its review status (state.shape_statuses); otherwise by its class. A
-shape's label text is always its class colour, so class identity stays readable
-while the outline carries the status. The review focus is marked by a
-highlighter-blue halo under the focused shape rather than by recolouring it.
+An annotation is drawn solid and a prediction dashed, so line style says whose
+shape it is. While predictions are shown on an image that has them, every
+shape's outline is coloured by its review status (state.shape_statuses);
+otherwise by its class. A shape's label text is always its class colour, so
+class identity stays readable while the outline carries the status. The review
+focus is marked by a highlighter-blue halo under every shape of the focused
+item, its prediction and its annotation alike, rather than by recolouring it.
 Needs a Tk canvas; not headless.
 """
 
@@ -50,7 +51,7 @@ def status_color(statuses, shape_id):
 
 @dataclass(frozen=True)
 class LayerStyle:
-    """The fixed colours and dash patterns of the prediction layer.
+    """The fixed colours and dash pattern of the prediction layer.
 
     pred_color is only the fallback for when the caller supplies no class-colour
     lookup. Line widths are not here: the caller passes its own scale-dependent
@@ -59,9 +60,8 @@ class LayerStyle:
     pred_color: str = "#00BFFF"
     focus_color: str = SELECTION_COLOR
     focus_halo_extra: int = 4
-    # Tk on Windows collapses numeric dash lists to one dotted look; these strings stay distinct.
+    # Tk on Windows collapses a numeric dash list to a dotted look; the string form stays a dash.
     dash: str = "_"
-    rejected_dash: str = "."
 
 
 def _canvas_points(to_canvas, points):
@@ -119,11 +119,6 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
     def label_color_of(class_id):
         return class_color(class_id) if class_color else style.pred_color
 
-    def dash_of(prediction):
-        verdict = state.verdicts.get(prediction.id)
-        rejected = verdict is not None and verdict.get("action") == "rejected"
-        return style.rejected_dash if rejected else style.dash
-
     if show_pred:
         # An FP has no annotation to carry a label, so it gets its own; a TP's sits on its GT.
         unmatched = unmatched_prediction_ids(state.predictions, state.matches)
@@ -131,7 +126,7 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
             if p.confidence < state.conf_threshold or p.id == focused_pred_id:
                 continue
             _draw_shape(canvas, to_canvas, p.kind, p.points, outline=color_of(p),
-                        width=line_w, fill="", dash=dash_of(p), tags="pred")
+                        width=line_w, fill="", dash=style.dash, tags="pred")
             if p.id in unmatched:
                 lx, ly = _label_anchor(to_canvas, p.points)
                 text = label_text(p.class_id, class_names, p.id in state.flagged_shapes,
@@ -147,11 +142,10 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
     pred = focused.prediction if show_pred else None
     selected_id = getattr(state, "_selected_annotation_id", None)
     if pred is not None:
-        if ann is None:
-            _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=style.focus_color,
-                        width=halo_w, fill="", tags="focus_halo")
+        _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=style.focus_color,
+                    width=halo_w, fill="", tags="focus_halo")
         _draw_shape(canvas, to_canvas, pred.kind, pred.points, outline=color_of(pred),
-                    width=line_w + 1, fill="", dash=dash_of(pred), tags="pred_focus")
+                    width=line_w, fill="", dash=style.dash, tags="pred_focus")
     if ann is not None and ann.id != selected_id:
         color = color_of(ann)
         _draw_shape(canvas, to_canvas, ann.kind, ann.points, outline=style.focus_color,
