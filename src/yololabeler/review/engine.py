@@ -19,7 +19,7 @@ from yololabeler.state_io import read_json_or_quarantine
 
 # Centre-match tolerance carried over from the original code, used by the migration.
 MATCH_TOLERANCE = 0.002
-# Fallback cutoff when there is no manifest min_conf; the user set it to the conf inference runs at (2026-09-16).
+# Fallback cutoff when there is no manifest min_conf; the user set it to the conf inference runs at.
 DEFAULT_CONF_THRESHOLD = 0.25
 
 

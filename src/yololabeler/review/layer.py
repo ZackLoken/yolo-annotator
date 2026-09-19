@@ -18,13 +18,13 @@ from dataclasses import dataclass
 from yololabeler.rendering import place_label
 from yololabeler.review.engine import unmatched_prediction_ids
 
-# Highlighter blue for focus and selection; the user chose it over yellow (2026-09-16).
+# Highlighter blue for focus and selection; the user chose it over yellow.
 SELECTION_COLOR = "#00BFFF"
-# Green/orange/red for accepted/not reviewed/rejected; the user swapped yellow for orange
-# as easier on the eyes (2026-09-17). The hex values are provisional.
+# Green/orange/red for accepted/not reviewed/rejected; the user swapped yellow for
+# orange as easier on the eyes. The hex values are provisional.
 STATUS_COLORS = {"accepted": "#00FF00", "not_reviewed": "#FF8C00", "rejected": "#FF0000"}
-# The mark a flagged shape's label ends with; the user chose it (2026-09-16). The
-# colour is the legend swatch's; on the canvas the mark takes its label's colour.
+# The mark a flagged shape's label ends with; the user chose it. The colour is the
+# legend swatch's; on the canvas the mark takes its label's colour.
 FLAG_COLOR = "#FFFFFF"
 FLAG_MARK = "?"
 

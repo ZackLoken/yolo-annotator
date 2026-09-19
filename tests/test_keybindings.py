@@ -41,10 +41,11 @@ class TestHelpLines:
 
     def test_polygon_only_rows_hidden_in_box_mode(self):
         text = "\n".join(help_lines("box", has_queue=False, has_pair=False))
-        assert "Toggle vertex snapping" not in text
-        assert "Accept focused item" not in text
-        assert "Toggle box / polygon mode" in text
-        assert "Drag vertex" not in text and "Close polygon" not in text
+        described = {b.action: b.description for b in KEY_BINDINGS}
+        assert described["toggle_snap"] not in text
+        assert described["accept"] not in text
+        assert described["toggle_mode"] in text
+        assert "Drag vertex" not in text and "Double-click" not in text
         assert "Drag a corner" in text and "Middle-click drag" in text
 
 

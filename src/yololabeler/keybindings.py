@@ -30,48 +30,48 @@ def _b(action, sequences, label, description, when="always"):
 KEY_BINDINGS = (
     _b("prev_image", ("<Left>",), "Left", "Previous image"),
     _b("next_image", ("<Right>",), "Right", "Next image"),
-    _b("prev_item", ("<Down>",), "Down", "Previous queue item", "queue"),
-    _b("next_item", ("<Up>",), "Up", "Next queue item", "queue"),
-    _b("accept", ("a",), "a", "Accept focused item (an unmatched prediction becomes a new annotation)", "queue"),
-    _b("reject", ("r",), "r", "Reject focused item (deletes its annotation, if any)", "queue"),
-    _b("edit_pair", ("e",), "e", "Edit focused item (an unmatched prediction is accepted first)", "queue"),
-    _b("comment", ("c",), "c", "Comment on the focused item, flagging it for a second look", "queue"),
-    _b("fit", ("f",), "f", "Fit image to window"),
-    _b("zoom_item", ("z",), "z", "Zoom to focused item", "queue"),
-    _b("toggle_mode", ("m",), "m", "Toggle box / polygon mode"),
-    _b("toggle_snap", ("s",), "s", "Toggle vertex snapping", "polygon"),
-    _b("toggle_stream", ("v",), "v", "Toggle vertex streaming", "polygon"),
-    *[_b(f"class_{n}", (str(n),), str(n), f"Select class {n}") for n in range(10)],
+    _b("prev_item", ("<Down>",), "Down", "Previous item", "queue"),
+    _b("next_item", ("<Up>",), "Up", "Next item", "queue"),
+    _b("accept", ("a",), "a", "Accept the focused item; an FP becomes an annotation", "queue"),
+    _b("reject", ("r",), "r", "Reject the focused item and delete its annotation", "queue"),
+    _b("edit_pair", ("e",), "e", "Edit the focused item; an FP is accepted first", "queue"),
+    _b("comment", ("c",), "c", "Comment on the focused item and flag it", "queue"),
+    _b("fit", ("f",), "f", "Fit the image to the window"),
+    _b("zoom_item", ("z",), "z", "Zoom to the focused item", "queue"),
+    _b("toggle_mode", ("m",), "m", "Switch between box and polygon mode"),
+    _b("toggle_snap", ("s",), "s", "Vertex snapping on or off", "polygon"),
+    _b("toggle_stream", ("v",), "v", "Vertex streaming on or off", "polygon"),
+    *[_b(f"class_{n}", (str(n),), str(n), f"Pick class {n}") for n in range(10)],
     _b("rename_class", ("<Control-r>", "<Command-r>"), "Ctrl+R", "Rename the active class"),
     _b("undo", ("<Control-z>", "<Command-z>"), "Ctrl+Z", "Undo"),
     _b("redo", ("<Control-y>", "<Command-y>"), "Ctrl+Y", "Redo"),
     _b("save", ("<Control-s>", "<Command-s>"), "Ctrl+S", "Save now"),
-    _b("click", ("<space>",), "Space", "Left click at the cursor"),
-    _b("escape", ("<Escape>",), "Escape", "Cancel polygon / deselect"),
-    _b("help", ("h",), "h", "Toggle this help"),
+    _b("click", ("<space>",), "Space", "Click at the cursor"),
+    _b("escape", ("<Escape>",), "Escape", "Cancel the polygon, or deselect"),
+    _b("help", ("h",), "h", "Show or hide this help"),
 )
 
 MOUSE_HELP = (
-    ("Ctrl+Scroll", "Zoom at cursor", "always"),
-    ("Scroll", "Pan up / down", "always"),
-    ("Shift+Scroll", "Pan left / right", "always"),
+    ("Ctrl+Scroll", "Zoom at the cursor", "always"),
+    ("Scroll", "Pan up or down", "always"),
+    ("Shift+Scroll", "Pan left or right", "always"),
     ("Middle-click drag", "Pan", "always"),
-    ("Shift+drag the selected shape", "Move it whole, box or polygon", "always"),
-    ("Left-click drag", "Draw a box (anywhere off a box outline, including inside a box)", "box"),
-    ("Click a box outline", "Select it", "box"),
-    ("Drag a box outline", "Move the whole box", "box"),
-    ("Drag a corner", "Resize; the opposite corner stays fixed (selected box)", "box"),
-    ("Right-click a box outline", "Delete box", "box"),
-    ("Left-click", "Place vertex (anywhere off a polygon outline, including inside a polygon)", "polygon"),
-    ("Left-click (Stream on)", "Start / pause laying vertices as the pointer moves", "polygon"),
-    ("Double-click", "Close polygon", "polygon"),
-    ("Click a polygon outline", "Select it", "polygon"),
-    ("Drag vertex", "Move vertex (selected polygon)", "polygon"),
-    ("Click vertex", "Start a new polygon on it (selected polygon)", "polygon"),
-    ("Click edge", "Insert vertex (selected polygon)", "polygon"),
-    ("Right-click a vertex", "Delete vertex (selected polygon)", "polygon"),
-    ("Right-click a polygon outline", "Delete polygon", "polygon"),
-    ("Click Legend", "Open / close the symbology legend (lower left)", "always"),
+    ("Shift+drag the selected shape", "Move the whole shape", "always"),
+    ("Left-click drag", "Draw a box, even inside another", "box"),
+    ("Click a box outline", "Select the box", "box"),
+    ("Drag a box outline", "Move the box", "box"),
+    ("Drag a corner", "Resize the selected box from the opposite corner", "box"),
+    ("Right-click a box outline", "Delete the box", "box"),
+    ("Left-click", "Place a vertex, even inside another polygon", "polygon"),
+    ("Left-click (Stream on)", "Start or pause streaming vertices", "polygon"),
+    ("Double-click", "Close the polygon", "polygon"),
+    ("Click a polygon outline", "Select the polygon", "polygon"),
+    ("Drag vertex", "Move a vertex of the selected polygon", "polygon"),
+    ("Click vertex", "Start a new polygon on that vertex", "polygon"),
+    ("Click edge", "Insert a vertex in the selected polygon", "polygon"),
+    ("Right-click a vertex", "Delete a vertex", "polygon"),
+    ("Right-click a polygon outline", "Delete the polygon", "polygon"),
+    ("Click Legend", "Open or close the legend", "always"),
 )
 
 
@@ -98,14 +98,14 @@ def help_lines(mode, has_queue, has_pair):
                 continue
             class_rows_done = True
             digits = "".join(str(n) for n in range(10))
-            lines.append(f"  {digits:<16}Select class by id")
+            lines.append(f"  {digits:<16}Pick a class by id")
             continue
         lines.append(f"  {b.label:<16}{b.description}")
     lines.append("")
     lines.append("── Mouse ──")
     for label, description, when in MOUSE_HELP:
         if _applies(when, mode, has_queue, has_pair):
-            lines.append(f"  {label:<30}{description}")
+            lines.append(f"  {label:<32}{description}")
     return lines
 
 
@@ -116,7 +116,7 @@ def readme_tables():
     for b in KEY_BINDINGS:
         if b.action.startswith("class_"):
             if not class_done:
-                out.append("| Select class by id | `0`-`9` |")
+                out.append("| Pick a class by id | `0`-`9` |")
                 class_done = True
             continue
         out.append(f"| {b.description} | `{b.label}` |")

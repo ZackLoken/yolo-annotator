@@ -85,48 +85,48 @@ for the same list, filtered to the current mode.
 |---|---|
 | Previous image | `Left` |
 | Next image | `Right` |
-| Previous queue item | `Down` |
-| Next queue item | `Up` |
-| Accept focused item (an unmatched prediction becomes a new annotation) | `a` |
-| Reject focused item (deletes its annotation, if any) | `r` |
-| Edit focused item (an unmatched prediction is accepted first) | `e` |
-| Comment on the focused item, flagging it for a second look | `c` |
-| Fit image to window | `f` |
-| Zoom to focused item | `z` |
-| Toggle box / polygon mode | `m` |
-| Toggle vertex snapping | `s` |
-| Toggle vertex streaming | `v` |
-| Select class by id | `0`-`9` |
+| Previous item | `Down` |
+| Next item | `Up` |
+| Accept the focused item; an FP becomes an annotation | `a` |
+| Reject the focused item and delete its annotation | `r` |
+| Edit the focused item; an FP is accepted first | `e` |
+| Comment on the focused item and flag it | `c` |
+| Fit the image to the window | `f` |
+| Zoom to the focused item | `z` |
+| Switch between box and polygon mode | `m` |
+| Vertex snapping on or off | `s` |
+| Vertex streaming on or off | `v` |
+| Pick a class by id | `0`-`9` |
 | Rename the active class | `Ctrl+R` |
 | Undo | `Ctrl+Z` |
 | Redo | `Ctrl+Y` |
 | Save now | `Ctrl+S` |
-| Left click at the cursor | `Space` |
-| Cancel polygon / deselect | `Escape` |
-| Toggle this help | `h` |
+| Click at the cursor | `Space` |
+| Cancel the polygon, or deselect | `Escape` |
+| Show or hide this help | `h` |
 
 | Action | Input | Mode |
 |---|---|---|
-| Zoom at cursor | Ctrl+Scroll | always |
-| Pan up / down | Scroll | always |
-| Pan left / right | Shift+Scroll | always |
+| Zoom at the cursor | Ctrl+Scroll | always |
+| Pan up or down | Scroll | always |
+| Pan left or right | Shift+Scroll | always |
 | Pan | Middle-click drag | always |
-| Move it whole, box or polygon | Shift+drag the selected shape | always |
-| Draw a box (anywhere off a box outline, including inside a box) | Left-click drag | box |
-| Select it | Click a box outline | box |
-| Move the whole box | Drag a box outline | box |
-| Resize; the opposite corner stays fixed (selected box) | Drag a corner | box |
-| Delete box | Right-click a box outline | box |
-| Place vertex (anywhere off a polygon outline, including inside a polygon) | Left-click | polygon |
-| Start / pause laying vertices as the pointer moves | Left-click (Stream on) | polygon |
-| Close polygon | Double-click | polygon |
-| Select it | Click a polygon outline | polygon |
-| Move vertex (selected polygon) | Drag vertex | polygon |
-| Start a new polygon on it (selected polygon) | Click vertex | polygon |
-| Insert vertex (selected polygon) | Click edge | polygon |
-| Delete vertex (selected polygon) | Right-click a vertex | polygon |
-| Delete polygon | Right-click a polygon outline | polygon |
-| Open / close the symbology legend (lower left) | Click Legend | always |
+| Move the whole shape | Shift+drag the selected shape | always |
+| Draw a box, even inside another | Left-click drag | box |
+| Select the box | Click a box outline | box |
+| Move the box | Drag a box outline | box |
+| Resize the selected box from the opposite corner | Drag a corner | box |
+| Delete the box | Right-click a box outline | box |
+| Place a vertex, even inside another polygon | Left-click | polygon |
+| Start or pause streaming vertices | Left-click (Stream on) | polygon |
+| Close the polygon | Double-click | polygon |
+| Select the polygon | Click a polygon outline | polygon |
+| Move a vertex of the selected polygon | Drag vertex | polygon |
+| Start a new polygon on that vertex | Click vertex | polygon |
+| Insert a vertex in the selected polygon | Click edge | polygon |
+| Delete a vertex | Right-click a vertex | polygon |
+| Delete the polygon | Right-click a polygon outline | polygon |
+| Open or close the legend | Click Legend | always |
 <!-- controls:end -->
 
 Vertex streaming (`v`) places vertices continuously as the mouse moves instead of

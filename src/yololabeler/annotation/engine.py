@@ -8,7 +8,7 @@ from yololabeler.state import AppState
 
 # Snapshot count kept for undo; value carried over from the original implementation.
 UNDO_DEPTH = 30
-# Image px squared; the square of the annotate tab's MIN_BOX_SIDE (3), provisional (2026-09-17).
+# Image px squared; the square of the annotate tab's MIN_BOX_SIDE (3), provisional.
 MIN_POLYGON_AREA = 9
 
 

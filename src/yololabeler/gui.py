@@ -64,7 +64,7 @@ class FitToContentInputDialog(FitToContentMixin, ctk.CTkInputDialog):
     """A CTkInputDialog that stays large enough for its contents across monitors."""
 
 
-# Zoom for the whole-canopy pass for model misses once a sweep is done; the user chose 33% (2026-09-16).
+# Zoom for the whole-canopy pass for FNs once a sweep is done; the user chose 33%.
 OVERVIEW_ZOOM = 0.33
 
 
