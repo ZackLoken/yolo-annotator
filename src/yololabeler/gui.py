@@ -301,10 +301,10 @@ class YoloLabeler:
             command=self._toggle_snap)
         self.snap_btn.pack(side="left", padx=(0, 4))
 
-        # ── Right: Complete | Image status DD | Prev | counter | Next ──
+        # ── Right: Completed | Image status DD | Prev | counter | Next ──
         self._complete_var = tk.BooleanVar(value=False)
         self.complete_cb = ctk.CTkCheckBox(
-            _tb_g3, text="Complete", width=1,
+            _tb_g3, text="Completed", width=1,
             variable=self._complete_var,
             font=(self.font_family, 11), text_color=FG_COLOR,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
@@ -319,7 +319,7 @@ class YoloLabeler:
         self.filter_var = tk.StringVar(value="All")
         self.filter_dropdown = ctk.CTkComboBox(
             _tb_g3, variable=self.filter_var, width=130,
-            values=["All", "Complete", "Partial", "Unannotated", "Flagged"],
+            values=["All", "Completed", "Partial", "Unannotated", "Flagged"],
             font=(self.font_family, 11),
             dropdown_font=(self.font_family, 11),
             fg_color=ENTRY_BG, border_color=BORDER_COLOR,
@@ -1097,7 +1097,7 @@ class YoloLabeler:
     def _ask_incomplete_step(self):
         """Open the not-complete dialog; returns "complete", "continue" or "stay"."""
         dialog = FitToContentToplevel(self.root)
-        dialog.title("Image not marked complete")
+        dialog.title("Image not marked completed")
         self._apply_app_icon(dialog)
         dialog.configure(fg_color=BG_COLOR)
         dialog.resizable(False, False)
@@ -1109,10 +1109,10 @@ class YoloLabeler:
             result["choice"] = choice
             dialog.destroy()
 
-        ctk.CTkLabel(dialog, text="Mark this image complete and move to the next image?",
+        ctk.CTkLabel(dialog, text="Mark this image completed and move to the next image?",
                      font=(self.font_family, 12), text_color=FG_COLOR).pack(
             padx=16, pady=(16, 12))
-        for text, choice, fg in (("Mark complete and continue (Enter)", "complete", ACCENT),
+        for text, choice, fg in (("Mark completed and continue (Enter)", "complete", ACCENT),
                                  ("Continue without marking", "continue", ENTRY_BG),
                                  ("Stay (Esc)", "stay", ENTRY_BG)):
             ctk.CTkButton(dialog, text=text, width=260, fg_color=fg, hover_color=ACCENT_HOVER,
@@ -1288,7 +1288,7 @@ class YoloLabeler:
         return manifest.get("model") if manifest else None
 
     def _on_complete_toggled(self):
-        """Complete is the dataset gate; it writes the completion record (spec 3.4)."""
+        """Completed is the dataset gate; it writes the completion record (spec 3.4)."""
         if not self.images:
             return
         img_name = self.images[self.index]
@@ -1323,7 +1323,7 @@ class YoloLabeler:
 
     def _on_filter_changed(self, choice):
         """Handle filter dropdown selection."""
-        mapping = {"All": "all", "Complete": "complete",
+        mapping = {"All": "all", "Completed": "complete",
                    "Partial": "partial", "Unannotated": "unannotated", "Flagged": "flagged"}
         self._active_filter = mapping.get(choice, "all")
         self._record_image_time()

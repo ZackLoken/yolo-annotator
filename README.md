@@ -342,8 +342,8 @@ viewport or leave unsaved work behind.
 - Queue over every image: unmatched predictions, model misses and matches,
   stepped through with `Up` / `Down`, filterable by class, type and status
 - Blind images: a per-image flag that hides predictions until the image is marked
-  Complete, for measuring assisted versus unassisted annotation
-- Completion tracking: mark an image Complete to record who, when, how many
+  Completed, for measuring assisted versus unassisted annotation
+- Completion tracking: mark an image Completed to record who, when, how many
   annotations, and which model; filter the image list by status
 - Canvas banner: migrated data counts, rejected label or prediction lines, and
   save failures are reported in one message on the canvas; no pop-ups for
@@ -392,7 +392,7 @@ canvas to that class; "All" lifts the class limit so every class is drawn, but
 not the mode limit, so Box mode still draws only boxes. Drawing needs a class,
 so it is blocked while "All" is selected. Review status filters on verdict presence, so "Not
 reviewed" means no verdict yet, whatever the type. (Image status, in the top
-toolbar, is the separate per-image Complete / Partial / Unannotated filter.) An
+toolbar, is the separate per-image Completed / Partial / Unannotated filter.) An
 annotation you draw yourself is recorded as `accepted` the moment it is added,
 so it never waits in the queue for a review action. True-positive,
 false-positive and false-negative counts for the current image sit in the
@@ -484,7 +484,7 @@ strip empties the item stepper to `/ 0` and clears the counts, and Accept / Edit
 / Reject are disabled. The Type/Review status filters, Conf entry, and the item
 stepper are greyed out for the same reason: none of them do anything until
 predictions are back.
-Ticking Complete on a blind image records the completion with `blind: true`;
+Ticking Completed on a blind image records the completion with `blind: true`;
 predictions load normally afterward, and any later accept still carries
 `source: accepted`, so the blind pass and the assisted pass stay distinguishable
 in the sidecar.
@@ -517,14 +517,14 @@ the flag open, since its prediction stays as an FP.
 
 ### Completion
 
-Complete is the one dataset gate: ticking it writes a completion record and
+Completed is the one dataset gate: ticking it writes a completion record and
 saves; unticking it removes the record. If queue items are still missing a
 verdict, the pending count shows alongside the TP/FP/FN counts in the status
 bar (e.g. "TP 1  FP 1  FN 0  (2 not reviewed)"), but the tick is never
 blocked on it.
 
-Stepping to the next image (`Right` or Next) from an image not marked Complete
-opens a prompt with three buttons: Mark complete and continue (`Enter`),
+Stepping to the next image (`Right` or Next) from an image not marked Completed
+opens a prompt with three buttons: Mark completed and continue (`Enter`),
 Continue without marking, and Stay (`Esc`). Going to the previous image or
 jumping from the image list never asks.
 
@@ -546,7 +546,7 @@ a `labels_backed_up` flag set once the first `.original/` backup is made.
 `{"by", "at", "blind", "annotation_count", "model", "open_flags"}`, where `model`
 is the name recorded in the predictions manifest when predictions were visible,
 or `null` for a blind pass, and `open_flags` counts the image's items still
-flagged when it was marked Complete.
+flagged when it was marked Completed.
 
 ---
 

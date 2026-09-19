@@ -366,5 +366,5 @@ class ReviewPanel:
             self.counts_label.configure(
                 text=f"TP {len(m.get('tp', []))}  FP {len(m.get('fp', []))}  "
                      f"FN {len(m.get('fn', []))}{suffix}")
-        a.complete_cb.configure(text="Complete")
+        a.complete_cb.configure(text="Completed")
         a._update_status()

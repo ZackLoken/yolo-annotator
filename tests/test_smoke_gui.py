@@ -1830,11 +1830,11 @@ class TestCompletion:
         assert app._stats_store.completion("a.jpg") is None
 
     def test_complete_label_counts_unreviewed(self, app):
-        assert app.complete_cb.cget("text") == "Complete"
+        assert app.complete_cb.cget("text") == "Completed"
         assert "2 not reviewed" in app._review_panel.counts_label.cget("text")
         app._review_panel.focus_item(0)
         app.reject_item()
-        assert app.complete_cb.cget("text") == "Complete"
+        assert app.complete_cb.cget("text") == "Completed"
         assert "1 not reviewed" in app._review_panel.counts_label.cget("text")
 
     def test_blind_hides_predictions_until_complete(self, app):
@@ -2073,7 +2073,7 @@ def dialog_with_wide_text(cls, root):
     dialog.resizable(False, False)
     ctk.CTkLabel(dialog, text="Mark this image complete and move to the next image?",
                  font=("Arial", 12)).pack(padx=16, pady=(16, 12))
-    for text in ("Mark complete and continue (Enter)", "Continue without marking",
+    for text in ("Mark completed and continue (Enter)", "Continue without marking",
                  "Stay (Esc)"):
         ctk.CTkButton(dialog, text=text, width=260, font=("Arial", 12)).pack(
             padx=16, pady=(0, 8))
