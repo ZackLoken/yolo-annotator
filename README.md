@@ -386,8 +386,8 @@ reviewed in a row whatever the types in it. The Type and Class filters lay the
 path over the items they keep; the Review status filter only hides items, so
 judging one never reorders the rest. After an accept or reject the focus moves
 to the next unreviewed item along the path. Class selection lives in the top toolbar
-alongside the drawing controls, with an "All" option; Type and Review status are
-dropdowns in the status bar. Choosing a class filters the queue and limits the
+alongside the drawing controls, with an "All" option; Type sits in the status
+bar's left group and Review status in its right group, by the step arrows. Choosing a class filters the queue and limits the
 canvas to that class; "All" lifts the class limit so every class is drawn, but
 not the mode limit, so Box mode still draws only boxes. Drawing needs a class,
 so it is blocked while "All" is selected. Review status filters on verdict presence, so "Not
@@ -395,8 +395,10 @@ reviewed" means no verdict yet, whatever the type. (Image status, in the top
 toolbar, is the separate per-image Complete / Partial / Unannotated filter.) An
 annotation you draw yourself is recorded as `accepted` the moment it is added,
 so it never waits in the queue for a review action. True-positive,
-false-positive and false-negative counts for the current image are shown in
-the status bar.
+false-positive and false-negative counts for the current image sit in the
+status bar's left group, after the filters they describe. The toolbar carries
+the image name, elided when long, with the zoom, the time spent on this image
+and the current user after it.
 
 ### Stepping
 
@@ -408,9 +410,13 @@ uses, then zooms so the item fills roughly one third of the canvas. `z` re-zooms
 to the current item without moving the focus. The Labels checkbox on the top
 toolbar and the Predictions checkbox in the status bar toggle the annotation and
 prediction overlays independently; turning Labels off hides every annotation
-shape, focused or not. The step arrows sit in the status bar right of Accept /
-Edit / Reject, followed by the focused item's type, position and verdict (e.g.
-"FP 2 / 16  not reviewed").
+shape, focused or not. The step arrows sit in the status bar's right end, with the
+focused item's type, position and verdict between them (e.g.
+"FP 2 / 16  not reviewed"), mirroring the image arrows at the right end of the
+toolbar. Left of them sit the Review status filter and the Reviewed box, which
+lights when the focused item has a verdict; unticking it clears that verdict
+back to not reviewed. Unticking does not undo what accept or reject did to the
+annotation, only the judgement, so use `Ctrl+Z` to take back a deletion.
 
 Annotations are solid and predictions dashed at the same zoom-scaled width, so
 the line style says whose shape it is. On an image that has predictions, both
@@ -468,7 +474,9 @@ a fixed 0.50, neither shown nor editable in the UI.
 
 ### Blind images
 
-Ticking Blind pass on an image stops its prediction files from being read: the
+Blind pass sits in the status bar next to the Predictions checkbox, since both
+govern whether the model's boxes are in play. Ticking it on an image stops its
+prediction files from being read: the
 strip shows "Blind" in place of the queue and counts, and Accept / Edit / Reject
 are disabled. The Type/Review status filters, Conf entry, and the step buttons are greyed
 out for the same reason: none of them do anything until predictions are back.

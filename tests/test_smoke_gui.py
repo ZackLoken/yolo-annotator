@@ -787,6 +787,71 @@ class TestLegend:
         assert "Snap target" not in self.legend_texts(tab)
 
 
+def in_widget(child, parent):
+    """True when child sits anywhere under parent in the widget tree."""
+    return str(child).startswith(f"{parent}.")
+
+
+class TestBarLayout:
+    def test_the_readouts_and_image_name_sit_in_the_toolbar(self, app):
+        for w in (app.header_name, app.status_zoom, app.status_time, app.status_user):
+            assert in_widget(w, app.toolbar)
+
+    def test_the_review_nav_group_sits_in_the_status_bar(self, app):
+        panel = app._review_panel
+        for w in (panel.reviewed_cb, panel.status_dd, panel.prev_item_btn,
+                  panel.item_label, panel.next_item_btn):
+            assert in_widget(w, app.status_bar)
+
+    def test_blind_pass_moves_down_beside_the_prediction_toggle(self, app):
+        assert in_widget(app.blind_cb, app.status_bar)
+        assert in_widget(app._pred_cb, app.status_bar)
+
+    def test_the_counts_move_off_the_nav_side(self, app):
+        panel = app._review_panel
+        assert in_widget(panel.counts_label, app.status_bar)
+        assert not in_widget(panel.counts_label, panel.right)
+
+    def test_the_header_name_follows_the_loaded_image(self, app):
+        assert app.images[app.index] in app.header_name.cget("text")
+
+
+class TestReviewedToggle:
+    def focus_key(self, app, key):
+        idx = next(i for i, q in enumerate(app.queue) if q.key == key)
+        app._review_panel.focus_item(idx)
+
+    def test_it_lights_when_the_focused_item_has_a_verdict(self, app):
+        panel = app._review_panel
+        tp = next(q for q in app.queue if q.kind == "tp")
+        self.focus_key(app, tp.key)
+        assert not panel.reviewed_var.get()
+        app.accept_item()
+        self.focus_key(app, tp.key)
+        assert panel.reviewed_var.get()
+
+    def test_unticking_clears_the_verdict_back_to_not_reviewed(self, app):
+        panel = app._review_panel
+        tp = next(q for q in app.queue if q.kind == "tp")
+        self.focus_key(app, tp.key)
+        app.accept_item()
+        self.focus_key(app, tp.key)
+        panel.reviewed_var.set(False)
+        panel.on_reviewed_toggled()
+        assert tp.key not in app.verdicts
+        assert not panel.reviewed_var.get()
+        assert "not reviewed" in panel.item_label.cget("text")
+
+    def test_ticking_it_without_a_verdict_does_nothing(self, app):
+        panel = app._review_panel
+        tp = next(q for q in app.queue if q.kind == "tp")
+        self.focus_key(app, tp.key)
+        panel.reviewed_var.set(True)
+        panel.on_reviewed_toggled()
+        assert not panel.reviewed_var.get()
+        assert tp.key not in app.verdicts
+
+
 class TestRenderFocus:
     def test_both_shapes_of_the_focused_pair_are_haloed(self, app):
         tab = app._annotate_tab
@@ -836,6 +901,7 @@ class TestRenderFocus:
         app._review_panel.focus_item(app.queue.index(tp))
         ann = app.queue[app.queue_index].annotation
         app.edit_pair()
+        tab.fit_to_window()
         tab.render()
         canvas = tab.canvas
         assert canvas.find_withtag("gt_focus") == ()
@@ -1143,6 +1209,9 @@ class TestActions:
         pred = panel.current_item().prediction
         app.accept_item()
         assert panel.current_item().key != pred.id
+        # Undo the focus zoom, or the prediction is culled off-screen and the
+        # assertion turns on canvas size rather than on what was drawn.
+        tab.fit_to_window()
         tab.render()
         assert any(tab.canvas.coords(i) == pytest.approx(
                        [*tab.image_to_canvas(*pred.points[0]), *tab.image_to_canvas(*pred.points[1])])

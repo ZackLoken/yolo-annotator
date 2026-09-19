@@ -225,16 +225,14 @@ class YoloLabeler:
 
         inner = ctk.CTkFrame(self.toolbar, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=6, pady=4)
-        # Equal-weight side columns keep the middle group centred on the window.
-        inner.grid_columnconfigure(0, weight=1, uniform="toolbar_side")
-        inner.grid_columnconfigure(2, weight=1, uniform="toolbar_side")
+        # Weight on the left column only, so a window too narrow for both blocks
+        # clips the readouts rather than the image navigation.
+        inner.grid_columnconfigure(0, weight=1)
         inner.grid_rowconfigure(0, weight=1)
         _tb_g1 = ctk.CTkFrame(inner, fg_color="transparent")
         _tb_g1.grid(row=0, column=0, sticky="w")
-        _tb_g2 = ctk.CTkFrame(inner, fg_color="transparent")
-        _tb_g2.grid(row=0, column=1, padx=12)
         _tb_g3 = ctk.CTkFrame(inner, fg_color="transparent")
-        _tb_g3.grid(row=0, column=2, sticky="e")
+        _tb_g3.grid(row=0, column=1, sticky="e")
 
         # ── Left: Logo | Open Folder | Color Picker | Class DD | Labels ──
         self._load_logo(_tb_g1)
@@ -278,37 +276,53 @@ class YoloLabeler:
             command=self._on_visible_toggled)
         self._visible_cb.pack(side="left", padx=(0, 4))
 
-        # ── Centre: Mode | Stream | Snap ──
+        # ── Left, continued: Mode | Stream | Snap ──
         self.mode_btn = ctk.CTkButton(
-            _tb_g2, text="Mode: Polygon \u2b21", width=120,
+            _tb_g1, text="Mode: Polygon \u2b21", width=120,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11),
             command=self._toggle_mode)
         self.mode_btn.pack(side="left", padx=(0, 4))
 
         self.stream_btn = ctk.CTkButton(
-            _tb_g2, text="Stream: Off", width=95,
+            _tb_g1, text="Stream: Off", width=95,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11),
             command=self._toggle_stream)
         self.stream_btn.pack(side="left", padx=(0, 4))
 
         self.snap_btn = ctk.CTkButton(
-            _tb_g2, text="Snap: Off", width=80,
+            _tb_g1, text="Snap: Off", width=80,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11),
             command=self._toggle_snap)
         self.snap_btn.pack(side="left", padx=(0, 4))
 
-        # ── Right: Blind pass | Complete | Image status DD | Prev | counter | Next ──
-        self._blind_var = tk.BooleanVar(value=False)
-        self.blind_cb = ctk.CTkCheckBox(
-            _tb_g3, text="Blind pass", variable=self._blind_var, width=1,
-            font=(self.font_family, 11), text_color=FG_COLOR,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
-            command=self._on_blind_toggled)
-        self.blind_cb.pack(side="left", padx=(0, 12))
+        # ── Left, continued: image name | Zoom | Image time | User ──
+        self._toolbar_sep(_tb_g1)
+        self.header_name = ctk.CTkLabel(
+            _tb_g1, text="", font=(self.font_family, 12, "bold"),
+            text_color=FG_COLOR)
+        self.header_name.pack(side="left", padx=(0, 6))
+        self._toolbar_sep(_tb_g1)
+        # Bare values, not "Zoom: 100%": the prefixes cost more toolbar width
+        # than the default window has to give.
+        self.status_zoom = ctk.CTkLabel(
+            _tb_g1, text="100%", font=(self.font_family, 11),
+            text_color=FG_COLOR)
+        self.status_zoom.pack(side="left", padx=(0, 6))
+        self._toolbar_sep(_tb_g1)
+        self.status_time = ctk.CTkLabel(
+            _tb_g1, text="0:00", font=(self.font_family, 11),
+            text_color=FG_COLOR)
+        self.status_time.pack(side="left", padx=(0, 6))
+        self._toolbar_sep(_tb_g1)
+        self.status_user = ctk.CTkLabel(
+            _tb_g1, text=self._current_user,
+            font=(self.font_family, 11), text_color=FG_COLOR)
+        self.status_user.pack(side="left", padx=(0, 4))
 
+        # ── Right: Complete | Image status DD | Prev | counter | Next ──
         self._complete_var = tk.BooleanVar(value=False)
         self.complete_cb = ctk.CTkCheckBox(
             _tb_g3, text="Complete", width=1,
@@ -390,36 +404,21 @@ class YoloLabeler:
         right = ctk.CTkFrame(si, fg_color="transparent")
         right.grid(row=0, column=2, sticky="ew")
 
-        # ── Right side: Zoom | Time | User ──
-        self.status_user = ctk.CTkLabel(
-            right, text=f"User: {self._current_user}",
-            font=(self.font_family, 11), text_color=FG_COLOR)
-        self.status_user.pack(side="right", padx=(6, 0))
-
-        self._status_sep_right(right)
-
-        self.status_time = ctk.CTkLabel(
-            right, text="Image time: 0:00", font=(self.font_family, 11),
-            text_color=FG_COLOR)
-        self.status_time.pack(side="right", padx=(6, 6))
-
-        self._status_sep_right(right)
-
-        self.status_zoom = ctk.CTkLabel(
-            right, text="Zoom: 100%", font=(self.font_family, 11),
-            text_color=FG_COLOR)
-        self.status_zoom.pack(side="right", padx=(6, 6))
+        # Blind pass sits with Predictions: both govern whether the model's
+        # boxes are in play, even though this one is a property of the image.
+        self._blind_var = tk.BooleanVar(value=False)
+        self.blind_cb = ctk.CTkCheckBox(
+            left, text="Blind pass", variable=self._blind_var, width=1,
+            font=(self.font_family, 11), text_color=FG_COLOR,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
+            command=self._on_blind_toggled)
+        self.blind_cb.pack(side="left", padx=(0, 12))
 
         self._review_panel.build(left, centre, right)
 
-    def _status_sep_right(self, parent):
-        sep = ctk.CTkFrame(parent, width=1, height=20,
-                           fg_color=BORDER_COLOR)
-        sep.pack(side="right", padx=6, fill="y")
-
     def _update_status(self):
         pct = int(self._annotate_tab.scale * 100)
-        self.status_zoom.configure(text=f"Zoom: {pct}%")
+        self.status_zoom.configure(text=f"{pct}%")
 
     def _on_visible_toggled(self):
         """Toggle annotation visibility on the canvas."""
@@ -1288,7 +1287,7 @@ class YoloLabeler:
             elapsed = time.time() - self._image_start_time
             mins, secs = divmod(int(elapsed), 60)
             self.status_time.configure(
-                text=f"Image time: {mins}:{secs:02d}")
+                text=f"{mins}:{secs:02d}")
         self._timer_after_id = self.root.after(
             1000, self._update_timer_display)
 
@@ -1730,6 +1729,11 @@ class YoloLabeler:
         return moved
 
     # ── Title & counter ───────────────────────────────────────────────────────
+    def _set_header_name(self, text, limit=20):
+        """Write the image name into the toolbar, elided so the group keeps its width."""
+        shown = text if len(text) <= limit else f"{text[:limit - 1]}…"
+        self.header_name.configure(text=shown)
+
     def update_title(self):
         if not self.images:
             return
@@ -1749,6 +1753,7 @@ class YoloLabeler:
                 text=f"/ {len(self._filtered_indices)}")
             if not self._filtered_indices:
                 self.root.title("YoloLabeler - No matches")
+                self._set_header_name("No matches")
                 self._complete_var.set(False)
                 return
         else:
@@ -1756,6 +1761,7 @@ class YoloLabeler:
             self.counter_entry.insert(0, str(self.index + 1))
             self.total_label.configure(text=f"/ {len(self.images)}")
         self.root.title(f"YoloLabeler - {self.images[self.index]}")
+        self._set_header_name(self.images[self.index])
         # Update complete checkbox to reflect current image
         img_name = self.images[self.index]
         self._complete_var.set(img_name in self._completed_images)
@@ -1819,7 +1825,7 @@ def main():
 
     root = ctk.CTk()
     # 1600 is the first width that fits the toolbar's measured natural width
-    # (1533 at a scaling factor of 1) with room to spare.
+    # (1556 at a scaling factor of 1, image name and readouts included).
     root.geometry("1600x800")
     root.title("YoloLabeler")
     root.configure(fg_color=BG_COLOR)

@@ -59,10 +59,11 @@ class ReviewPanel:
     def build(self, left, centre, right):
         """Create the strip in the status bar's left, centre and right columns.
 
-        Left holds the prediction toggle, threshold, filters and the item stepper
-        with its "FP 2 / 16  not reviewed" readout between the arrows; centre
-        holds Accept, Edit and Reject; the TP/FP/FN counts are packed on the right,
-        to the left of whatever the caller has already packed there.
+        Left holds the prediction toggle, threshold, the Type filter and the
+        TP/FP/FN counts, after whatever the caller has already packed there;
+        centre holds Accept, Edit and Reject; right holds the Reviewed box, the
+        Review status filter and the item stepper with its
+        "FP 2 / 16  not reviewed" readout between the arrows.
         """
         a = self.app
         a._pred_var = tk.BooleanVar(value=a._review_show_pred)
@@ -80,24 +81,13 @@ class ReviewPanel:
         self.conf_entry.pack(side="left", padx=(0, 8))
         self.conf_entry.bind("<Return>", self._on_conf_enter)
         self.conf_entry.bind("<FocusOut>", lambda e: self._show_threshold())
-        self._label(left, "Review status").pack(side="left", padx=(0, 2))
-        self.status_var = tk.StringVar(value="All")
-        self.status_dd = self._combo(left, self.status_var,
-                                     ["All", "Not reviewed", "Reviewed", "Flagged"], 100,
-                                     self.on_status_changed)
-        self.status_dd.pack(side="left", padx=(0, 8))
         self._label(left, "Type").pack(side="left", padx=(0, 2))
         self.type_var = tk.StringVar(value="All")
         self.type_dd = self._combo(left, self.type_var, ["All", "FP", "FN", "TP"], 64,
                                    self.on_type_changed)
         self.type_dd.pack(side="left", padx=(0, 8))
-        self.prev_item_btn = self._button(left, "◀", 28, lambda: self.step(-1), bold=False)
-        self.prev_item_btn.pack(side="left")
-        # Fixed width so the next arrow does not jump as the readout changes length.
-        self.item_label = self._label(left, "", width=130, anchor="center")
-        self.item_label.pack(side="left", padx=2)
-        self.next_item_btn = self._button(left, "▶", 28, lambda: self.step(1), bold=False)
-        self.next_item_btn.pack(side="left")
+        self.counts_label = self._label(left, "TP 0  FP 0  FN 0")
+        self.counts_label.pack(side="left", padx=(0, 6))
 
         self.accept_btn = self._button(centre, "Accept (A)", 96, a.accept_item)
         self.accept_btn.pack(side="left", padx=(0, 6))
@@ -106,9 +96,29 @@ class ReviewPanel:
         self.reject_btn = self._button(centre, "Reject (R)", 96, a.reject_item)
         self.reject_btn.pack(side="left")
 
-        a._status_sep_right(right)
-        self.counts_label = self._label(right, "TP 0  FP 0  FN 0")
-        self.counts_label.pack(side="right", padx=(0, 6))
+        # Packed right to left so the group reads Reviewed, Review status, ◀, item, ▶,
+        # mirroring Complete, Image status and the image arrows on the toolbar.
+        self.right = right
+        self.next_item_btn = self._button(right, "▶", 28, lambda: self.step(1), bold=False)
+        self.next_item_btn.pack(side="right")
+        # Fixed width so the next arrow does not jump as the readout changes length.
+        self.item_label = self._label(right, "", width=130, anchor="center")
+        self.item_label.pack(side="right", padx=2)
+        self.prev_item_btn = self._button(right, "◀", 28, lambda: self.step(-1), bold=False)
+        self.prev_item_btn.pack(side="right", padx=(0, 8))
+        self.status_var = tk.StringVar(value="All")
+        self.status_dd = self._combo(right, self.status_var,
+                                     ["All", "Not reviewed", "Reviewed", "Flagged"], 100,
+                                     self.on_status_changed)
+        self.status_dd.pack(side="right", padx=(0, 8))
+        self._label(right, "Review status").pack(side="right", padx=(0, 2))
+        self.reviewed_var = tk.BooleanVar(value=False)
+        self.reviewed_cb = ctk.CTkCheckBox(
+            right, text="Reviewed", variable=self.reviewed_var, width=1,
+            font=(a.font_family, 11), text_color=FG_COLOR,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
+            command=self.on_reviewed_toggled)
+        self.reviewed_cb.pack(side="right", padx=(0, 12))
         self._show_threshold()
 
     # ── loading and refresh ────────────────────────────────────────────────
@@ -219,6 +229,21 @@ class ReviewPanel:
         if self.app.queue:
             self.focus_item(self.app.queue_index + delta)
 
+    def on_reviewed_toggled(self):
+        """Clear the focused item's verdict when the box is unticked; ticking does nothing.
+
+        A verdict is accepted or rejected, which a two-state box cannot say, so
+        the box only reports that one exists and takes it back. It does not undo
+        what accept or reject did to the annotation, only the judgement itself.
+        """
+        a = self.app
+        item = self.current_item()
+        if item is None or self.reviewed_var.get():
+            self.reviewed_var.set(item is not None and item.key in a.verdicts)
+            return
+        self.engine.remove_verdict(a.images[a.index], item.key)
+        self.refresh()
+
     def current_item(self):
         """The focused QueueItem, or None when the queue is empty."""
         a = self.app
@@ -295,6 +320,8 @@ class ReviewPanel:
         self.accept_btn.configure(state=state)
         self.edit_btn.configure(state=state)
         self.reject_btn.configure(state=state)
+        self.reviewed_var.set(item is not None and item.key in a.verdicts)
+        self.reviewed_cb.configure(state=state)
         filter_state = "disabled" if a.predictions_blind else "readonly"
         control_state = "disabled" if a.predictions_blind else "normal"
         self.type_dd.configure(state=filter_state)
