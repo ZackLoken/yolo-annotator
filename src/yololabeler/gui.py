@@ -131,7 +131,7 @@ class YoloLabeler:
         # Interaction
         '_dragging_vertex', '_drag_orig_pos',
         '_selected_annotation_id', '_hovered_annotation_id',
-        '_stream_mode', '_stream_active', '_last_stream_pos',
+        '_stream_mode', '_stream_active', '_last_stream_pos', '_stream_run_start',
         '_box_edit_mode', '_box_edit_anchor', '_box_edit_origin', '_box_edit_dirty',
         # Review data
         'queue', 'queue_index',
@@ -1131,8 +1131,7 @@ class YoloLabeler:
     def _on_escape(self, event=None):
         if self.mode == "polygon":
             if self._stream_active:
-                self._stream_active = False
-                self._last_stream_pos = None
+                self._annotate_tab.end_stream_run()
                 self._annotate_tab.display_image()
                 return
             if self.current_polygon:

@@ -66,6 +66,7 @@ MOUSE_HELP = (
     ("Left-click (Stream on)", "Start or pause streaming vertices", "polygon"),
     ("Double-click", "Close the polygon", "polygon"),
     ("Click a polygon outline", "Select the polygon", "polygon"),
+    ("Alt+click a polygon", "Select it even where a click would snap", "polygon"),
     ("Drag vertex", "Move a vertex of the selected polygon", "polygon"),
     ("Click vertex", "Start a new polygon on that vertex", "polygon"),
     ("Click edge", "Insert a vertex in the selected polygon", "polygon"),

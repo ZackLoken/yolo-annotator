@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 from yololabeler import keybindings
 from yololabeler.annotation.document import load_document
 from yololabeler.annotation.engine import polygon_is_degenerate
-from yololabeler.matching import point_in_polygon, point_to_segment_dist
+from yololabeler.matching import point_in_polygon, point_to_segment_dist, simplify_path
 from yololabeler.rendering import place_label
 from yololabeler.review.engine import build_queue
 from yololabeler.review.layer import (
@@ -33,6 +33,7 @@ BOX_EDGE_HIT_RADIUS = 8       # canvas px from a box outline that selects or dra
 MIN_BOX_SIDE = 3              # image px; the minimum box side enforced when drawing
 # Streaming and snapping values taken from TCIP Agent's AnnotateTab.tsx
 STREAM_MIN_DISTANCE = 6       # canvas px the pointer moves before the next streamed vertex
+STREAM_SIMPLIFY_TOLERANCE = 15  # canvas px; a streamed run is thinned to this on pause; the user's starting value, provisional
 SNAP_RADIUS = 15              # canvas px radius for snapping to an existing vertex
 # The ring is wider than the snap radius so it surrounds the crosshair cursor instead of hiding under it.
 SNAP_INDICATOR_RADIUS = SNAP_RADIUS + 3   # canvas px radius of the dashed snap-target ring
@@ -121,6 +122,7 @@ class AnnotateTab:
         c.bind("<Configure>", self._on_canvas_configure)
         c.bind("<ButtonPress-1>", self.on_button_press)
         c.bind("<Shift-ButtonPress-1>", self.on_shift_press)
+        c.bind("<Alt-ButtonPress-1>", self.on_alt_press)
         c.bind("<B1-Motion>", self.on_move_press)
         c.bind("<ButtonRelease-1>", self.on_button_release)
         c.bind("<Double-Button-1>", self._on_double_click)
@@ -196,6 +198,7 @@ class AnnotateTab:
         self._snap_target_dot_item = None
         a._stream_active = False
         a._last_stream_pos = None
+        a._stream_run_start = None
         a._selected_annotation_id = None
         a._hovered_annotation_id = None
         a.start_x = None
@@ -506,8 +509,7 @@ class AnnotateTab:
                 and a._stream_active and a.current_polygon):
             last_cx, last_cy = self.image_to_canvas(*a.current_polygon[-1])
             if math.hypot(event.x - last_cx, event.y - last_cy) >= STREAM_MIN_DISTANCE:
-                # Not snapped: near a neighbour every sample would collapse onto its vertex.
-                ix, iy = self._clamp(*self.canvas_to_image(event.x, event.y))
+                ix, iy = self._clamp(*self._maybe_snap(*self.canvas_to_image(event.x, event.y)))
                 if a.current_polygon[-1] != (ix, iy):
                     a.current_polygon.append((ix, iy))
                     a._last_stream_pos = (ix, iy)
@@ -750,8 +752,7 @@ class AnnotateTab:
         if a.mode != "polygon" or self._in_legend(event):
             return
         if a.current_polygon:
-            a._stream_active = False
-            a._last_stream_pos = None
+            self.end_stream_run()
             if len(a.current_polygon) >= 3:
                 self._close_polygon()
             return
@@ -787,6 +788,7 @@ class AnnotateTab:
             a._vertex_redo_stack.clear()
             a._stream_active = False
             a._last_stream_pos = None
+            a._stream_run_start = None
             self.display_image()
             return
 
@@ -1055,8 +1057,7 @@ class AnnotateTab:
         if a.current_polygon:
             if a._stream_mode:
                 if a._stream_active:
-                    a._stream_active = False
-                    a._last_stream_pos = None
+                    self.end_stream_run()
                     self.display_image()
                 else:
                     snapped = self._maybe_snap(ix, iy)
@@ -1066,6 +1067,7 @@ class AnnotateTab:
                     a.current_polygon.append((ix, iy))
                     a._stream_active = True
                     a._last_stream_pos = (ix, iy)
+                    a._stream_run_start = len(a.current_polygon) - 1
                     a._vertex_redo_stack.clear()
                     self.display_image()
             else:
@@ -1133,21 +1135,62 @@ class AnnotateTab:
         else:
             just_deselected = False
 
-        # Selects with Snap on or off: a streamed polygon has a vertex every few px,
-        # so a snap-means-start rule left it no selectable outline point.
-        vhit = self._find_nearest_vertex(event.x, event.y, threshold=SNAP_RADIUS)
-        outlined = self._polygon_at_outline(event.x, event.y)
-        picked = vhit[0] if vhit else (outlined.id if outlined is not None else None)
-        if picked is not None:
-            a._selected_annotation_id = picked
-            self.display_image()
-            return
-
-        if just_deselected:
-            self.display_image()
-            return
+        # With Snap on, a click that snaps to a vertex means "start here", not "select";
+        # Alt+click (on_alt_press) selects regardless.
+        snaps_to_vertex = self._maybe_snap(ix, iy) != (ix, iy)
+        if not snaps_to_vertex:
+            picked = self._polygon_under_pointer(event.x, event.y)
+            if picked is not None:
+                a._selected_annotation_id = picked
+                self.display_image()
+                return
+            if just_deselected:
+                self.display_image()
+                return
 
         self._start_polygon(ix, iy)
+
+    def _polygon_under_pointer(self, cx, cy):
+        """The id of the polygon whose vertex or outline is under canvas point (cx, cy), or None."""
+        vhit = self._find_nearest_vertex(cx, cy, threshold=SNAP_RADIUS)
+        if vhit:
+            return vhit[0]
+        outlined = self._polygon_at_outline(cx, cy)
+        return outlined.id if outlined is not None else None
+
+    def on_alt_press(self, event):
+        """Select the polygon under the pointer even where a plain click would snap and start one.
+
+        Anywhere else, or outside polygon mode, it is an ordinary press.
+        """
+        a = self.app
+        if (a.mode != "polygon" or self._in_legend(event) or not a._editable()
+                or a.current_polygon):
+            self.on_button_press(event)
+            return
+        picked = self._polygon_under_pointer(event.x, event.y)
+        if picked is None:
+            self.on_button_press(event)
+            return
+        a._selected_annotation_id = picked
+        self._clear_drag_state()
+        self.display_image()
+
+    def end_stream_run(self):
+        """Pause streaming and thin the run laid since it started to STREAM_SIMPLIFY_TOLERANCE.
+
+        The run's first and last vertices stay, so anchors snapped to a
+        neighbour survive; only the vertices between them are thinned.
+        """
+        a = self.app
+        a._stream_active = False
+        a._last_stream_pos = None
+        start = a._stream_run_start
+        a._stream_run_start = None
+        if start is None or start >= len(a.current_polygon):
+            return
+        tolerance = STREAM_SIMPLIFY_TOLERANCE / self.scale if self.scale > 0 else 0
+        a.current_polygon[start:] = simplify_path(a.current_polygon[start:], tolerance)
 
     def _start_polygon(self, ix, iy):
         """Start a new polygon at an image point, snapped, and begin streaming if Stream is on."""
@@ -1161,6 +1204,7 @@ class AnnotateTab:
         if a._stream_mode:
             a._stream_active = True
             a._last_stream_pos = (ix, iy)
+            a._stream_run_start = 0
         self.display_image()
 
     def _poly_drag(self, event):

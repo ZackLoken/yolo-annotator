@@ -4,7 +4,7 @@ import pytest
 
 from yololabeler.matching import (
     point_to_segment_dist, point_in_polygon,
-    box_iou, polygon_iou, polygon_area, box_to_points, compute_matches,
+    box_iou, polygon_iou, polygon_area, box_to_points, compute_matches, simplify_path,
 )
 from shapely.geometry import Polygon as ShapelyPolygon
 
@@ -105,6 +105,35 @@ class TestPolygonArea:
     def test_collinear_and_short_are_zero(self):
         assert polygon_area([(0, 0), (5, 5), (10, 10)]) == 0
         assert polygon_area([(0, 0), (5, 5)]) == 0
+
+
+# ── simplify_path ───────────────────────────────────────────────────────────
+
+class TestSimplifyPath:
+    def test_collinear_run_keeps_only_its_ends(self):
+        run = [(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)]
+        assert simplify_path(run, 1.0) == [(0, 0), (4, 0)]
+
+    def test_a_corner_beyond_tolerance_survives(self):
+        run = [(0, 0), (5, 0.2), (10, 0), (10, 5), (10, 10)]
+        assert simplify_path(run, 1.0) == [(0, 0), (10, 0), (10, 10)]
+
+    def test_a_wiggle_within_tolerance_is_dropped(self):
+        run = [(0, 0), (5, 0.5), (10, 0)]
+        assert simplify_path(run, 1.0) == [(0, 0), (10, 0)]
+
+    def test_endpoints_are_always_kept(self):
+        run = [(0, 0), (0.1, 0.1), (0.2, 0.2)]
+        assert simplify_path(run, 100.0) == [(0, 0), (0.2, 0.2)]
+
+    def test_two_points_or_fewer_come_back_unchanged(self):
+        assert simplify_path([(0, 0), (1, 1)], 1.0) == [(0, 0), (1, 1)]
+        assert simplify_path([(3, 3)], 1.0) == [(3, 3)]
+        assert simplify_path([], 1.0) == []
+
+    def test_zero_tolerance_changes_nothing(self):
+        run = [(0, 0), (1, 0), (2, 0)]
+        assert simplify_path(run, 0) == run
 
 
 # ── box_to_points ───────────────────────────────────────────────────────────

@@ -725,14 +725,14 @@ class TestPolygonInteraction:
         assert app._selected_annotation_id == ann.id
         assert app.current_polygon == []
 
-    def test_a_click_near_a_vertex_selects_its_polygon_with_snap_on(self, app):
+    def test_a_click_that_snaps_to_a_vertex_starts_a_polygon_there(self, app):
         tab, ann = polygon_setup(app)
         app.snap_enabled = True
         tab.on_button_press(click_at(tab, 103, 102))
-        assert app._selected_annotation_id == ann.id
-        assert app.current_polygon == []
+        assert app._selected_annotation_id is None
+        assert app.current_polygon == [(100, 100)]
 
-    def test_a_dense_streamed_polygon_is_selectable_with_snap_on(self, app):
+    def test_alt_click_selects_a_dense_polygon_with_snap_on(self, app):
         tab, _ = polygon_setup(app)
         app.snap_enabled = True
         dense = new_annotation(
@@ -740,8 +740,17 @@ class TestPolygonInteraction:
             app.active_class, "tester")
         app.document.add(dense)
         tab.on_button_press(click_at(tab, 322, 300))
+        assert app.current_polygon == [(320, 300)]
+        app._on_escape()
+        tab.on_alt_press(click_at(tab, 322, 300))
         assert app._selected_annotation_id == dense.id
         assert app.current_polygon == []
+
+    def test_alt_click_off_every_polygon_is_an_ordinary_press(self, app):
+        tab, _ = polygon_setup(app)
+        tab.on_alt_press(click_at(tab, 400, 400))
+        assert app._selected_annotation_id is None
+        assert app.current_polygon == [(400, 400)]
 
     def test_a_click_clear_of_every_vertex_and_outline_starts_a_polygon(self, app):
         tab, ann = polygon_setup(app)
@@ -751,14 +760,48 @@ class TestPolygonInteraction:
         assert app._selected_annotation_id is None
         assert app.current_polygon == [(80, 80)]
 
-    def test_streamed_vertices_are_not_snapped(self, app):
+    def test_streamed_vertices_snap_to_a_neighbour(self, app):
         tab, _ = polygon_setup(app)
         app.snap_enabled = True
         app._stream_mode = True
         app.current_polygon = [(80, 80)]
         app._stream_active = True
         tab._on_motion(motion_at(tab, 94, 94))
-        assert app.current_polygon == [(80, 80), (94, 94)]
+        assert app.current_polygon == [(80, 80), (100, 100)]
+
+    def test_pausing_thins_the_streamed_run_but_keeps_its_anchors(self, app):
+        tab, _ = polygon_setup(app)
+        app._stream_mode = True
+        tab.on_button_press(click_at(tab, 300, 300))
+        for x in range(306, 400, 6):
+            tab._on_motion(motion_at(tab, x, 300))
+        assert len(app.current_polygon) > 10
+        tab.on_button_press(click_at(tab, 396, 300))
+        assert app.current_polygon == [(300, 300), (396, 300)]
+        assert not app._stream_active
+
+    def test_thinning_keeps_a_corner_and_the_vertices_before_the_run(self, app):
+        tab, _ = polygon_setup(app)
+        app._stream_mode = True
+        app.current_polygon = [(200, 200), (250, 250)]
+        tab.on_button_press(click_at(tab, 300, 300))
+        for x in range(306, 400, 6):
+            tab._on_motion(motion_at(tab, x, 300))
+        for y in range(306, 400, 6):
+            tab._on_motion(motion_at(tab, 396, y))
+        tab._on_double_click(click_at(tab, 396, 396))
+        closed = app.document.annotations[-1]
+        assert closed.points == ((200, 200), (250, 250), (300, 300), (396, 300), (396, 396))
+
+    def test_thinning_tolerance_is_measured_in_screen_pixels(self, app):
+        tab, _ = polygon_setup(app, scale=4.0)
+        app._stream_mode = True
+        tab.on_button_press(click_at(tab, 300, 300))
+        # A 3 image px bump is 12 screen px, inside the 15 px tolerance, so it goes.
+        for x, y in ((302, 300), (304, 303), (306, 300), (308, 300)):
+            tab._on_motion(motion_at(tab, x, y))
+        tab.on_button_press(click_at(tab, 310, 300))
+        assert app.current_polygon == [(300, 300), (308, 300)]
 
     def test_a_pause_click_while_streaming_is_snapped(self, app):
         tab, _ = polygon_setup(app)
