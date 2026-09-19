@@ -83,16 +83,32 @@ def new_root():
         pytest.skip(f"no Tk display: {e}")
 
 
+def drop_deferred_callbacks(root):
+    """Cancel every pending root.after timer so none of them fires part-way through a test.
+
+    The app arms a 100ms welcome screen when it is built with no folder, and the
+    fixtures build it that way before opening one. Left pending, it fires after
+    the image has loaded and wipes the canvas. Idle callbacks are left alone
+    because the canvas redraw throttle only re-arms once its own idle callback
+    has run.
+    """
+    for after_id in root.tk.splitlist(root.tk.call("after", "info")):
+        if root.tk.splitlist(root.tk.call("after", "info", after_id))[-1] == "timer":
+            root.after_cancel(after_id)
+
+
 @pytest.fixture
 def app(folder):
     """A live YoloLabeler on that folder; skipped when Tk has no display."""
     root = new_root()
     root.geometry("900x600")
     app = YoloLabeler(root)
+    drop_deferred_callbacks(root)
     root.update()
     app._init_folder(str(folder))
     app._annotate_tab.load_image()
     root.update()
+    drop_deferred_callbacks(root)
     yield app
     app._quit()
 
@@ -103,10 +119,12 @@ def poly_app(poly_folder):
     root = new_root()
     root.geometry("900x600")
     app = YoloLabeler(root)
+    drop_deferred_callbacks(root)
     root.update()
     app._init_folder(str(poly_folder))
     app._annotate_tab.load_image()
     root.update()
+    drop_deferred_callbacks(root)
     yield app
     app._quit()
 
