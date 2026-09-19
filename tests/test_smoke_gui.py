@@ -718,6 +718,86 @@ class TestPolygonInteraction:
         tab._on_motion(motion_at(tab, 12, 10))
         assert app.current_polygon == [(10, 10), (12, 10)]
 
+    def test_a_click_on_a_polygon_outline_selects_it_with_snap_on(self, app):
+        tab, ann = polygon_setup(app)
+        app.snap_enabled = True
+        tab.on_button_press(click_at(tab, 150, 100))
+        assert app._selected_annotation_id == ann.id
+        assert app.current_polygon == []
+
+    def test_a_click_near_a_vertex_selects_its_polygon_with_snap_on(self, app):
+        tab, ann = polygon_setup(app)
+        app.snap_enabled = True
+        tab.on_button_press(click_at(tab, 103, 102))
+        assert app._selected_annotation_id == ann.id
+        assert app.current_polygon == []
+
+    def test_a_dense_streamed_polygon_is_selectable_with_snap_on(self, app):
+        tab, _ = polygon_setup(app)
+        app.snap_enabled = True
+        dense = new_annotation(
+            "polygon", tuple((x, 300) for x in range(300, 400, 5)) + ((350, 350),),
+            app.active_class, "tester")
+        app.document.add(dense)
+        tab.on_button_press(click_at(tab, 322, 300))
+        assert app._selected_annotation_id == dense.id
+        assert app.current_polygon == []
+
+    def test_a_click_clear_of_every_vertex_and_outline_starts_a_polygon(self, app):
+        tab, ann = polygon_setup(app)
+        app.snap_enabled = True
+        # 28 px from the (100, 100) vertex, outside both the snap and the outline radius.
+        tab.on_button_press(click_at(tab, 80, 80))
+        assert app._selected_annotation_id is None
+        assert app.current_polygon == [(80, 80)]
+
+    def test_streamed_vertices_are_not_snapped(self, app):
+        tab, _ = polygon_setup(app)
+        app.snap_enabled = True
+        app._stream_mode = True
+        app.current_polygon = [(80, 80)]
+        app._stream_active = True
+        tab._on_motion(motion_at(tab, 94, 94))
+        assert app.current_polygon == [(80, 80), (94, 94)]
+
+    def test_a_pause_click_while_streaming_is_snapped(self, app):
+        tab, _ = polygon_setup(app)
+        app.snap_enabled = True
+        app._stream_mode = True
+        app.current_polygon = [(80, 80), (90, 90)]
+        app._stream_active = False
+        tab.on_button_press(click_at(tab, 103, 102))
+        assert app.current_polygon[-1] == (100, 100)
+        assert app._stream_active
+
+    def test_streaming_a_vertex_extends_the_drawing_without_a_full_render(self, app):
+        tab, _ = polygon_setup(app)
+        app._stream_mode = True
+        tab.on_button_press(click_at(tab, 300, 300))
+        renders = []
+        tab.render = lambda: renders.append(True)
+        before = len(tab.canvas.find_all())
+        tab._on_motion(motion_at(tab, 310, 300))
+        assert app.current_polygon == [(300, 300), (310, 300)]
+        assert renders == []
+        assert len(tab.canvas.find_all()) > before
+        cx, cy = tab.image_to_canvas(310, 300)
+        assert any(tab.canvas.coords(i)[-2:] == [cx, cy]
+                   for i in tab.canvas.find_withtag("current_polygon")
+                   if tab.canvas.type(i) == "line")
+
+    def test_snap_ring_encloses_the_pointer_not_just_the_vertex(self, app):
+        tab, _ = polygon_setup(app)
+        app.snap_enabled = True
+        tab._motion_last_time = 0
+        tab._on_motion(motion_at(tab, 112, 100))
+        assert tab._snap_indicator_item is not None
+        x0, y0, x1, y1 = tab.canvas.coords(tab._snap_indicator_item)
+        px, py = tab.image_to_canvas(112, 100)
+        assert x0 < px < x1 and y0 < py < y1
+        vx, vy = tab.image_to_canvas(100, 100)
+        assert x0 < vx < x1 and y0 < vy < y1
+
 
 class TestLegend:
     def test_legend_chip_opens_and_closes_without_drawing(self, app):

@@ -34,7 +34,10 @@ MIN_BOX_SIDE = 3              # image px; the minimum box side enforced when dra
 # Streaming and snapping values taken from TCIP Agent's AnnotateTab.tsx
 STREAM_MIN_DISTANCE = 6       # canvas px the pointer moves before the next streamed vertex
 SNAP_RADIUS = 15              # canvas px radius for snapping to an existing vertex
-SNAP_INDICATOR_RADIUS = 7     # canvas px radius of the dashed snap-target ring
+# The ring is wider than the snap radius so it surrounds the crosshair cursor instead of hiding under it.
+SNAP_INDICATOR_RADIUS = SNAP_RADIUS + 3   # canvas px radius of the dashed snap-target ring
+SNAP_TARGET_DOT_RADIUS = 3    # canvas px; a filled dot on the target vertex itself, visible beside the crosshair
+SNAP_LEGEND_RADIUS = 7        # canvas px; the ring drawn at legend row height, where the full ring does not fit
 SNAP_INDICATOR_COLOR = "#FFE7B1"
 CLICK_SLOP = 3                # canvas px a press may move and still count as a click; provisional
 HELP_FONT_SIZE = 12           # pt; the banner's 14 filled half a laptop screen, the user asked for smaller, then a touch back up
@@ -91,6 +94,7 @@ class AnnotateTab:
         self._mouse_canvas_y = 0
         self._poly_preview_line = None
         self._snap_indicator_item = None
+        self._snap_target_dot_item = None
 
         # Legend chip in the lower left of the canvas
         self._legend_open = False
@@ -189,6 +193,7 @@ class AnnotateTab:
         self._shape_move = None
         self._poly_preview_line = None
         self._snap_indicator_item = None
+        self._snap_target_dot_item = None
         a._stream_active = False
         a._last_stream_pos = None
         a._selected_annotation_id = None
@@ -501,11 +506,13 @@ class AnnotateTab:
                 and a._stream_active and a.current_polygon):
             last_cx, last_cy = self.image_to_canvas(*a.current_polygon[-1])
             if math.hypot(event.x - last_cx, event.y - last_cy) >= STREAM_MIN_DISTANCE:
-                ix, iy = self._clamp(*self._maybe_snap(*self.canvas_to_image(event.x, event.y)))
+                # Not snapped: near a neighbour every sample would collapse onto its vertex.
+                ix, iy = self._clamp(*self.canvas_to_image(event.x, event.y))
                 if a.current_polygon[-1] != (ix, iy):
                     a.current_polygon.append((ix, iy))
                     a._last_stream_pos = (ix, iy)
-                    self.display_image()
+                    # Only the new segment; a full render here coalesces motion events.
+                    self._draw_current_polygon_vertex(len(a.current_polygon) - 1)
 
         # Throttle expensive hover/snap checks (~60fps cap)
         now = time.monotonic()
@@ -573,26 +580,38 @@ class AnnotateTab:
             self._hide_snap_indicator()
 
     def _show_snap_indicator(self, sx, sy):
-        """Place (or move) the dashed snap-target ring at canvas point (sx, sy)."""
-        bbox = (sx - SNAP_INDICATOR_RADIUS, sy - SNAP_INDICATOR_RADIUS,
+        """Place (or move) the snap-target mark at canvas point (sx, sy).
+
+        A dashed ring wider than the snap radius, so it surrounds the crosshair
+        rather than sitting under it, plus a filled dot on the vertex itself.
+        """
+        ring = (sx - SNAP_INDICATOR_RADIUS, sy - SNAP_INDICATOR_RADIUS,
                 sx + SNAP_INDICATOR_RADIUS, sy + SNAP_INDICATOR_RADIUS)
+        dot = (sx - SNAP_TARGET_DOT_RADIUS, sy - SNAP_TARGET_DOT_RADIUS,
+               sx + SNAP_TARGET_DOT_RADIUS, sy + SNAP_TARGET_DOT_RADIUS)
         if self._snap_indicator_item:
             try:
-                self.canvas.coords(self._snap_indicator_item, *bbox)
+                self.canvas.coords(self._snap_indicator_item, *ring)
+                self.canvas.coords(self._snap_target_dot_item, *dot)
                 self.canvas.tag_raise(self._snap_indicator_item)
+                self.canvas.tag_raise(self._snap_target_dot_item)
                 return
             except tk.TclError:
                 self._snap_indicator_item = None
         self._snap_indicator_item = self.canvas.create_oval(
-            *bbox, outline=SNAP_INDICATOR_COLOR, fill="", width=2, dash=(3, 3))
+            *ring, outline=SNAP_INDICATOR_COLOR, fill="", width=2, dash=(3, 3))
+        self._snap_target_dot_item = self.canvas.create_oval(
+            *dot, outline="black", fill=SNAP_INDICATOR_COLOR, width=1)
 
     def _hide_snap_indicator(self):
         if self._snap_indicator_item:
             try:
                 self.canvas.delete(self._snap_indicator_item)
+                self.canvas.delete(self._snap_target_dot_item)
             except tk.TclError:
                 pass
             self._snap_indicator_item = None
+            self._snap_target_dot_item = None
 
     def _maybe_snap(self, ix, iy, exclude=None):
         """The nearest visible polygon vertex within SNAP_RADIUS screen px, else the point itself.
@@ -1114,24 +1133,19 @@ class AnnotateTab:
         else:
             just_deselected = False
 
-        # With snapping on, a click that snaps to a vertex means "start here", not "select".
-        snaps_to_vertex = self._maybe_snap(ix, iy) != (ix, iy)
-        if not snaps_to_vertex:
-            if not a.snap_enabled:
-                vhit = self._find_nearest_vertex(event.x, event.y, threshold=15)
-                if vhit:
-                    a._selected_annotation_id = vhit[0]
-                    self.display_image()
-                    return
-            outlined = self._polygon_at_outline(event.x, event.y)
-            if outlined is not None:
-                a._selected_annotation_id = outlined.id
-                self.display_image()
-                return
+        # Selects with Snap on or off: a streamed polygon has a vertex every few px,
+        # so a snap-means-start rule left it no selectable outline point.
+        vhit = self._find_nearest_vertex(event.x, event.y, threshold=SNAP_RADIUS)
+        outlined = self._polygon_at_outline(event.x, event.y)
+        picked = vhit[0] if vhit else (outlined.id if outlined is not None else None)
+        if picked is not None:
+            a._selected_annotation_id = picked
+            self.display_image()
+            return
 
-            if just_deselected:
-                self.display_image()
-                return
+        if just_deselected:
+            self.display_image()
+            return
 
         self._start_polygon(ix, iy)
 
@@ -1353,6 +1367,41 @@ class AnnotateTab:
         return self.engine.save()
 
     # ── Rendering (absorbed from AnnotateRenderer) ────────────────────────────
+    def _symbology(self):
+        """Scale-dependent widths, radii and sizes shared by render and the streaming redraw.
+
+        Returns (line_w, poly_w, vert_r, sel_vert_r, label_size, dash_a, dash_b).
+        """
+        s = self.scale
+        line_w = max(1, min(2 + s * 0.5, 6))
+        poly_w = max(1, min(2.5 + s * 0.5, 7))
+        vert_r = max(3, min(VERTEX_HANDLE_RADIUS * (1.6 - s * 0.2), 12))
+        sel_vert_r = max(vert_r + 2, 7,
+                         min(VERTEX_HANDLE_RADIUS * (2.2 - s * 0.2), 16))
+        label_size = max(7, min(int(9 * (0.6 + s * 0.4)), 18))
+        dash_a = max(2, int(4 * (0.5 + s * 0.5)))
+        dash_b = max(2, int(4 * (0.5 + s * 0.5)))
+        return line_w, poly_w, vert_r, sel_vert_r, label_size, dash_a, dash_b
+
+    def _draw_current_polygon_vertex(self, i):
+        """Draw vertex i of the polygon in progress and its edge from vertex i - 1.
+
+        Called by render for every vertex and by streaming for just the newest
+        one, so a streamed vertex costs two canvas items rather than a full redraw.
+        """
+        a = self.app
+        line_w, _, vert_r, _, _, dash_a, dash_b = self._symbology()
+        color = a._get_class_color(a.active_class)
+        cx, cy = self.image_to_canvas(*a.current_polygon[i])
+        if i > 0:
+            prev_cx, prev_cy = self.image_to_canvas(*a.current_polygon[i - 1])
+            self.canvas.create_line(
+                prev_cx, prev_cy, cx, cy,
+                fill=color, width=line_w, dash=(dash_a, dash_b), tags="current_polygon")
+        self.canvas.create_oval(
+            cx - vert_r, cy - vert_r, cx + vert_r, cy + vert_r,
+            fill=color, outline="white", width=1, tags="current_polygon")
+
     def render(self):
         a = self.app
         if a.original_image is None:
@@ -1390,6 +1439,7 @@ class AnnotateTab:
 
         canvas.delete("all")
         self._snap_indicator_item = None
+        self._snap_target_dot_item = None
 
         if self._cached_tk_image is not None:
             place_x = self.offset_x + crop_x1 * self.scale
@@ -1397,16 +1447,7 @@ class AnnotateTab:
             canvas.create_image(
                 place_x, place_y, anchor="nw", image=self._cached_tk_image)
 
-        # Scale-dependent symbology
-        s = self.scale
-        line_w = max(1, min(2 + s * 0.5, 6))
-        poly_w = max(1, min(2.5 + s * 0.5, 7))
-        vert_r = max(3, min(VERTEX_HANDLE_RADIUS * (1.6 - s * 0.2), 12))
-        sel_vert_r = max(vert_r + 2, 7,
-                         min(VERTEX_HANDLE_RADIUS * (2.2 - s * 0.2), 16))
-        label_size = max(7, min(int(9 * (0.6 + s * 0.4)), 18))
-        dash_a = max(2, int(4 * (0.5 + s * 0.5)))
-        dash_b = max(2, int(4 * (0.5 + s * 0.5)))
+        line_w, poly_w, vert_r, sel_vert_r, label_size, dash_a, dash_b = self._symbology()
         placed_labels = []
 
         def _halo(x, y, text, fill, **kw):
@@ -1507,25 +1548,14 @@ class AnnotateTab:
                       font=(a.font_family, label_size, "bold"))
 
         if a.current_polygon:
-            color = a._get_class_color(a.active_class)
-            for i, (px, py) in enumerate(a.current_polygon):
-                cx, cy = self.image_to_canvas(px, py)
-                canvas.create_oval(
-                    cx - vert_r, cy - vert_r,
-                    cx + vert_r, cy + vert_r,
-                    fill=color, outline="white", width=1)
-                if i > 0:
-                    prev_cx, prev_cy = self.image_to_canvas(
-                        *a.current_polygon[i - 1])
-                    canvas.create_line(
-                        prev_cx, prev_cy, cx, cy,
-                        fill=color, width=line_w, dash=(dash_a, dash_b))
+            for i in range(len(a.current_polygon)):
+                self._draw_current_polygon_vertex(i)
             last_cx, last_cy = self.image_to_canvas(
                 *a.current_polygon[-1])
             self._poly_preview_line = canvas.create_line(
                 last_cx, last_cy,
                 self._mouse_canvas_x, self._mouse_canvas_y,
-                fill=color, width=max(1, line_w * 0.5),
+                fill=a._get_class_color(a.active_class), width=max(1, line_w * 0.5),
                 dash=(dash_a // 2 or 1, dash_b))
 
         help_y0 = 10
@@ -1636,9 +1666,13 @@ class AnnotateTab:
                                        outline="white", width=2, tags="legend")
             else:
                 mid = (sx0 + sx1) / 2
-                canvas.create_oval(mid - SNAP_INDICATOR_RADIUS, cy - SNAP_INDICATOR_RADIUS,
-                                   mid + SNAP_INDICATOR_RADIUS, cy + SNAP_INDICATOR_RADIUS,
+                canvas.create_oval(mid - SNAP_LEGEND_RADIUS, cy - SNAP_LEGEND_RADIUS,
+                                   mid + SNAP_LEGEND_RADIUS, cy + SNAP_LEGEND_RADIUS,
                                    outline=SNAP_INDICATOR_COLOR, width=2, dash=(3, 3),
+                                   tags="legend")
+                canvas.create_oval(mid - SNAP_TARGET_DOT_RADIUS, cy - SNAP_TARGET_DOT_RADIUS,
+                                   mid + SNAP_TARGET_DOT_RADIUS, cy + SNAP_TARGET_DOT_RADIUS,
+                                   outline="black", fill=SNAP_INDICATOR_COLOR, width=1,
                                    tags="legend")
             canvas.create_text(sx1 + pad, cy, anchor="w", text=text, fill=FG_COLOR,
                                font=font, tags="legend")

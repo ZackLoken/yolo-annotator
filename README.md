@@ -133,16 +133,18 @@ Vertex streaming (`v`) places vertices continuously as the mouse moves instead o
 one per click: click to start streaming, move the mouse to trace the outline, click
 again to pause, and double-click to finish the polygon; `Escape` cancels it instead.
 A new vertex is laid each time the pointer moves 6 screen pixels, so the spacing
-looks the same at every zoom. Snapping (`s`) pulls a placed or streamed vertex onto
+looks the same at every zoom. Snapping (`s`) pulls a clicked or dragged vertex onto
 an existing vertex within 15 screen pixels, never onto a point along an edge, so a
-shared boundary reuses the neighbour's own vertices; a dashed ring marks the vertex
-a click would snap to. A polygon, like a box, is picked by its outline and never
-by its interior, so a click inside one starts a new polygon there, e.g. for a bur
-that sits inside its neighbour's outline. With snapping on, a click that snaps to
-a vertex also starts a new polygon there rather than selecting the polygon it
-belongs to, and clicking (not dragging) a vertex of the selected polygon does the
-same. A polygon closed with no area, or a vertex drag or delete that would
-flatten one, is refused; the shape keeps its previous geometry.
+shared boundary reuses the neighbour's own vertices; the start, pause and resume
+clicks of a stream snap too, but the vertices streamed between them do not, since
+within reach of a neighbour every one of them would collapse onto its vertex. A
+dashed ring around the pointer, with a dot on the vertex itself, marks the vertex a
+click would snap to. A polygon, like a box, is picked by its outline or a vertex
+and never by its interior, so a click inside one starts a new polygon there, e.g.
+for a bur that sits inside its neighbour's outline. To start a polygon on a
+neighbour's vertex, select the neighbour first and click (not drag) that vertex. A
+polygon closed with no area, or a vertex drag or delete that would flatten one, is
+refused; the shape keeps its previous geometry.
 
 ---
 
