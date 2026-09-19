@@ -117,6 +117,24 @@ class TestDrawPredictionLayer:
         assert canvas.itemcget(rect, "fill") == ""
         assert canvas.itemcget(rect, "stipple") == ""
 
+    def test_a_class_filter_keeps_only_that_classs_predictions(self, canvas):
+        s = make_state()
+        s.predictions = [Prediction("h:0", "box", ((10, 10), (50, 50)), 0, 0.9, 0),
+                         Prediction("h:1", "box", ((100, 100), (150, 150)), 1, 0.9, 1)]
+        draw_prediction_layer(canvas, ident, s, {0: "burr", 1: "nut"}, "Arial", 9, True, True,
+                              class_filter=0)
+        drawn = canvas.find_withtag("pred")
+        assert len(drawn) == 1 and canvas.coords(drawn[0]) == [10.0, 10.0, 50.0, 50.0]
+
+    def test_a_class_filter_still_draws_the_focused_item(self, canvas):
+        s = make_state()
+        s.predictions = [Prediction("h:1", "box", ((100, 100), (150, 150)), 1, 0.9, 0)]
+        s.queue = [QueueItem("fp", s.predictions[0], None, None)]
+        s.queue_index = 0
+        draw_prediction_layer(canvas, ident, s, {1: "nut"}, "Arial", 9, True, True,
+                              class_filter=0)
+        assert len(canvas.find_withtag("pred_focus")) == 1
+
     def test_focused_fp_gets_a_blue_halo_in_class_colour_with_one_label(self, canvas):
         s = make_state()
         s.queue = [QueueItem("fp", s.predictions[0], None, None)]

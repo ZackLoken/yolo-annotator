@@ -1429,8 +1429,8 @@ class AnnotateTab:
             self.canvas, self.image_to_canvas, a, a.class_names, a.font_family,
             label_size, show_gt=a._annotation_visible, show_pred=a._review_show_pred,
             class_color=a._get_class_color, placed_labels=placed_labels,
-            line_w=line_w)
-        statuses = status_colors_active(a, a._review_show_pred)
+            line_w=line_w, class_filter=a._review_filter_class)
+        statuses = status_colors_active(a)
 
         for ann in self.visible_annotations():
             class_id = ann.class_id
@@ -1564,21 +1564,26 @@ class AnnotateTab:
             self._legend_bbox = (x0, chip_y0, x0 + chip_w, chip_y1)
             return
 
+        # Under review is a property of the image, not of the filters: a class
+        # filter that empties the queue must not empty the key.
+        reviewing = status_colors_active(a) is not None
         rows = []
-        if status_colors_active(a, a._review_show_pred) is not None:
+        if reviewing:
             rows += [(("heading",), "Review status: annotation | prediction"),
                      (("status", STATUS_COLORS["accepted"]), "Accepted"),
                      (("status", STATUS_COLORS["not_reviewed"]), "Not reviewed"),
                      (("status", STATUS_COLORS["rejected"]), "Rejected")]
-        rows.append((("heading",), "Class label"))
-        rows += [(("class", a._get_class_color(cid), cid),
-                  str(a.class_names.get(cid, cid)))
-                 for cid in self._legend_classes()]
+        class_rows = [(("class", a._get_class_color(cid), cid),
+                       str(a.class_names.get(cid, cid)))
+                      for cid in self._legend_classes()]
+        if class_rows:
+            rows.append((("heading",), "Class label"))
+            rows += class_rows
         rows.append((("heading",), "Marks"))
-        if a.queue:
+        if reviewing:
             rows.append((("halo",), "In focus"))
         rows += [(("flag",), "Flagged"),
-                 (("selected",), "Selected annotation")]
+                 (("selected",), "Editable")]
         if a.mode == "polygon" and a.snap_enabled:
             rows.append((("snap",), "Snap target"))
         text_w = max(fnt.measure(text) for _, text in rows)

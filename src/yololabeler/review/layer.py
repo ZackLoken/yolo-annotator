@@ -39,9 +39,13 @@ def label_text(class_id, class_names, flagged, confidence=None):
     return text
 
 
-def status_colors_active(state, show_pred):
-    """The id-to-status map to colour shapes by, or None when they keep class colours."""
-    return state.shape_statuses if show_pred else None
+def status_colors_active(state):
+    """The id-to-status map to colour shapes by, or None when they keep class colours.
+
+    Hiding predictions does not change it: the toggle governs whether the
+    model's boxes are drawn, not how an annotation under review is coloured.
+    """
+    return state.shape_statuses
 
 
 def status_color(statuses, shape_id):
@@ -92,13 +96,16 @@ def _label_anchor(to_canvas, points):
 
 def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
                           label_size, show_gt, show_pred, style=LayerStyle(),
-                          class_color=None, placed_labels=None, line_w=2):
+                          class_color=None, placed_labels=None, line_w=2,
+                          class_filter="all"):
     """Draw predictions, the focused item and the badge; the focus and every FP get a label.
 
     class_color, when given, maps a class id to that class's hex colour.
     placed_labels, when given, is the render pass's shared list of label boxes
     for place_label collision avoidance. line_w is the outline width the caller
-    draws annotations with at the current zoom.
+    draws annotations with at the current zoom. class_filter is a class id the
+    predictions are narrowed to, the same way the caller narrows annotations;
+    the focused item is drawn whatever its class, so stepping still shows it.
     """
     if placed_labels is None:
         placed_labels = []
@@ -109,7 +116,7 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
     font = (font_family, label_size, "bold")
     halo_w = line_w + style.focus_halo_extra
 
-    statuses = status_colors_active(state, show_pred)
+    statuses = status_colors_active(state)
 
     def color_of(shape):
         if statuses is not None:
@@ -124,6 +131,8 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
         unmatched = unmatched_prediction_ids(state.predictions, state.matches)
         for p in state.predictions:
             if p.confidence < state.conf_threshold or p.id == focused_pred_id:
+                continue
+            if class_filter != "all" and p.class_id != class_filter:
                 continue
             _draw_shape(canvas, to_canvas, p.kind, p.points, outline=color_of(p),
                         width=line_w, fill="", dash=style.dash, tags="pred")

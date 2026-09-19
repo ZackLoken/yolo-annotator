@@ -430,6 +430,8 @@ class TestRenderSelection:
         # Undo load_image()'s auto-zoom onto the fp item so the GT box isn't culled off-screen.
         tab.fit_to_window()
         app.queue = []
+        # No review context at all, which is what puts an annotation in its class colour.
+        app.shape_statuses = None
         app._review_show_pred = False
         ann = app.document.annotations[0]
         # Undo load_image()'s auto-selected fp class so the GT box passes the class-match check.
@@ -524,6 +526,7 @@ class TestRenderSelection:
     def test_unselected_polygon_is_drawn_once_in_the_class_colour(self, app):
         tab = app._annotate_tab
         app.queue = []
+        app.shape_statuses = None
         app._review_show_pred = False
         ann = add_polygon(app)
         tab.select_annotation(ann.id)
@@ -729,14 +732,13 @@ class TestLegend:
         assert "Accepted" in texts
         assert texts.index("Accepted") < texts.index("Class label") < texts.index("Marks")
 
-    def test_without_predictions_the_legend_drops_the_review_status_section(self, app):
+    def test_hiding_predictions_keeps_the_review_status_section(self, app):
         tab = app._annotate_tab
         app._review_show_pred = False
         tab._legend_open = True
         tab.render()
         texts = self.legend_texts(tab)
-        assert "Review status: annotation | prediction" not in texts
-        assert "Accepted" not in texts
+        assert "Review status: annotation | prediction" in texts
         assert "Class label" in texts and "Marks" in texts
 
     def test_a_class_row_is_keyed_by_its_id_in_the_class_colour(self, app):
@@ -750,7 +752,15 @@ class TestLegend:
         assert canvas.itemcget(keyed[0], "fill") == app._get_class_color(0)
         assert "class_0" in self.legend_texts(tab)
 
-    def test_the_in_focus_row_needs_a_queue(self, app):
+    def test_the_in_focus_row_survives_a_class_filter_that_empties_the_queue(self, app):
+        tab = app._annotate_tab
+        tab._legend_open = True
+        app.class_names[7] = "empty_class"
+        app._select_class_for_filter_and_draw(7)
+        tab.render()
+        assert app.queue == [] and "In focus" in self.legend_texts(tab)
+
+    def test_an_image_with_no_predictions_drops_the_status_section_and_in_focus(self, app):
         tab = app._annotate_tab
         tab._legend_open = True
         tab.render()
@@ -758,7 +768,10 @@ class TestLegend:
         app.go_to_image(1)
         tab._legend_open = True
         tab.render()
-        assert app.queue == [] and "In focus" not in self.legend_texts(tab)
+        texts = self.legend_texts(tab)
+        assert app.shape_statuses is None
+        assert "Review status: annotation | prediction" not in texts
+        assert "In focus" not in texts and "Marks" in texts
 
     def test_the_snap_row_is_keyed_only_where_the_ring_can_appear(self, app):
         tab = app._annotate_tab
@@ -790,7 +803,7 @@ class TestRenderFocus:
         assert {tuple(canvas.coords(h)) for h in halo} == {tuple(canvas.coords(gt[0])),
                                                            tuple(canvas.coords(pred[0]))}
 
-    def test_accepting_turns_the_pair_green_and_hiding_predictions_restores_class_colour(
+    def test_accepting_turns_the_pair_green_and_hiding_predictions_keeps_the_status_colour(
             self, app):
         tab = app._annotate_tab
         panel = app._review_panel
@@ -805,7 +818,17 @@ class TestRenderFocus:
         app._review_show_pred = False
         tab.render()
         colors = [c for c, _ in shapes_at(tab, tp.annotation.points)]
-        assert colors == [app._get_class_color(tp.annotation.class_id)]
+        assert colors == [STATUS_COLORS["accepted"]]
+
+    def test_an_image_with_no_predictions_keeps_class_colours(self, app):
+        tab = app._annotate_tab
+        app.shape_statuses = None
+        ann = app.document.annotations[0]
+        app._select_class_by_id(ann.class_id)
+        tab.fit_to_window()
+        tab.render()
+        colors = [c for c, _ in shapes_at(tab, ann.points)]
+        assert app._get_class_color(ann.class_id) in colors
 
     def test_editing_the_focused_pair_draws_it_as_selected(self, app):
         tab = app._annotate_tab

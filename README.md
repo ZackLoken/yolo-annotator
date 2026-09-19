@@ -413,11 +413,14 @@ Edit / Reject, followed by the focused item's type, position and verdict (e.g.
 "FP 2 / 16  not reviewed").
 
 Annotations are solid and predictions dashed at the same zoom-scaled width, so
-the line style says whose shape it is. While Predictions is ticked on an image
-that has predictions, both are outlined by review status: green accepted, orange
-not reviewed, red rejected. A match's prediction and annotation share one status.
-With Predictions unticked, on a blind image, or on an image with no predictions,
-annotations are outlined in their class colour instead. A shape's label text is
+the line style says whose shape it is. On an image that has predictions, both
+are outlined by review status: green accepted, orange not reviewed, red
+rejected. A match's prediction and annotation share one status. Unticking
+Predictions hides the model's boxes but leaves the annotations in their status
+colours; only a blind image or an image with no predictions puts annotations
+back in their class colour. The class dropdown narrows predictions to the
+chosen class the same way it narrows annotations, with the focused item drawn
+whatever its class. A shape's label text is
 always drawn in its class colour, whichever colour the outline carries, so class
 identity stays readable during review. The focused item is
 marked by a highlighter-blue glow under every shape it has, its prediction and
