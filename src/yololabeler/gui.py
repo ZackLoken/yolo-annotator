@@ -1113,12 +1113,14 @@ class YoloLabeler:
                      font=(self.font_family, 12), text_color=FG_COLOR).pack(
             padx=16, pady=(16, 12))
         for text, choice, fg in (("Mark completed and continue (Enter)", "complete", ACCENT),
-                                 ("Continue without marking", "continue", ENTRY_BG),
+                                 ("Continue without marking (Right)", "continue", ENTRY_BG),
                                  ("Stay (Esc)", "stay", ENTRY_BG)):
             ctk.CTkButton(dialog, text=text, width=260, fg_color=fg, hover_color=ACCENT_HOVER,
                           text_color=FG_COLOR, font=(self.font_family, 12),
                           command=lambda c=choice: choose(c)).pack(padx=16, pady=(0, 8))
         dialog.bind("<Return>", lambda e: choose("complete"))
+        # Right opened this prompt, so a second Right steps on without marking.
+        dialog.bind("<Right>", lambda e: choose("continue"))
         dialog.bind("<Escape>", lambda e: choose("stay"))
         dialog.protocol("WM_DELETE_WINDOW", lambda: choose("stay"))
         dialog.focus_force()

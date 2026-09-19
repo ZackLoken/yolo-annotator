@@ -527,8 +527,8 @@ blocked on it.
 
 Stepping to the next image (`Right` or Next) from an image not marked Completed
 opens a prompt with three buttons: Mark completed and continue (`Enter`),
-Continue without marking, and Stay (`Esc`). Going to the previous image or
-jumping from the image list never asks.
+Continue without marking (`Right`, so a second press steps on), and Stay (`Esc`).
+Going to the previous image or jumping from the image list never asks.
 
 ### What is written where
 

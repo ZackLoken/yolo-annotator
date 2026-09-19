@@ -2145,6 +2145,31 @@ class TestIncompleteStep:
         assert asked == []
         assert app.images[app.index] == "a.jpg"
 
+    def press_in_dialog(self, app, sequence):
+        """Arm a key press on the not-complete dialog once it is open, then open it.
+
+        The press waits out the title-bar callbacks CTkToplevel arms in its first
+        200 ms, which call update() on the window; destroying it under one of
+        those is an access violation, not a Python error.
+        """
+        def send():
+            for w in app.root.winfo_children():
+                if isinstance(w, tk.Toplevel) and w.title() == "Image not marked completed":
+                    w.event_generate(sequence)
+                    return
+            app.root.after(50, send)
+        app.root.after(400, send)
+        return app._ask_incomplete_step()
+
+    def test_right_in_the_dialog_continues_without_marking(self, app):
+        assert self.press_in_dialog(app, "<Right>") == "continue"
+
+    def test_enter_in_the_dialog_marks_completed(self, app):
+        assert self.press_in_dialog(app, "<Return>") == "complete"
+
+    def test_escape_in_the_dialog_stays(self, app):
+        assert self.press_in_dialog(app, "<Escape>") == "stay"
+
 
 # ── dialogs across a monitor DPI change ─────────────────────────────────────
 
