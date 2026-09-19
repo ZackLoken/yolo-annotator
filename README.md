@@ -387,7 +387,7 @@ path over the items they keep; the Review status filter only hides items, so
 judging one never reorders the rest. After an accept or reject the focus moves
 to the next unreviewed item along the path. Class selection lives in the top toolbar
 alongside the drawing controls, with an "All" option; Type sits in the status
-bar's left group and Review status in its right group, by the step arrows. Choosing a class filters the queue and limits the
+bar's left group and Review status in its right group, by the item stepper. Choosing a class filters the queue and limits the
 canvas to that class; "All" lifts the class limit so every class is drawn, but
 not the mode limit, so Box mode still draws only boxes. Drawing needs a class,
 so it is blocked while "All" is selected. Review status filters on verdict presence, so "Not
@@ -410,10 +410,13 @@ uses, then zooms so the item fills roughly one third of the canvas. `z` re-zooms
 to the current item without moving the focus. The Labels checkbox on the top
 toolbar and the Predictions checkbox in the status bar toggle the annotation and
 prediction overlays independently; turning Labels off hides every annotation
-shape, focused or not. The step arrows sit in the status bar's right end, with the
-focused item's type, position and verdict between them (e.g.
-"FP 2 / 16  not reviewed"), mirroring the image arrows at the right end of the
-toolbar. Left of them sit the Review status filter and the Reviewed box, which
+shape, focused or not. The item stepper sits in the status bar's right end, built
+to the same spec as the image stepper at the right end of the toolbar: Prev, a
+typable position entry, the queue total, Next. Typing a position and pressing
+`Enter` focuses that item; anything out of range reverts. The item's type and
+verdict are not repeated here, since the placard at the canvas's top right
+already carries both.
+Left of the stepper sit the Review status filter and the Reviewed box, which
 lights when the focused item has a verdict; unticking it clears that verdict
 back to not reviewed. Unticking does not undo what accept or reject did to the
 annotation, only the judgement, so use `Ctrl+Z` to take back a deletion.
@@ -477,9 +480,10 @@ a fixed 0.50, neither shown nor editable in the UI.
 Blind pass sits in the status bar next to the Predictions checkbox, since both
 govern whether the model's boxes are in play. Ticking it on an image stops its
 prediction files from being read: the
-strip shows "Blind" in place of the queue and counts, and Accept / Edit / Reject
-are disabled. The Type/Review status filters, Conf entry, and the step buttons are greyed
-out for the same reason: none of them do anything until predictions are back.
+strip empties the item stepper to `/ 0` and clears the counts, and Accept / Edit
+/ Reject are disabled. The Type/Review status filters, Conf entry, and the item
+stepper are greyed out for the same reason: none of them do anything until
+predictions are back.
 Ticking Complete on a blind image records the completion with `blind: true`;
 predictions load normally afterward, and any later accept still carries
 `source: accepted`, so the blind pass and the assisted pass stay distinguishable

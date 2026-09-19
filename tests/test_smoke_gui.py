@@ -835,7 +835,7 @@ class TestBarLayout:
     def test_the_review_nav_group_sits_in_the_status_bar(self, app):
         panel = app._review_panel
         for w in (panel.reviewed_cb, panel.status_dd, panel.prev_item_btn,
-                  panel.item_label, panel.next_item_btn):
+                  panel.item_entry, panel.item_total_label, panel.next_item_btn):
             assert in_widget(w, app.status_bar)
 
     def test_blind_pass_moves_down_beside_the_prediction_toggle(self, app):
@@ -901,7 +901,6 @@ class TestReviewedToggle:
         panel.on_reviewed_toggled()
         assert tp.key not in app.verdicts
         assert not panel.reviewed_var.get()
-        assert "not reviewed" in panel.item_label.cget("text")
 
     def test_ticking_it_without_a_verdict_does_nothing(self, app):
         panel = app._review_panel
@@ -1027,6 +1026,42 @@ class TestReviewPanel:
         assert app.active_class == app.queue[target].class_id
 
 
+class TestItemStepper:
+    def _type(self, panel, text):
+        panel.item_entry.delete(0, "end")
+        panel.item_entry.insert(0, text)
+        panel._on_item_enter()
+
+    def test_the_entry_shows_the_position_and_the_label_the_total(self, app):
+        panel = app._review_panel
+        panel.focus_item(1)
+        assert panel.item_entry.get() == "2"
+        assert panel.item_total_label.cget("text") == f"/ {len(app.queue)}"
+
+    def test_typing_a_position_focuses_that_item(self, app):
+        panel = app._review_panel
+        panel.focus_item(1)
+        self._type(panel, "1")
+        assert app.queue_index == 0
+        assert panel.item_entry.get() == "1"
+
+    def test_an_out_of_range_or_unparsable_entry_reverts(self, app):
+        panel = app._review_panel
+        panel.focus_item(1)
+        for text in (str(len(app.queue) + 1), "0", "-3", "x"):
+            self._type(panel, text)
+            assert app.queue_index == 1
+            assert panel.item_entry.get() == "2"
+
+    def test_an_empty_queue_leaves_the_entry_blank(self, app):
+        panel = app._review_panel
+        panel.type_var.set("FN")
+        panel.on_type_changed("FN")
+        assert app.queue == []
+        assert panel.item_entry.get() == ""
+        assert panel.item_total_label.cget("text") == "/ 0"
+
+
 class TestClassFilterMerge:
     def test_all_choice_sets_filter_and_leaves_active_class(self, app):
         before = app.active_class
@@ -1147,7 +1182,7 @@ class TestActions:
         panel.focus_item(next(i for i, q in enumerate(app.queue) if q.key == key))
         app.edit_pair()
         vx, vy = panel.current_item().annotation.points[0]
-        assert panel.item_label.cget("text").startswith("TP")
+        assert panel.current_item().kind == "tp"
         assert panel.counts_label.cget("text") == "TP 1  FP 1  FN 0  (1 not reviewed)"
         tab.on_button_press(click_at(tab, vx, vy))
         tab.on_move_press(click_at(tab, 10, 10))
@@ -1155,7 +1190,7 @@ class TestActions:
         # The drag alone pulls the GT below the IoU threshold, and the strip says so.
         # The verdict moves to the new FN, so both FPs are left, and focus follows the edit.
         assert panel.counts_label.cget("text") == "TP 0  FP 2  FN 1  (2 not reviewed)"
-        assert panel.item_label.cget("text").startswith("FN")
+        assert panel.current_item().kind == "fn"
         assert key not in app.verdicts
         ann_id = panel.current_item().annotation.id
         assert {k: v for k, v in app.verdicts[ann_id].items() if k in ("action", "by", "at")} == {
@@ -1818,6 +1853,8 @@ class TestCompletion:
         assert panel.type_dd.cget("state") == "disabled"
         assert panel.status_dd.cget("state") == "disabled"
         assert panel.conf_entry.cget("state") == "disabled"
+        assert panel.item_entry.cget("state") == "disabled"
+        assert panel.item_total_label.cget("text") == "/ 0"
         assert panel.prev_item_btn.cget("state") == "disabled"
         assert panel.next_item_btn.cget("state") == "disabled"
         app._blind_var.set(False)
@@ -1825,6 +1862,7 @@ class TestCompletion:
         assert panel.type_dd.cget("state") == "readonly"
         assert panel.status_dd.cget("state") == "readonly"
         assert panel.conf_entry.cget("state") == "normal"
+        assert panel.item_entry.cget("state") == "normal"
         assert panel.prev_item_btn.cget("state") == "normal"
         assert panel.next_item_btn.cget("state") == "normal"
         assert panel.conf_entry.get() == f"{app.conf_threshold:.2f}"

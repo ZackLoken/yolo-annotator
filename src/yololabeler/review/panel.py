@@ -48,13 +48,13 @@ class ReviewPanel:
         return ctk.CTkLabel(parent, text=text, font=(self.app.font_family, 11),
                             text_color=FG_COLOR, **kw)
 
-    def _button(self, parent, text, width, command, bold=True):
+    def _button(self, parent, text, width, command, bold=True, size=11):
         """Build a strip button in the shared dark styling."""
         a = self.app
         return ctk.CTkButton(
             parent, text=text, width=width, command=command, fg_color=SI_GREEN,
             hover_color=ACCENT_HOVER, text_color=FG_COLOR,
-            font=(a.font_family, 11, "bold" if bold else "normal"))
+            font=(a.font_family, size, "bold" if bold else "normal"))
 
     def build(self, left, centre, right):
         """Create the strip in the status bar's left, centre and right columns.
@@ -62,8 +62,8 @@ class ReviewPanel:
         Left holds the prediction toggle, threshold, the Type filter and the
         TP/FP/FN counts, after whatever the caller has already packed there;
         centre holds Accept, Edit and Reject; right holds the Reviewed box, the
-        Review status filter and the item stepper with its
-        "FP 2 / 16  not reviewed" readout between the arrows.
+        Review status filter and the item stepper, built to the same spec as the
+        toolbar's image stepper: Prev, a typable position entry, the total, Next.
         """
         a = self.app
         a._pred_var = tk.BooleanVar(value=a._review_show_pred)
@@ -96,16 +96,21 @@ class ReviewPanel:
         self.reject_btn = self._button(centre, "Reject (R)", 96, a.reject_item)
         self.reject_btn.pack(side="left")
 
-        # Packed right to left so the group reads Reviewed, Review status, ◀, item, ▶,
-        # mirroring Complete, Image status and the image arrows on the toolbar.
+        # Packed right to left so the group mirrors the toolbar's image stepper.
         self.right = right
-        self.next_item_btn = self._button(right, "▶", 28, lambda: self.step(1), bold=False)
-        self.next_item_btn.pack(side="right")
-        # Fixed width so the next arrow does not jump as the readout changes length.
-        self.item_label = self._label(right, "", width=130, anchor="center")
-        self.item_label.pack(side="right", padx=2)
-        self.prev_item_btn = self._button(right, "◀", 28, lambda: self.step(-1), bold=False)
-        self.prev_item_btn.pack(side="right", padx=(0, 8))
+        self.next_item_btn = self._button(right, "Next ▶", 70, lambda: self.step(1), size=12)
+        self.next_item_btn.pack(side="right", padx=(2, 0))
+        self.item_total_label = ctk.CTkLabel(right, text="/ 0", font=(a.font_family, 12),
+                                             text_color=FG_COLOR)
+        self.item_total_label.pack(side="right", padx=(4, 2))
+        self.item_entry = ctk.CTkEntry(right, width=55, font=(a.font_family, 12),
+                                       fg_color=ENTRY_BG, border_color=BORDER_COLOR,
+                                       text_color=FG_COLOR, justify="center")
+        self.item_entry.pack(side="right", padx=(2, 0))
+        self.item_entry.bind("<Return>", self._on_item_enter)
+        self.item_entry.bind("<FocusOut>", lambda e: self._show_item_position())
+        self.prev_item_btn = self._button(right, "◀ Prev", 70, lambda: self.step(-1), size=12)
+        self.prev_item_btn.pack(side="right", padx=(0, 2))
         self.status_var = tk.StringVar(value="All")
         self.status_dd = self._combo(right, self.status_var,
                                      ["All", "Not reviewed", "Reviewed", "Flagged"], 100,
@@ -229,6 +234,36 @@ class ReviewPanel:
         if self.app.queue:
             self.focus_item(self.app.queue_index + delta)
 
+    def _show_item_position(self):
+        """Write the focused item's position and the queue length into the stepper.
+
+        Forces the entry back to "normal" first, as _show_threshold does: a
+        disabled Tk entry silently ignores delete/insert, and update_labels
+        disables this one on a blind image.
+        """
+        a = self.app
+        self.item_entry.configure(state="normal")
+        self.item_entry.delete(0, "end")
+        if a.queue:
+            self.item_entry.insert(0, str(a.queue_index + 1))
+        self.item_total_label.configure(text=f"/ {len(a.queue)}")
+
+    def _on_item_enter(self, event=None):
+        """Focus the typed queue position, reverting anything out of range."""
+        text = self.item_entry.get().strip()
+        if not text:
+            return
+        try:
+            num = int(text)
+        except ValueError:
+            self._show_item_position()
+            return
+        if not 1 <= num <= len(self.app.queue):
+            self._show_item_position()
+            return
+        self.focus_item(num - 1)
+        self.app.canvas.focus_set()
+
     def on_reviewed_toggled(self):
         """Clear the focused item's verdict when the box is unticked; ticking does nothing.
 
@@ -304,19 +339,10 @@ class ReviewPanel:
         """Refresh the item counter, the counts and the accept/reject button state."""
         a = self.app
         item = self.current_item()
+        self._show_item_position()
         if a.predictions_blind:
-            self.item_label.configure(text="Blind")
             self.counts_label.configure(text="")
-            state = "disabled"
-        elif item is None:
-            self.item_label.configure(text="No items")
-            state = "disabled"
-        else:
-            verdict = a.verdicts.get(item.key)
-            status = verdict["action"] if verdict else "not reviewed"
-            self.item_label.configure(
-                text=f"{item.kind.upper()} {a.queue_index + 1} / {len(a.queue)}  {status}")
-            state = "normal"
+        state = "disabled" if a.predictions_blind or item is None else "normal"
         self.accept_btn.configure(state=state)
         self.edit_btn.configure(state=state)
         self.reject_btn.configure(state=state)
@@ -327,6 +353,7 @@ class ReviewPanel:
         self.type_dd.configure(state=filter_state)
         self.status_dd.configure(state=filter_state)
         self.conf_entry.configure(state=control_state)
+        self.item_entry.configure(state=control_state)
         self.prev_item_btn.configure(state=control_state)
         self.next_item_btn.configure(state=control_state)
         if not a.predictions_blind:
