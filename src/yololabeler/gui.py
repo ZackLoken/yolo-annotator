@@ -862,6 +862,8 @@ class YoloLabeler:
         self.image_folder = folder
         self.images = sorted([f for f in os.listdir(folder) if is_image_file(f)])
         print(f"[YoloLabeler] Opened folder: {folder} ({len(self.images)} images)")
+        # Before anything reads images[index]: the old index can exceed this folder.
+        self.index = 0
         # The previous folder's image must not outlive it, or a save lands here.
         self.document = None
         self.load_errors = []
@@ -918,7 +920,6 @@ class YoloLabeler:
                 store.set_image_status(img_name, status)
         self._save_stats()
         self._rebuild_filter()
-        self.index = 0
 
         # Auto-detect default mode: polygon if segment labels exist,
         # else box if detect-only labels exist
@@ -1718,6 +1719,11 @@ class YoloLabeler:
         if name is None:
             self.root.title("YoloLabeler")
             return
+        # The canvas is cleared while the image filter matches nothing, so the
+        # zoom and timer paths must not bring a name back onto the empty canvas.
+        if self._active_filter != "all" and not self._filtered_indices:
+            self.root.title("YoloLabeler - No matches")
+            return
         tab = getattr(self, "_annotate_tab", None)
         zoom = int(tab.scale * 100) if tab is not None else 100
         self.root.title(" - ".join(
@@ -1741,7 +1747,7 @@ class YoloLabeler:
             self.total_label.configure(
                 text=f"/ {len(self._filtered_indices)}")
             if not self._filtered_indices:
-                self.root.title("YoloLabeler - No matches")
+                self._apply_title()
                 self._complete_var.set(False)
                 return
         else:
@@ -1809,17 +1815,22 @@ class YoloLabeler:
 SCREEN_MARGIN = (80, 120)
 
 
-def window_geometry(screen_w, screen_h, want_w, want_h, margin=SCREEN_MARGIN):
+def window_geometry(screen_w, screen_h, want_w, want_h, scaling=1.0, margin=SCREEN_MARGIN):
     """A geometry string for a window of at most the asked-for size, centred on screen.
 
     A window placed by the window manager can land with its right edge past
     the monitor, hiding the toolbar's navigation, so the size is clamped to
     the screen and the position is set rather than left to chance.
+
+    screen_w, screen_h and margin are physical pixels, want_w and want_h are
+    CustomTkinter's logical pixels, and scaling is its window scaling: CTk
+    multiplies the width and height of a geometry string by it but leaves
+    the position alone, so the size here is logical and the position physical.
     """
-    w = max(400, min(want_w, screen_w - margin[0]))
-    h = max(300, min(want_h, screen_h - margin[1]))
-    x = max(0, (screen_w - w) // 2)
-    y = max(0, (screen_h - margin[1] - h) // 2)
+    w = max(400, min(want_w, int((screen_w - margin[0]) / scaling)))
+    h = max(300, min(want_h, int((screen_h - margin[1]) / scaling)))
+    x = max(0, int(screen_w - w * scaling) // 2)
+    y = max(0, int(screen_h - margin[1] - h * scaling) // 2)
     return f"{w}x{h}+{x}+{y}"
 
 
@@ -1831,8 +1842,8 @@ def main():
     root = ctk.CTk()
     # 1600 clears the toolbar's measured natural width (1294 at a scaling
     # factor of 1) with room to spare.
-    root.geometry(window_geometry(root.winfo_screenwidth(),
-                                  root.winfo_screenheight(), 1600, 800))
+    root.geometry(window_geometry(root.winfo_screenwidth(), root.winfo_screenheight(),
+                                  1600, 800, ctk.ScalingTracker.get_window_scaling(root)))
     root.title("YoloLabeler")
     root.configure(fg_color=BG_COLOR)
 

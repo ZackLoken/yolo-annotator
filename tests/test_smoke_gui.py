@@ -838,6 +838,30 @@ class TestBarLayout:
         app._update_status()
         assert "400%" in app.root.title()
 
+    def test_the_no_matches_title_survives_the_zoom_and_timer_paths(self, app):
+        app._active_filter = "complete"
+        app._rebuild_filter()
+        assert app._filtered_indices == []
+        app.update_title()
+        app._update_status()
+        app._update_timer_display()
+        assert app.root.title() == "YoloLabeler - No matches"
+
+    def test_loading_an_image_resets_the_elapsed_time_in_the_title(self, app):
+        app._image_elapsed = "4:37"
+        app.go_to_image(1)
+        assert "4:37" not in app.root.title() and "0:00" in app.root.title()
+
+    def test_opening_a_smaller_folder_from_a_high_index_does_not_crash(self, app, folder):
+        one = folder / "one"
+        one.mkdir()
+        Image.new("RGB", (64, 48), "gray").save(one / "only.jpg")
+        app.go_to_image(1)
+        assert app.index == 1
+        app._init_folder(str(one))
+        app._annotate_tab.load_image()
+        assert app.index == 0 and "only.jpg" in app.root.title()
+
 
 class TestReviewedToggle:
     def focus_key(self, app, key):

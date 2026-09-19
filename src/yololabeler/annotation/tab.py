@@ -226,6 +226,7 @@ class AnnotateTab:
 
         a.img_width, a.img_height = a.original_image.size
         a._image_start_time = time.time()
+        a._image_elapsed = "0:00"
 
         self._initial_fit()
         rejected, sidecar_moved = self.load_document_for_current_image()
