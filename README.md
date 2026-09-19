@@ -396,9 +396,9 @@ toolbar, is the separate per-image Complete / Partial / Unannotated filter.) An
 annotation you draw yourself is recorded as `accepted` the moment it is added,
 so it never waits in the queue for a review action. True-positive,
 false-positive and false-negative counts for the current image sit in the
-status bar's left group, after the filters they describe. The toolbar carries
-the image name, elided when long, with the zoom, the time spent on this image
-and the current user after it.
+status bar's left group, after the filters they describe. The window title
+carries the rest: the image name, the zoom, the time spent on this image and
+the current user, e.g. "YoloLabeler - img001.jpg - 400% - 0:16 - zack".
 
 ### Stepping
 

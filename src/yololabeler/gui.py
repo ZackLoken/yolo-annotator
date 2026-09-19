@@ -182,6 +182,7 @@ class YoloLabeler:
 
         # GUI-only handles (not part of AppState)
         self._timer_after_id = None
+        self._image_elapsed = "0:00"
         # Replaceable so tests can answer these dialogs without opening a modal.
         self.ask_incomplete_step = self._ask_incomplete_step
         self.ask_flag_comment = self._ask_flag_comment
@@ -225,14 +226,16 @@ class YoloLabeler:
 
         inner = ctk.CTkFrame(self.toolbar, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=6, pady=4)
-        # Weight on the left column only, so a window too narrow for both blocks
-        # clips the readouts rather than the image navigation.
-        inner.grid_columnconfigure(0, weight=1)
+        # Equal-weight side columns keep the middle group centred on the window.
+        inner.grid_columnconfigure(0, weight=1, uniform="toolbar_side")
+        inner.grid_columnconfigure(2, weight=1, uniform="toolbar_side")
         inner.grid_rowconfigure(0, weight=1)
         _tb_g1 = ctk.CTkFrame(inner, fg_color="transparent")
         _tb_g1.grid(row=0, column=0, sticky="w")
+        _tb_g2 = ctk.CTkFrame(inner, fg_color="transparent")
+        _tb_g2.grid(row=0, column=1, padx=12)
         _tb_g3 = ctk.CTkFrame(inner, fg_color="transparent")
-        _tb_g3.grid(row=0, column=1, sticky="e")
+        _tb_g3.grid(row=0, column=2, sticky="e")
 
         # ── Left: Logo | Open Folder | Color Picker | Class DD | Labels ──
         self._load_logo(_tb_g1)
@@ -276,51 +279,27 @@ class YoloLabeler:
             command=self._on_visible_toggled)
         self._visible_cb.pack(side="left", padx=(0, 4))
 
-        # ── Left, continued: Mode | Stream | Snap ──
+        # ── Centre: Mode | Stream | Snap ──
         self.mode_btn = ctk.CTkButton(
-            _tb_g1, text="Mode: Polygon \u2b21", width=120,
+            _tb_g2, text="Mode: Polygon \u2b21", width=120,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11),
             command=self._toggle_mode)
         self.mode_btn.pack(side="left", padx=(0, 4))
 
         self.stream_btn = ctk.CTkButton(
-            _tb_g1, text="Stream: Off", width=95,
+            _tb_g2, text="Stream: Off", width=95,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11),
             command=self._toggle_stream)
         self.stream_btn.pack(side="left", padx=(0, 4))
 
         self.snap_btn = ctk.CTkButton(
-            _tb_g1, text="Snap: Off", width=80,
+            _tb_g2, text="Snap: Off", width=80,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11),
             command=self._toggle_snap)
         self.snap_btn.pack(side="left", padx=(0, 4))
-
-        # ── Left, continued: image name | Zoom | Image time | User ──
-        self._toolbar_sep(_tb_g1)
-        self.header_name = ctk.CTkLabel(
-            _tb_g1, text="", font=(self.font_family, 12, "bold"),
-            text_color=FG_COLOR)
-        self.header_name.pack(side="left", padx=(0, 6))
-        self._toolbar_sep(_tb_g1)
-        # Bare values, not "Zoom: 100%": the prefixes cost more toolbar width
-        # than the default window has to give.
-        self.status_zoom = ctk.CTkLabel(
-            _tb_g1, text="100%", font=(self.font_family, 11),
-            text_color=FG_COLOR)
-        self.status_zoom.pack(side="left", padx=(0, 6))
-        self._toolbar_sep(_tb_g1)
-        self.status_time = ctk.CTkLabel(
-            _tb_g1, text="0:00", font=(self.font_family, 11),
-            text_color=FG_COLOR)
-        self.status_time.pack(side="left", padx=(0, 6))
-        self._toolbar_sep(_tb_g1)
-        self.status_user = ctk.CTkLabel(
-            _tb_g1, text=self._current_user,
-            font=(self.font_family, 11), text_color=FG_COLOR)
-        self.status_user.pack(side="left", padx=(0, 4))
 
         # ── Right: Complete | Image status DD | Prev | counter | Next ──
         self._complete_var = tk.BooleanVar(value=False)
@@ -417,8 +396,7 @@ class YoloLabeler:
         self._review_panel.build(left, centre, right)
 
     def _update_status(self):
-        pct = int(self._annotate_tab.scale * 100)
-        self.status_zoom.configure(text=f"{pct}%")
+        self._apply_title()
 
     def _on_visible_toggled(self):
         """Toggle annotation visibility on the canvas."""
@@ -1286,8 +1264,8 @@ class YoloLabeler:
         if self._image_start_time and self.images:
             elapsed = time.time() - self._image_start_time
             mins, secs = divmod(int(elapsed), 60)
-            self.status_time.configure(
-                text=f"{mins}:{secs:02d}")
+            self._image_elapsed = f"{mins}:{secs:02d}"
+            self._apply_title()
         self._timer_after_id = self.root.after(
             1000, self._update_timer_display)
 
@@ -1729,10 +1707,21 @@ class YoloLabeler:
         return moved
 
     # ── Title & counter ───────────────────────────────────────────────────────
-    def _set_header_name(self, text, limit=20):
-        """Write the image name into the toolbar, elided so the group keeps its width."""
-        shown = text if len(text) <= limit else f"{text[:limit - 1]}…"
-        self.header_name.configure(text=shown)
+    def _apply_title(self, name=None):
+        """Write the image name, zoom, time on this image and user into the window title.
+
+        These belong in the title bar rather than the toolbar, which has no room
+        for them at the default window width.
+        """
+        if name is None:
+            name = self.images[self.index] if self.images else None
+        if name is None:
+            self.root.title("YoloLabeler")
+            return
+        tab = getattr(self, "_annotate_tab", None)
+        zoom = int(tab.scale * 100) if tab is not None else 100
+        self.root.title(" - ".join(
+            ["YoloLabeler", name, f"{zoom}%", self._image_elapsed, self._current_user]))
 
     def update_title(self):
         if not self.images:
@@ -1753,15 +1742,13 @@ class YoloLabeler:
                 text=f"/ {len(self._filtered_indices)}")
             if not self._filtered_indices:
                 self.root.title("YoloLabeler - No matches")
-                self._set_header_name("No matches")
                 self._complete_var.set(False)
                 return
         else:
             self.counter_entry.delete(0, "end")
             self.counter_entry.insert(0, str(self.index + 1))
             self.total_label.configure(text=f"/ {len(self.images)}")
-        self.root.title(f"YoloLabeler - {self.images[self.index]}")
-        self._set_header_name(self.images[self.index])
+        self._apply_title(self.images[self.index])
         # Update complete checkbox to reflect current image
         img_name = self.images[self.index]
         self._complete_var.set(img_name in self._completed_images)
@@ -1818,15 +1805,34 @@ class YoloLabeler:
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
+# Allowance for the title bar and the taskbar, which Tk cannot measure; provisional.
+SCREEN_MARGIN = (80, 120)
+
+
+def window_geometry(screen_w, screen_h, want_w, want_h, margin=SCREEN_MARGIN):
+    """A geometry string for a window of at most the asked-for size, centred on screen.
+
+    A window placed by the window manager can land with its right edge past
+    the monitor, hiding the toolbar's navigation, so the size is clamped to
+    the screen and the position is set rather than left to chance.
+    """
+    w = max(400, min(want_w, screen_w - margin[0]))
+    h = max(300, min(want_h, screen_h - margin[1]))
+    x = max(0, (screen_w - w) // 2)
+    y = max(0, (screen_h - margin[1] - h) // 2)
+    return f"{w}x{h}+{x}+{y}"
+
+
 def main():
     """Entry point for the yololabeler command."""
     ctk.set_appearance_mode("dark")
     ctk.set_default_color_theme("dark-blue")
 
     root = ctk.CTk()
-    # 1600 is the first width that fits the toolbar's measured natural width
-    # (1556 at a scaling factor of 1, image name and readouts included).
-    root.geometry("1600x800")
+    # 1600 clears the toolbar's measured natural width (1294 at a scaling
+    # factor of 1) with room to spare.
+    root.geometry(window_geometry(root.winfo_screenwidth(),
+                                  root.winfo_screenheight(), 1600, 800))
     root.title("YoloLabeler")
     root.configure(fg_color=BG_COLOR)
 

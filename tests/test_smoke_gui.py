@@ -811,9 +811,12 @@ def in_widget(child, parent):
 
 
 class TestBarLayout:
-    def test_the_readouts_and_image_name_sit_in_the_toolbar(self, app):
-        for w in (app.header_name, app.status_zoom, app.status_time, app.status_user):
-            assert in_widget(w, app.toolbar)
+    def test_the_title_carries_the_name_zoom_time_and_user(self, app):
+        app._apply_title()
+        title = app.root.title()
+        assert app.images[app.index] in title
+        assert f"{int(app._annotate_tab.scale * 100)}%" in title
+        assert app._image_elapsed in title and app._current_user in title
 
     def test_the_review_nav_group_sits_in_the_status_bar(self, app):
         panel = app._review_panel
@@ -830,8 +833,10 @@ class TestBarLayout:
         assert in_widget(panel.counts_label, app.status_bar)
         assert not in_widget(panel.counts_label, panel.right)
 
-    def test_the_header_name_follows_the_loaded_image(self, app):
-        assert app.images[app.index] in app.header_name.cget("text")
+    def test_the_title_follows_the_zoom(self, app):
+        app._annotate_tab.scale = 4.0
+        app._update_status()
+        assert "400%" in app.root.title()
 
 
 class TestReviewedToggle:
