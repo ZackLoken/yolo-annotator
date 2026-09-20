@@ -15,7 +15,7 @@ from __future__ import annotations
 import tkinter.font as tkFont
 from dataclasses import dataclass
 
-from yololabeler.rendering import place_label
+from yololabeler.rendering import place_label, rounded_rect
 from yololabeler.review.engine import unmatched_prediction_ids
 
 # Highlighter blue for focus and selection; the user chose it over yellow.
@@ -182,8 +182,8 @@ def draw_prediction_layer(canvas, to_canvas, state, class_names, font_family,
         tw, th = bfnt.measure(text), bfnt.metrics("linespace")
         cw = canvas.winfo_width() or 800
         bx, by = cw - tw - 20, 10
-        canvas.create_rectangle(bx - 6, by - 2, bx + tw + 6, by + th + 4,
-                                fill="#1A1A1A", outline="#444444", width=1, tags="badge")
+        rounded_rect(canvas, bx - 6, by - 2, bx + tw + 6, by + th + 4,
+                     fill="#1A1A1A", outline="#444444", width=1, tags="badge")
         canvas.create_text(bx, by + 2, anchor="nw", text=text,
                            fill=STATUS_COLORS.get(status, STATUS_COLORS["not_reviewed"]),
                            font=(font_family, 14, "bold"), tags="badge")

@@ -16,6 +16,24 @@ _HALO_OFFSETS = [
 ]
 
 
+PANEL_CORNER_RADIUS = 6   # px; CustomTkinter's default corner_radius, so canvas panels match the toolbar buttons
+
+
+def rounded_rect(canvas, x0, y0, x1, y1, radius=PANEL_CORNER_RADIUS, **kw):
+    """A rectangle with rounded corners, as one smoothed canvas polygon; kw as for create_polygon.
+
+    Each side keeps two collinear control points so the spline stays straight
+    between corners; the radius is clamped so short sides do not fold over.
+    """
+    r = max(0, min(radius, (x1 - x0) / 2, (y1 - y0) / 2))
+    points = [
+        x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r,
+        x1, y1 - r, x1, y1, x1 - r, y1, x0 + r, y1,
+        x0, y1, x0, y1 - r, x0, y0 + r, x0, y0,
+    ]
+    return canvas.create_polygon(*points, smooth=True, splinesteps=12, **kw)
+
+
 def halo_text(canvas, x, y, text, fill, **kw):
     """Draw text with a dark halo/shadow for readability on any background."""
     for dx, dy in _HALO_OFFSETS:

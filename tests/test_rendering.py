@@ -5,7 +5,8 @@ import tkinter as tk
 import pytest
 
 from yololabeler.rendering import (
-    halo_text, place_label, _cached_font, _font_cache, _HALO_OFFSETS, _LABEL_NUDGE,
+    halo_text, place_label, rounded_rect, _cached_font, _font_cache, _HALO_OFFSETS,
+    _LABEL_NUDGE,
 )
 
 
@@ -94,6 +95,32 @@ class TestHaloText:
     def test_empty_text_still_draws_items(self, canvas):
         halo_text(canvas, 10, 10, "", "white")
         assert len(canvas.find_all()) == len(_HALO_OFFSETS) + 1
+
+
+# ── rounded_rect ──────────────────────────────────────────────────────────
+
+class TestRoundedRect:
+    def test_is_one_smoothed_polygon_spanning_the_box(self, canvas):
+        item = rounded_rect(canvas, 10, 20, 110, 70, fill="black", outline="white", tags="p")
+        assert canvas.type(item) == "polygon"
+        assert canvas.itemcget(item, "smooth") in ("1", "true")
+        assert canvas.itemcget(item, "fill") == "black"
+        assert canvas.itemcget(item, "outline") == "white"
+        assert "p" in canvas.gettags(item)
+        x0, y0, x1, y1 = canvas.bbox(item)
+        assert x0 <= 10 and y0 <= 20 and x1 >= 110 and y1 >= 70
+
+    def test_sides_stay_straight_between_the_corners(self, canvas):
+        item = rounded_rect(canvas, 0, 0, 100, 50, radius=6)
+        coords = canvas.coords(item)
+        xs, ys = coords[0::2], coords[1::2]
+        assert min(xs) == 0 and max(xs) == 100 and min(ys) == 0 and max(ys) == 50
+        assert xs.count(0) >= 3 and xs.count(100) >= 3
+
+    def test_radius_is_clamped_to_half_the_shorter_side(self, canvas):
+        item = rounded_rect(canvas, 0, 0, 100, 8, radius=20)
+        ys = canvas.coords(item)[1::2]
+        assert min(ys) == 0 and max(ys) == 8
 
 
 # ── place_label ───────────────────────────────────────────────────────────

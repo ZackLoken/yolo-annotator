@@ -18,7 +18,7 @@ from yololabeler import keybindings
 from yololabeler.annotation.document import load_document
 from yololabeler.annotation.engine import polygon_is_degenerate
 from yololabeler.matching import point_to_segment_dist, simplify_path
-from yololabeler.rendering import place_label
+from yololabeler.rendering import place_label, rounded_rect
 from yololabeler.review.engine import build_queue
 from yololabeler.review.layer import (
     FLAG_COLOR, FLAG_MARK, SELECTION_COLOR, STATUS_COLORS, LayerStyle, draw_prediction_layer,
@@ -123,6 +123,10 @@ class AnnotateTab:
         c.bind("<ButtonPress-1>", self.on_button_press)
         c.bind("<Shift-ButtonPress-1>", self.on_shift_press)
         c.bind("<Alt-ButtonPress-1>", self.on_alt_press)
+        # Key events go to the focused widget, so the Alt cursor cue is bound on the root.
+        for key in ("Alt_L", "Alt_R"):
+            self.app.root.bind(f"<KeyPress-{key}>", self._on_alt_down)
+            self.app.root.bind(f"<KeyRelease-{key}>", self._on_alt_up)
         c.bind("<B1-Motion>", self.on_move_press)
         c.bind("<ButtonRelease-1>", self.on_button_release)
         c.bind("<Double-Button-1>", self._on_double_click)
@@ -1156,6 +1160,15 @@ class AnnotateTab:
         outlined = self._polygon_at_outline(cx, cy)
         return outlined.id if outlined is not None else None
 
+    def _on_alt_down(self, event=None):
+        """Show the arrow while Alt is held in polygon mode: the next press selects, not draws."""
+        if self.app.mode == "polygon" and self.canvas.cget("cursor") == "cross":
+            self.canvas.config(cursor="arrow")
+
+    def _on_alt_up(self, event=None):
+        if self.canvas.cget("cursor") == "arrow":
+            self.canvas.config(cursor="cross")
+
     def on_alt_press(self, event):
         """Select the polygon under the pointer even where a plain click would snap and start one.
 
@@ -1638,8 +1651,8 @@ class AnnotateTab:
         chip_w = fnt.measure(chip) + pad * 2
         chip_y1 = ch - 10
         chip_y0 = chip_y1 - line_h
-        canvas.create_rectangle(x0, chip_y0, x0 + chip_w, chip_y1, fill=LEGEND_BG,
-                                outline=LEGEND_BORDER, width=1, tags="legend")
+        rounded_rect(canvas, x0, chip_y0, x0 + chip_w, chip_y1, fill=LEGEND_BG,
+                     outline=LEGEND_BORDER, width=1, tags="legend")
         canvas.create_text(x0 + pad, (chip_y0 + chip_y1) / 2, anchor="w", text=chip,
                            fill=FG_COLOR, font=font, tags="legend")
         if not self._legend_open:
@@ -1672,8 +1685,8 @@ class AnnotateTab:
         panel_w = pad * 3 + swatch_w + text_w
         panel_y1 = chip_y0 - 4
         panel_y0 = panel_y1 - pad * 2 - line_h * len(rows)
-        canvas.create_rectangle(x0, panel_y0, x0 + panel_w, panel_y1, fill=LEGEND_BG,
-                                outline=LEGEND_BORDER, width=1, tags="legend")
+        rounded_rect(canvas, x0, panel_y0, x0 + panel_w, panel_y1, fill=LEGEND_BG,
+                     outline=LEGEND_BORDER, width=1, tags="legend")
         for i, (swatch, text) in enumerate(rows):
             cy = panel_y0 + pad + line_h * i + line_h / 2
             sx0, sx1 = x0 + pad, x0 + pad + swatch_w
@@ -1734,9 +1747,8 @@ class AnnotateTab:
         block_h = len(lines) * line_height + pad * 2
         x0 = 10
 
-        canvas.create_rectangle(
-            x0, y0, x0 + block_w, y0 + block_h,
-            fill="#1A1A1A", outline="#444444", width=1, stipple="")
+        rounded_rect(canvas, x0, y0, x0 + block_w, y0 + block_h,
+                     fill="#1A1A1A", outline="#444444", width=1)
 
         for i, line in enumerate(lines):
             canvas.create_text(

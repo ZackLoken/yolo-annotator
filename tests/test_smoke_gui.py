@@ -723,6 +723,40 @@ class TestPolygonInteraction:
         assert app._selected_annotation_id == ann.id
         assert app.current_polygon == []
 
+    def test_holding_alt_shows_the_select_cursor_in_polygon_mode(self, app):
+        tab, _ = polygon_setup(app)
+        assert tab.canvas.cget("cursor") == "cross"
+        tab._on_alt_down()
+        assert tab.canvas.cget("cursor") == "arrow"
+        tab._on_alt_up()
+        assert tab.canvas.cget("cursor") == "cross"
+
+    def test_alt_leaves_a_drag_cursor_and_box_mode_alone(self, app):
+        tab, ann = polygon_setup(app)
+        tab.canvas.config(cursor="fleur")
+        tab._on_alt_down()
+        assert tab.canvas.cget("cursor") == "fleur"
+        tab._on_alt_up()
+        assert tab.canvas.cget("cursor") == "fleur"
+        tab.canvas.config(cursor="cross")
+        app._set_mode("box")
+        tab._on_alt_down()
+        assert tab.canvas.cget("cursor") == "cross"
+
+    def test_the_legend_help_and_badge_panels_are_rounded(self, app):
+        tab = app._annotate_tab
+        tab._legend_open = True
+        app.show_help = True
+        tab.render()
+        canvas = tab.canvas
+        assert all(canvas.type(i) == "polygon" for i in canvas.find_withtag("badge")
+                   if canvas.type(i) != "text")
+        legend_shapes = [canvas.type(i) for i in canvas.find_withtag("legend")
+                         if canvas.type(i) not in ("text", "line", "oval")]
+        assert legend_shapes and set(legend_shapes) == {"polygon"}
+        assert not any(canvas.type(i) == "rectangle" and canvas.itemcget(i, "fill") == "#1A1A1A"
+                       for i in canvas.find_all())
+
     def test_escape_does_not_deselect(self, app):
         tab, ann = polygon_setup(app)
         tab.select_annotation(ann.id)
