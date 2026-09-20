@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 from yololabeler import keybindings
 from yololabeler.annotation.document import load_document
 from yololabeler.annotation.engine import polygon_is_degenerate
-from yololabeler.matching import point_to_segment_dist, simplify_path
+from yololabeler.matching import point_to_segment_dist
 from yololabeler.rendering import place_label, rounded_rect
 from yololabeler.review.engine import build_queue
 from yololabeler.review.layer import (
@@ -32,8 +32,7 @@ BOX_CORNER_HIT_RADIUS = 8     # canvas px; matches _find_nearest_vertex's defaul
 BOX_EDGE_HIT_RADIUS = 8       # canvas px from a box outline that selects or drags it; same as corners, provisional
 MIN_BOX_SIDE = 3              # image px; the minimum box side enforced when drawing
 # Streaming and snapping values taken from TCIP Agent's AnnotateTab.tsx
-STREAM_MIN_DISTANCE = 6       # canvas px the pointer moves before the next streamed vertex
-STREAM_SIMPLIFY_TOLERANCE = 15  # canvas px; a streamed run is thinned to this on pause; the user's starting value, provisional
+STREAM_MIN_DISTANCE = 15      # canvas px the pointer moves before the next traced vertex; the user's value, provisional
 SNAP_RADIUS = 15              # canvas px radius for snapping to an existing vertex
 # The ring is wider than the snap radius so it surrounds the crosshair cursor instead of hiding under it.
 SNAP_INDICATOR_RADIUS = SNAP_RADIUS + 3   # canvas px radius of the dashed snap-target ring
@@ -206,7 +205,6 @@ class AnnotateTab:
         self._snap_target_dot_item = None
         a._stream_active = False
         a._last_stream_pos = None
-        a._stream_run_start = None
         a._selected_annotation_id = None
         a._hovered_annotation_id = None
         a.start_x = None
@@ -844,7 +842,6 @@ class AnnotateTab:
             a._vertex_redo_stack.clear()
             a._stream_active = False
             a._last_stream_pos = None
-            a._stream_run_start = None
             self.display_image()
             return
 
@@ -1123,7 +1120,6 @@ class AnnotateTab:
                     a.current_polygon.append((ix, iy))
                     a._stream_active = True
                     a._last_stream_pos = (ix, iy)
-                    a._stream_run_start = len(a.current_polygon) - 1
                     a._vertex_redo_stack.clear()
                     self.display_image()
             else:
@@ -1213,20 +1209,10 @@ class AnnotateTab:
         self.display_image()
 
     def end_stream_run(self):
-        """Pause streaming and thin the run laid since it started to STREAM_SIMPLIFY_TOLERANCE.
-
-        The run's first and last vertices stay, so anchors snapped to a
-        neighbour survive; only the vertices between them are thinned.
-        """
+        """Pause tracing; the vertices laid so far stay exactly as traced."""
         a = self.app
         a._stream_active = False
         a._last_stream_pos = None
-        start = a._stream_run_start
-        a._stream_run_start = None
-        if start is None or start >= len(a.current_polygon):
-            return
-        tolerance = STREAM_SIMPLIFY_TOLERANCE / self.scale if self.scale > 0 else 0
-        a.current_polygon[start:] = simplify_path(a.current_polygon[start:], tolerance)
 
     def _start_polygon(self, ix, iy):
         """Start a new polygon at an image point, snapped, and begin streaming if Stream is on."""
@@ -1240,7 +1226,6 @@ class AnnotateTab:
         if a._stream_mode:
             a._stream_active = True
             a._last_stream_pos = (ix, iy)
-            a._stream_run_start = 0
         self.display_image()
 
     def _poly_drag(self, event):

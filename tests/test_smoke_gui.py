@@ -827,8 +827,8 @@ class TestPolygonInteraction:
         tab, _ = polygon_setup(app)
         app._stream_mode = True
         tab.on_button_press(click_at(tab, 300, 300))
-        tab._on_motion(motion_at(tab, 310, 300))
-        tab.on_button_press(click_at(tab, 320, 300))
+        tab._on_motion(motion_at(tab, 320, 300))
+        tab.on_button_press(click_at(tab, 340, 300))
         assert not app._stream_active and app.current_polygon
         app._on_escape()
         assert app.current_polygon == []
@@ -862,10 +862,11 @@ class TestPolygonInteraction:
         app._stream_mode = True
         app.current_polygon = [(10, 10)]
         app._stream_active = True
-        tab._on_motion(motion_at(tab, 11, 10))
+        # 3 image px is 12 screen px at 4x, under the 15 px spacing; 4 image px is 16.
+        tab._on_motion(motion_at(tab, 13, 10))
         assert len(app.current_polygon) == 1
-        tab._on_motion(motion_at(tab, 12, 10))
-        assert app.current_polygon == [(10, 10), (12, 10)]
+        tab._on_motion(motion_at(tab, 14, 10))
+        assert app.current_polygon == [(10, 10), (14, 10)]
 
     def test_a_click_on_a_polygon_outline_selects_it_with_snap_on(self, app):
         tab, ann = polygon_setup(app)
@@ -918,39 +919,29 @@ class TestPolygonInteraction:
         tab._on_motion(motion_at(tab, 94, 94))
         assert app.current_polygon == [(80, 80), (100, 100)]
 
-    def test_pausing_thins_the_streamed_run_but_keeps_its_anchors(self, app):
+    def test_pausing_keeps_every_traced_vertex(self, app):
         tab, _ = polygon_setup(app)
         app._stream_mode = True
         tab.on_button_press(click_at(tab, 300, 300))
-        for x in range(306, 400, 6):
+        for x in range(315, 400, 15):
             tab._on_motion(motion_at(tab, x, 300))
-        assert len(app.current_polygon) > 10
+        traced = list(app.current_polygon)
+        assert len(traced) == 7
         tab.on_button_press(click_at(tab, 396, 300))
-        assert app.current_polygon == [(300, 300), (396, 300)]
+        assert app.current_polygon == traced
         assert not app._stream_active
 
-    def test_thinning_keeps_a_corner_and_the_vertices_before_the_run(self, app):
+    def test_closing_keeps_every_traced_vertex(self, app):
         tab, _ = polygon_setup(app)
         app._stream_mode = True
-        app.current_polygon = [(200, 200), (250, 250)]
         tab.on_button_press(click_at(tab, 300, 300))
-        for x in range(306, 400, 6):
+        for x in range(315, 400, 15):
             tab._on_motion(motion_at(tab, x, 300))
-        for y in range(306, 400, 6):
-            tab._on_motion(motion_at(tab, 396, y))
-        tab._on_double_click(click_at(tab, 396, 396))
-        closed = app.document.annotations[-1]
-        assert closed.points == ((200, 200), (250, 250), (300, 300), (396, 300), (396, 396))
-
-    def test_thinning_tolerance_is_measured_in_screen_pixels(self, app):
-        tab, _ = polygon_setup(app, scale=4.0)
-        app._stream_mode = True
-        tab.on_button_press(click_at(tab, 300, 300))
-        # A 3 image px bump is 12 screen px, inside the 15 px tolerance, so it goes.
-        for x, y in ((302, 300), (304, 303), (306, 300), (308, 300)):
-            tab._on_motion(motion_at(tab, x, y))
-        tab.on_button_press(click_at(tab, 310, 300))
-        assert app.current_polygon == [(300, 300), (308, 300)]
+        for y in range(315, 400, 15):
+            tab._on_motion(motion_at(tab, 390, y))
+        traced = tuple(app.current_polygon)
+        tab._on_double_click(click_at(tab, 390, 390))
+        assert app.document.annotations[-1].points == traced
 
     def test_a_pause_click_while_streaming_is_snapped(self, app):
         tab, _ = polygon_setup(app)
@@ -969,11 +960,11 @@ class TestPolygonInteraction:
         renders = []
         tab.render = lambda: renders.append(True)
         before = len(tab.canvas.find_all())
-        tab._on_motion(motion_at(tab, 310, 300))
-        assert app.current_polygon == [(300, 300), (310, 300)]
+        tab._on_motion(motion_at(tab, 320, 300))
+        assert app.current_polygon == [(300, 300), (320, 300)]
         assert renders == []
         assert len(tab.canvas.find_all()) > before
-        cx, cy = tab.image_to_canvas(310, 300)
+        cx, cy = tab.image_to_canvas(320, 300)
         assert any(tab.canvas.coords(i)[-2:] == [cx, cy]
                    for i in tab.canvas.find_withtag("current_polygon")
                    if tab.canvas.type(i) == "line")

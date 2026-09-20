@@ -141,11 +141,10 @@ job, discarding the polygon in progress; deselecting is a click on empty canvas.
 Vertex tracing (`t`) places vertices continuously as the mouse moves instead of
 one per click: click to start tracing, move the mouse along the outline, click
 again to pause, and double-click to finish the polygon; `Escape` or a right-click
-discards it instead. A new vertex is laid each time the pointer moves 6 screen
-pixels, so the spacing looks the same at every zoom; when the trace pauses or the
-polygon closes, the run just traced is thinned so that only vertices more than 15
-screen pixels off the line between their kept neighbours survive, keeping corners
-and curves and dropping the rest. The run's first and last vertices always stay.
+discards it instead. A new vertex is laid each time the pointer moves 15 screen
+pixels, so the spacing looks the same at every zoom, and the polygon you get is
+exactly the trace you watched form; the start, pause and resume clicks place
+exact vertices, so a corner is a click.
 Snapping (`s`) pulls a placed or traced vertex onto an existing vertex within 15
 screen pixels, never onto a point along an edge, so a shared boundary reuses the
 neighbour's own vertices. A dashed ring around the pointer, with a dot on the
@@ -332,7 +331,7 @@ viewport or leave unsaved work behind.
 
 - Box + Polygon modes: toggle with `m` or the toolbar button
 - Vertex tracing and vertex snapping: continuous vertex placement while moving the
-  mouse (`t`), thinned on pause, snapped to nearby existing vertices (`s`)
+  mouse (`t`), snapped to nearby existing vertices (`s`)
 - Full vertex editing: drag a vertex, Shift+click an edge to insert one, and
   right-click delete on the selected polygon; both kinds are selected, moved and
   right-click deleted by their outline, never their interior, so a press inside

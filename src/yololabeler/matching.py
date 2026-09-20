@@ -7,7 +7,6 @@ function is the main entry point used by the Review tab.
 import math
 from collections import defaultdict
 
-from shapely.geometry import LineString
 from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.validation import make_valid
 
@@ -66,19 +65,6 @@ def polygon_iou(geom1, area1, geom2, area2):
         return inter / union
     except Exception:
         return 0.0
-
-
-def simplify_path(points, tolerance):
-    """Thin an open polyline, keeping every vertex farther than tolerance from the line between its kept neighbours.
-
-    Douglas-Peucker through shapely. The first and last points always stay, so
-    a streamed run keeps the anchors it was snapped to. Fewer than three points
-    come back unchanged.
-    """
-    if len(points) < 3 or tolerance <= 0:
-        return list(points)
-    simplified = LineString(points).simplify(tolerance, preserve_topology=False)
-    return [(x, y) for x, y in simplified.coords]
 
 
 def polygon_area(points):
