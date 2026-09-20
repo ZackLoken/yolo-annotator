@@ -89,6 +89,8 @@ class AnnotateTab:
         self._motion_last_time = 0.0
         self._resize_after_id = None
         self._fast_resample = False
+        self._canvas_size = None      # (w, h) at the last Configure, so a resize can re-centre
+        self._fit_pending = False     # True when the last fit guessed the size of an unrealised canvas
         # True while load_image runs, so its many refreshes render once, at the end.
         self._loading = False
 
@@ -278,6 +280,9 @@ class AnnotateTab:
             return
         cw = self.canvas.winfo_width()
         ch = self.canvas.winfo_height()
+        # Before the window is mapped the canvas reports a placeholder size; the
+        # first Configure with the real size redoes this fit.
+        self._fit_pending = cw < 10 or ch < 10
         if cw < 10:
             cw = 1200
         if ch < 10:
@@ -393,12 +398,26 @@ class AnnotateTab:
 
     # ── Canvas resize debounce ────────────────────────────────────────────────
     def _on_canvas_configure(self, event=None):
+        """Keep the zoom across a resize, moving the image with the canvas centre.
+
+        The only fit here is the one owed from a load that ran before the
+        canvas had its real size; otherwise the user's zoom and pan stand and
+        `f` fits on demand.
+        """
         a = self.app
+        new_size = ((event.width, event.height) if event is not None
+                    else (self.canvas.winfo_width(), self.canvas.winfo_height()))
+        old_size = self._canvas_size
+        self._canvas_size = new_size
         if a.original_image is None:
             return
         self._cached_scale = None
         self._fast_resample = True
-        self._initial_fit()
+        if self._fit_pending:
+            self._initial_fit()
+        elif old_size is not None:
+            self.offset_x += (new_size[0] - old_size[0]) / 2
+            self.offset_y += (new_size[1] - old_size[1]) / 2
         self._request_redraw()
         if self._resize_after_id is not None:
             a.root.after_cancel(self._resize_after_id)
@@ -408,7 +427,6 @@ class AnnotateTab:
         self._resize_after_id = None
         self._fast_resample = False
         self._cached_scale = None
-        self._initial_fit()
         self.display_image()
 
     # ── Display (throttled) ───────────────────────────────────────────────────

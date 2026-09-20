@@ -206,6 +206,47 @@ class TestAnnotate:
         assert app.banner_text is None
 
 
+# ── window resize keeps the zoom ────────────────────────────────────────────
+
+def resize_event(width, height):
+    """A synthetic canvas Configure event."""
+    return type("E", (), {"width": width, "height": height})()
+
+
+class TestResizeKeepsZoom:
+    def test_resizing_keeps_the_scale_and_recentres_the_view(self, app):
+        tab = app._annotate_tab
+        tab._on_canvas_configure(resize_event(800, 500))
+        tab._zoom_step(400, 250, 1)
+        tab._zoom_step(400, 250, 1)
+        scale, ox, oy = tab.scale, tab.offset_x, tab.offset_y
+        tab._on_canvas_configure(resize_event(1000, 700))
+        assert tab.scale == scale
+        assert (tab.offset_x, tab.offset_y) == (ox + 100, oy + 100)
+        tab._finalize_resize()
+        assert tab.scale == scale
+
+    def test_a_fit_guessed_before_the_canvas_was_mapped_is_redone_once(self, app):
+        tab = app._annotate_tab
+        tab._on_canvas_configure(resize_event(800, 500))
+        tab._fit_pending = True
+        tab.scale, tab.offset_x, tab.offset_y = 4.0, -999.0, -999.0
+        tab._on_canvas_configure(resize_event(800, 500))
+        assert tab.scale < 4.0 and tab.offset_x >= 0 and tab.offset_y >= 0
+        assert tab._fit_pending is False
+        scale = tab.scale
+        tab._on_canvas_configure(resize_event(900, 500))
+        assert tab.scale == scale
+
+    def test_the_f_key_still_fits(self, app):
+        tab = app._annotate_tab
+        tab._on_canvas_configure(resize_event(800, 500))
+        tab._zoom_step(400, 250, 1)
+        zoomed = tab.scale
+        tab.fit_to_window()
+        assert tab.scale != zoomed
+
+
 # ── box editing ─────────────────────────────────────────────────────────────
 
 def box_setup(app):
