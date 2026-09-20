@@ -41,6 +41,8 @@ SNAP_TARGET_DOT_RADIUS = 3    # canvas px; a filled dot on the target vertex its
 SNAP_LEGEND_RADIUS = 7        # canvas px; the ring drawn at legend row height, where the full ring does not fit
 SNAP_INDICATOR_COLOR = "#FFE7B1"
 CLICK_SLOP = 3                # canvas px a press may move and still count as a click; provisional
+# Bit of a Tk event's state word that says Alt (Option on macOS) is held: Tk's platform modifier tables.
+ALT_STATE_MASK = 0x20000 if sys.platform == "win32" else 0x10 if sys.platform == "darwin" else 0x8
 HELP_FONT_SIZE = 12           # pt; the banner's 14 filled half a laptop screen, the user asked for smaller, then a touch back up
 FG_COLOR = "#E0E0E0"
 CANVAS_BG = "#2D2D2D"
@@ -506,6 +508,11 @@ class AnnotateTab:
         a = self.app
         self._mouse_canvas_x = event.x
         self._mouse_canvas_y = event.y
+        # Windows repaints the cursor on motion, so the Alt cue is re-read here as well as on the key.
+        if getattr(event, "state", 0) & ALT_STATE_MASK:
+            self._on_alt_down()
+        else:
+            self._on_alt_up()
 
         # Streaming: between the start and pause clicks, lay a vertex each time the
         # pointer has moved STREAM_MIN_DISTANCE screen pixels from the last one.

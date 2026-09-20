@@ -723,6 +723,25 @@ class TestPolygonInteraction:
         assert app._selected_annotation_id == ann.id
         assert app.current_polygon == []
 
+    def test_the_help_overlay_lists_alt_and_shift_in_polygon_mode(self, app):
+        tab, _ = polygon_setup(app)
+        app.show_help = True
+        tab.render()
+        canvas = tab.canvas
+        texts = [canvas.itemcget(i, "text") for i in canvas.find_all()
+                 if canvas.type(i) == "text"]
+        assert any(t.startswith("  Alt+click a vertex") for t in texts)
+        assert any(t.startswith("  Shift+click an edge") for t in texts)
+
+    def test_motion_with_alt_held_shows_the_select_cursor(self, app):
+        tab, _ = polygon_setup(app)
+        from yololabeler.annotation.tab import ALT_STATE_MASK
+        held = type("E", (), {"x": 300.0, "y": 300.0, "state": ALT_STATE_MASK})()
+        tab._on_motion(held)
+        assert tab.canvas.cget("cursor") == "arrow"
+        tab._on_motion(motion_at(tab, 310, 300))
+        assert tab.canvas.cget("cursor") == "cross"
+
     def test_holding_alt_shows_the_select_cursor_in_polygon_mode(self, app):
         tab, _ = polygon_setup(app)
         assert tab.canvas.cget("cursor") == "cross"
