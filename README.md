@@ -95,14 +95,13 @@ for the same list, filtered to the current mode.
 | Zoom to the focused item | `z` |
 | Switch between box and polygon mode | `m` |
 | Vertex snapping on or off | `s` |
-| Vertex streaming on or off | `v` |
+| Vertex tracing on or off | `t` |
 | Pick a class by id | `0`-`9` |
 | Rename the active class | `Ctrl+R` |
 | Undo | `Ctrl+Z` |
 | Redo | `Ctrl+Y` |
 | Save now | `Ctrl+S` |
-| Click at the cursor | `Space` |
-| Cancel the polygon, or deselect | `Escape` |
+| Discard the polygon in progress | `Escape` |
 | Show or hide this help | `h` |
 
 | Action | Input | Mode |
@@ -111,44 +110,48 @@ for the same list, filtered to the current mode.
 | Pan up or down | Scroll | always |
 | Pan left or right | Shift+Scroll | always |
 | Pan | Middle-click drag | always |
-| Move the whole shape | Shift+drag the selected shape | always |
+| Select the shape | Click an outline | always |
+| Move the shape | Drag an outline | always |
+| Delete the shape | Right-click an outline | always |
 | Draw a box, even inside another | Left-click drag | box |
-| Select the box | Click a box outline | box |
-| Move the box | Drag a box outline | box |
 | Resize the selected box from the opposite corner | Drag a corner | box |
-| Delete the box | Right-click a box outline | box |
 | Place a vertex, even inside another polygon | Left-click | polygon |
-| Start or pause streaming vertices | Left-click (Stream on) | polygon |
+| Start or pause tracing vertices | Left-click (Trace on) | polygon |
 | Close the polygon | Double-click | polygon |
-| Select the polygon | Click a polygon outline | polygon |
-| Select it even where a click would snap | Alt+click a polygon | polygon |
-| Move a vertex of the selected polygon | Drag vertex | polygon |
-| Start a new polygon on that vertex | Click vertex | polygon |
-| Insert a vertex in the selected polygon | Click edge | polygon |
+| Discard the polygon in progress | Right-click | polygon |
+| Start a new polygon on that vertex | Click a vertex | polygon |
+| Select its polygon instead | Alt+click a vertex | polygon |
+| Move a vertex of the selected polygon | Drag a vertex | polygon |
+| Insert a vertex in the selected polygon | Shift+click an edge | polygon |
 | Delete a vertex | Right-click a vertex | polygon |
-| Delete the polygon | Right-click a polygon outline | polygon |
 | Open or close the legend | Click Legend | always |
 <!-- controls:end -->
 
-Vertex streaming (`v`) places vertices continuously as the mouse moves instead of
-one per click: click to start streaming, move the mouse to trace the outline, click
-again to pause, and double-click to finish the polygon; `Escape` cancels it instead.
-A new vertex is laid each time the pointer moves 6 screen pixels, so the spacing
-looks the same at every zoom; when the stream pauses or the polygon closes, the
-run just traced is thinned so that only vertices more than 15 screen pixels off
-the line between their kept neighbours survive, keeping corners and curves and
-dropping the rest. The run's first and last vertices always stay. Snapping (`s`)
-pulls a placed or streamed vertex onto an existing vertex within 15 screen
-pixels, never onto a point along an edge, so a shared boundary reuses the
+The mouse follows one rule for both shapes: what is under the pointer decides
+what a press does. On an outline, a click selects the shape, a drag moves it
+whole, and a right-click deletes it. On a handle of the selected shape, a box
+corner or a polygon vertex, a drag reshapes it. On empty canvas, box mode drags
+out a box and polygon mode places a vertex, even inside another shape, e.g. for a
+bur that sits inside its neighbour's outline. A click on any polygon vertex starts
+a new polygon on that vertex, selected or not, so a shared boundary begins on the
+neighbour's own point; `Alt`+click selects that polygon instead. `Shift`+click on
+the selected polygon's edge inserts a vertex there and drags it. `Escape` has one
+job, discarding the polygon in progress; deselecting is a click on empty canvas.
+
+Vertex tracing (`t`) places vertices continuously as the mouse moves instead of
+one per click: click to start tracing, move the mouse along the outline, click
+again to pause, and double-click to finish the polygon; `Escape` or a right-click
+discards it instead. A new vertex is laid each time the pointer moves 6 screen
+pixels, so the spacing looks the same at every zoom; when the trace pauses or the
+polygon closes, the run just traced is thinned so that only vertices more than 15
+screen pixels off the line between their kept neighbours survive, keeping corners
+and curves and dropping the rest. The run's first and last vertices always stay.
+Snapping (`s`) pulls a placed or traced vertex onto an existing vertex within 15
+screen pixels, never onto a point along an edge, so a shared boundary reuses the
 neighbour's own vertices. A dashed ring around the pointer, with a dot on the
-vertex itself, marks the vertex a click would snap to. A polygon, like a box, is
-picked by its outline and never by its interior, so a click inside one starts a
-new polygon there, e.g. for a bur that sits inside its neighbour's outline. With
-snapping on, a click that snaps to a vertex also starts a new polygon there rather
-than selecting the polygon it belongs to; Alt+click selects it regardless, and
-clicking (not dragging) a vertex of the selected polygon starts a polygon on it.
-A polygon closed with no area, or a vertex drag or delete that would flatten one,
-is refused; the shape keeps its previous geometry.
+vertex itself, marks the vertex a click would snap to. A polygon closed with no
+area, or a vertex drag or delete that would flatten one, is refused; the shape
+keeps its previous geometry.
 
 ---
 
@@ -328,16 +331,14 @@ One workspace: annotate and review on the same canvas, no tab switch to lose a
 viewport or leave unsaved work behind.
 
 - Box + Polygon modes: toggle with `m` or the toolbar button
-- Vertex streaming and vertex snapping: continuous vertex placement while moving the
-  mouse (`v`), snapped to nearby existing vertices (`s`)
-- Full vertex editing: drag, insert on an edge, and right-click delete on the
-  selected polygon; both kinds are selected and right-click deleted by their
-  outline, never their interior, so a press inside a shape draws a new one,
-  e.g. for a bur that sits inside its neighbour's; Shift+drag moves the
-  selected shape whole, box or polygon, and a box also moves by its outline
-  and resizes from a corner; hovering an outline shows its handles;
-  insert-on-edge remains polygon-only; snapshot undo / redo (`Ctrl+Z` /
-  `Ctrl+Y`) covers drawing, accept, reject and edit alike
+- Vertex tracing and vertex snapping: continuous vertex placement while moving the
+  mouse (`t`), thinned on pause, snapped to nearby existing vertices (`s`)
+- Full vertex editing: drag a vertex, Shift+click an edge to insert one, and
+  right-click delete on the selected polygon; both kinds are selected, moved and
+  right-click deleted by their outline, never their interior, so a press inside
+  a shape draws a new one, e.g. for a bur that sits inside its neighbour's; a box
+  also resizes from a corner; hovering an outline shows its handles; snapshot
+  undo / redo (`Ctrl+Z` / `Ctrl+Y`) covers drawing, accept, reject and edit alike
 - Multi-class support: dropdown selector, inline "Add" for new classes, per-class
   colors
 - Prediction layer: import model output, matched against ground truth by IoU, and

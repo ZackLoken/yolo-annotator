@@ -11,7 +11,6 @@ import sys
 import time
 import getpass
 import datetime
-from collections import namedtuple
 import tkinter as tk
 from tkinter import filedialog, colorchooser
 from PIL import Image, ImageTk
@@ -34,7 +33,6 @@ from yololabeler.utils import (
 )
 
 # Lightweight event object for synthesised clicks
-_SynthEvent = namedtuple('_SynthEvent', ['x', 'y'])
 
 class FitToContentMixin:
     """Grow a CustomTkinter dialog to fit its contents after a monitor DPI change.
@@ -279,7 +277,7 @@ class YoloLabeler:
             command=self._on_visible_toggled)
         self._visible_cb.pack(side="left", padx=(0, 4))
 
-        # ── Centre: Mode | Stream | Snap ──
+        # ── Centre: Mode | Trace | Snap ──
         self.mode_btn = ctk.CTkButton(
             _tb_g2, text="Mode: Polygon \u2b21", width=120,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
@@ -288,7 +286,7 @@ class YoloLabeler:
         self.mode_btn.pack(side="left", padx=(0, 4))
 
         self.stream_btn = ctk.CTkButton(
-            _tb_g2, text="Stream: Off", width=95,
+            _tb_g2, text="Trace: Off", width=95,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             text_color=FG_COLOR, font=(self.font_family, 11),
             command=self._toggle_stream)
@@ -461,7 +459,7 @@ class YoloLabeler:
             "toggle_mode": self._toggle_mode, "toggle_snap": self._toggle_snap_key,
             "toggle_stream": self._toggle_stream_key,
             "undo": self.undo, "redo": self.redo, "save": self.save_now,
-            "click": self._click_at_cursor, "escape": self._on_escape,
+            "escape": self._on_escape,
             "help": tab.toggle_help, "rename_class": self._rename_class_dialog,
         }
         for n in range(10):
@@ -506,15 +504,9 @@ class YoloLabeler:
             self._toggle_snap()
 
     def _toggle_stream_key(self):
-        """Toggle vertex streaming, which only applies in polygon mode."""
+        """Toggle vertex tracing, which only applies in polygon mode."""
         if self.mode == "polygon":
             self._toggle_stream()
-
-    def _click_at_cursor(self):
-        """Left click at the current pointer position, so the spacebar places a vertex."""
-        cx = self.canvas.winfo_pointerx() - self.canvas.winfo_rootx()
-        cy = self.canvas.winfo_pointery() - self.canvas.winfo_rooty()
-        self._annotate_tab.on_button_press(_SynthEvent(cx, cy))
 
     def undo(self):
         """Undo the last annotation change, persist the restored verdicts, rebuild the queue."""
@@ -830,7 +822,7 @@ class YoloLabeler:
             self._vertex_redo_stack.clear()
             self._stream_mode = False
             self._stream_active = False
-            self.stream_btn.configure(text="Stream: Off", state="disabled")
+            self.stream_btn.configure(text="Trace: Off", state="disabled")
             self.snap_btn.configure(state="disabled")
 
     def _toggle_mode(self, event=None):
@@ -839,13 +831,13 @@ class YoloLabeler:
         self.update_title()
         self._update_status()
 
-    # ── Stream toggle (v key or button) ───────────────────────────────────────
+    # ── Trace toggle (t key or button) ───────────────────────────────────────
     def _toggle_stream(self, event=None):
         self._stream_mode = not self._stream_mode
         if self._stream_mode:
-            self.stream_btn.configure(text="Stream: On")
+            self.stream_btn.configure(text="Trace: On")
         else:
-            self.stream_btn.configure(text="Stream: Off")
+            self.stream_btn.configure(text="Trace: Off")
             self._stream_active = False
             self._last_stream_pos = None
 
@@ -1129,20 +1121,12 @@ class YoloLabeler:
         return result["choice"]
 
     def _on_escape(self, event=None):
-        if self.mode == "polygon":
-            if self._stream_active:
-                self._annotate_tab.end_stream_run()
-                self._annotate_tab.display_image()
-                return
-            if self.current_polygon:
-                self.current_polygon = []
-                self._vertex_redo_stack.clear()
-                self._annotate_tab.display_image()
-                return
-            if self._selected_annotation_id is not None:
-                self._selected_annotation_id = None
-                self._annotate_tab._clear_drag_state()
-                self._annotate_tab.display_image()
+        """Discard the polygon in progress, traced or clicked; Escape does nothing else."""
+        if self.mode == "polygon" and self.current_polygon:
+            self._annotate_tab.end_stream_run()
+            self.current_polygon = []
+            self._vertex_redo_stack.clear()
+            self._annotate_tab.display_image()
 
     # ── Time tracking ─────────────────────────────────────────────────────────
     def _stats_path(self):

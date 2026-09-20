@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 from yololabeler import keybindings
 from yololabeler.annotation.document import load_document
 from yololabeler.annotation.engine import polygon_is_degenerate
-from yololabeler.matching import point_in_polygon, point_to_segment_dist, simplify_path
+from yololabeler.matching import point_to_segment_dist, simplify_path
 from yololabeler.rendering import place_label
 from yololabeler.review.engine import build_queue
 from yololabeler.review.layer import (
@@ -691,32 +691,59 @@ class AnnotateTab:
         else:
             self._poly_release(event)
 
-    # ── Shift+drag: move the selected shape whole ─────────────────────────────
-    def _on_selected_shape(self, ann, cx, cy):
-        """Whether canvas point (cx, cy) lies on or inside the shape."""
-        if ann.kind == "box":
-            (x1, y1), (x2, y2) = ann.points
-            ix, iy = self.canvas_to_image(cx, cy)
-            inside = x1 <= ix <= x2 and y1 <= iy <= y2
-            return inside or self._box_outline_distance(ann, cx, cy) <= BOX_EDGE_HIT_RADIUS
-        ix, iy = self.canvas_to_image(cx, cy)
-        return (point_in_polygon(ix, iy, ann.points)
-                or self._polygon_outline_distance(ann, cx, cy) <= BOX_EDGE_HIT_RADIUS)
-
+    # ── Shift+click: insert a vertex on the selected polygon's edge ───────────
     def on_shift_press(self, event):
-        """Start moving the selected shape whole; a Shift press elsewhere is an ordinary press."""
+        """Insert a vertex where the selected polygon's edge is pressed and start dragging it.
+
+        Shift is the add-geometry modifier; anywhere else it is an ordinary press.
+        """
         a = self.app
         sel_id = a._selected_annotation_id
-        if (self._in_legend(event) or not a._annotation_visible or not self._alive(sel_id)
-                or not a._editable()):
+        if (a.mode != "polygon" or a.current_polygon or self._in_legend(event)
+                or not a._annotation_visible or not self._alive(sel_id) or not a._editable()
+                or a.document.get(sel_id).kind != "polygon"):
             self.on_button_press(event)
             return
-        ann = a.document.get(sel_id)
-        if not self._on_selected_shape(ann, event.x, event.y):
+        pts_sel = a.document.get(sel_id).points
+        best_ei, best_ed, best_ept = None, BOX_EDGE_HIT_RADIUS, None
+        n_sel = len(pts_sel)
+        for ei in range(n_sel):
+            ax, ay = self.image_to_canvas(*pts_sel[ei])
+            bx, by = self.image_to_canvas(*pts_sel[(ei + 1) % n_sel])
+            d = point_to_segment_dist(event.x, event.y, ax, ay, bx, by)
+            if d < best_ed:
+                best_ed = d
+                edx, edy = bx - ax, by - ay
+                len_sq = edx * edx + edy * edy
+                if len_sq == 0:
+                    proj_cx, proj_cy = ax, ay
+                else:
+                    t = max(0.0, min(1.0, ((event.x - ax) * edx + (event.y - ay) * edy) / len_sq))
+                    proj_cx = ax + t * edx
+                    proj_cy = ay + t * edy
+                best_ei = ei
+                best_ept = self._clamp(*self.canvas_to_image(proj_cx, proj_cy))
+        if best_ei is None:
             self.on_button_press(event)
             return
-        self._shape_move = (sel_id, ann.points, self.canvas_to_image(event.x, event.y), False)
+        self._push_undo()
+        new_points = list(pts_sel)
+        new_points.insert(best_ei + 1, best_ept)
+        self.engine.set_points(sel_id, new_points)
+        a._dragging_vertex = (sel_id, best_ei + 1)
+        a._drag_orig_pos = best_ept
+        self._vertex_press = None
+        self._vertex_drag_started = True
         self.canvas.config(cursor="fleur")
+        self.display_image()
+
+    def _start_shape_move(self, ann, event):
+        """Select a shape and arm a whole-shape move from this press; a plain release just selects."""
+        self.app._selected_annotation_id = ann.id
+        self._clear_drag_state()
+        self._shape_move = (ann.id, ann.points, self.canvas_to_image(event.x, event.y), False)
+        self.canvas.config(cursor="fleur")
+        self.display_image()
 
     def _shape_drag(self, event):
         a = self.app
@@ -1099,54 +1126,25 @@ class AnnotateTab:
                     self._vertex_press = (event.x, event.y)
                     self._vertex_drag_started = False
                     return
-                best_ei, best_ed, best_ept = None, 6, None
-                n_sel = len(pts_sel)
-                for ei in range(n_sel):
-                    ax, ay = self.image_to_canvas(*pts_sel[ei])
-                    bx, by = self.image_to_canvas(*pts_sel[(ei + 1) % n_sel])
-                    d = point_to_segment_dist(event.x, event.y, ax, ay, bx, by)
-                    if d < best_ed:
-                        best_ed = d
-                        edx, edy = bx - ax, by - ay
-                        len_sq = edx * edx + edy * edy
-                        if len_sq == 0:
-                            proj_cx, proj_cy = ax, ay
-                        else:
-                            t = max(0.0, min(1.0, ((event.x - ax) * edx + (event.y - ay) * edy) / len_sq))
-                            proj_cx = ax + t * edx
-                            proj_cy = ay + t * edy
-                        pix, piy = self.canvas_to_image(proj_cx, proj_cy)
-                        pix = max(0, min(a.img_width, pix))
-                        piy = max(0, min(a.img_height, piy))
-                        best_ei = ei
-                        best_ept = (pix, piy)
-                if best_ei is not None:
-                    self._push_undo()
-                    new_points = list(pts_sel)
-                    new_points.insert(best_ei + 1, best_ept)
-                    self.engine.set_points(sel_id, new_points)
-                    a._dragging_vertex = (sel_id, best_ei + 1)
-                    a._drag_orig_pos = best_ept
-                    self.canvas.config(cursor="fleur")
-                    self.display_image()
-                    return
-            just_deselected = True
-            a._selected_annotation_id = None
-        else:
-            just_deselected = False
 
-        # With Snap on, a click that snaps to a vertex means "start here", not "select";
-        # Alt+click (on_alt_press) selects regardless.
-        snaps_to_vertex = self._maybe_snap(ix, iy) != (ix, iy)
-        if not snaps_to_vertex:
-            picked = self._polygon_under_pointer(event.x, event.y)
-            if picked is not None:
-                a._selected_annotation_id = picked
-                self.display_image()
-                return
-            if just_deselected:
-                self.display_image()
-                return
+        # Any vertex starts a new polygon there, selected or not, Snap on or off;
+        # Alt+click (on_alt_press) selects instead.
+        vhit = self._find_nearest_vertex(event.x, event.y, threshold=SNAP_RADIUS)
+        if vhit:
+            vertex = a.document.get(vhit[0]).points[vhit[1]]
+            a._selected_annotation_id = None
+            self._clear_drag_state()
+            self._start_polygon(*vertex)
+            return
+        outlined = self._polygon_at_outline(event.x, event.y)
+        if outlined is not None:
+            self._start_shape_move(outlined, event)
+            return
+        if sel_id is not None:
+            a._selected_annotation_id = None
+            self._clear_drag_state()
+            self.display_image()
+            return
 
         self._start_polygon(ix, iy)
 

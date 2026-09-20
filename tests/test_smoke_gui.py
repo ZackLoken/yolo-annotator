@@ -269,18 +269,16 @@ class TestBoxEditing:
             [app.img_width - (x2 - x1), app.img_height - (y2 - y1),
              app.img_width, app.img_height])
 
-    def test_shift_drag_from_inside_moves_the_selected_box(self, app):
+    def test_shift_press_in_box_mode_is_an_ordinary_press(self, app):
         tab = app._annotate_tab
         ann = app.document.annotations[0]
+        app._select_class_for_filter_and_draw(0)
         tab.scale, tab.offset_x, tab.offset_y = 1.0, 0.0, 0.0
         tab.select_annotation(ann.id)
         cx, cy = box_center(ann)
         tab.on_shift_press(click_at(tab, cx, cy))
-        tab.on_move_press(click_at(tab, cx + 30, cy - 10))
-        tab.on_button_release(click_at(tab, cx + 30, cy - 10))
-        (x1, y1), (x2, y2) = app.document.get(ann.id).points
-        (ox1, oy1), (ox2, oy2) = ann.points
-        assert (x1, y1, x2, y2) == pytest.approx((ox1 + 30, oy1 - 10, ox2 + 30, oy2 - 10))
+        assert app._selected_annotation_id is None
+        assert app.start_x is not None
 
     def test_a_box_wider_than_the_image_still_drags(self, app):
         tab = app._annotate_tab
@@ -667,14 +665,43 @@ class TestPolygonInteraction:
         assert len(app.document.annotations) == 2
         assert app.current_polygon == [] and "no area" in app.banner_text
 
-    def test_shift_drag_moves_the_selected_polygon_whole(self, app):
+    def test_dragging_an_outline_moves_the_polygon_whole(self, app):
         tab, ann = polygon_setup(app)
-        tab.select_annotation(ann.id)
-        tab.on_shift_press(click_at(tab, 170, 130))
-        tab.on_move_press(click_at(tab, 180, 150))
-        tab.on_button_release(click_at(tab, 180, 150))
+        tab.on_button_press(click_at(tab, 150, 100))
+        assert app._selected_annotation_id == ann.id
+        tab.on_move_press(click_at(tab, 160, 120))
+        tab.on_button_release(click_at(tab, 160, 120))
         moved = app.document.get(ann.id).points
         assert moved == tuple((x + 10, y + 20) for x, y in ann.points)
+        assert len(app._undo_stack) == 1
+
+    def test_dragging_the_selected_polygons_edge_moves_it_rather_than_inserting(self, app):
+        tab, ann = polygon_setup(app)
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, 150, 100))
+        tab.on_move_press(click_at(tab, 150, 110))
+        tab.on_button_release(click_at(tab, 150, 110))
+        moved = app.document.get(ann.id).points
+        assert len(moved) == 3
+        assert moved == tuple((x, y + 10) for x, y in ann.points)
+
+    def test_a_click_on_an_outline_without_moving_only_selects(self, app):
+        tab, ann = polygon_setup(app)
+        tab.on_button_press(click_at(tab, 150, 100))
+        tab.on_button_release(click_at(tab, 150, 100))
+        assert app._selected_annotation_id == ann.id
+        assert app.document.get(ann.id).points == ann.points
+        assert app._undo_stack == []
+
+    def test_shift_click_on_the_selected_polygons_edge_inserts_a_vertex(self, app):
+        tab, ann = polygon_setup(app)
+        tab.select_annotation(ann.id)
+        tab.on_shift_press(click_at(tab, 150, 100))
+        tab.on_move_press(click_at(tab, 150, 80))
+        tab.on_button_release(click_at(tab, 150, 80))
+        pts = app.document.get(ann.id).points
+        assert len(pts) == 4
+        assert pts[1] == (150, 80)
         assert len(app._undo_stack) == 1
 
     def test_shift_press_off_the_selected_polygon_is_an_ordinary_press(self, app):
@@ -683,6 +710,34 @@ class TestPolygonInteraction:
         tab.on_shift_press(click_at(tab, 400, 400))
         assert tab._shape_move is None
         assert app._selected_annotation_id is None
+
+    def test_a_click_on_an_unselected_polygons_vertex_starts_a_polygon_there(self, app):
+        tab, ann = polygon_setup(app)
+        tab.on_button_press(click_at(tab, 203, 98))
+        assert app._selected_annotation_id is None
+        assert app.current_polygon == [(200, 100)]
+
+    def test_alt_click_on_a_vertex_selects_its_polygon(self, app):
+        tab, ann = polygon_setup(app)
+        tab.on_alt_press(click_at(tab, 203, 98))
+        assert app._selected_annotation_id == ann.id
+        assert app.current_polygon == []
+
+    def test_escape_does_not_deselect(self, app):
+        tab, ann = polygon_setup(app)
+        tab.select_annotation(ann.id)
+        app._on_escape()
+        assert app._selected_annotation_id == ann.id
+
+    def test_escape_discards_a_paused_trace_whole(self, app):
+        tab, _ = polygon_setup(app)
+        app._stream_mode = True
+        tab.on_button_press(click_at(tab, 300, 300))
+        tab._on_motion(motion_at(tab, 310, 300))
+        tab.on_button_press(click_at(tab, 320, 300))
+        assert not app._stream_active and app.current_polygon
+        app._on_escape()
+        assert app.current_polygon == []
 
     def test_clicking_a_selected_polygons_vertex_starts_a_polygon_there(self, app):
         tab, ann = polygon_setup(app)

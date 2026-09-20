@@ -25,7 +25,7 @@ class TestTable:
         actions = {b.action for b in KEY_BINDINGS}
         assert {"prev_image", "next_image", "prev_item", "next_item", "accept", "reject",
                 "edit_pair", "fit", "zoom_item", "toggle_mode", "toggle_snap",
-                "toggle_stream", "undo", "redo", "save", "click", "escape", "help"} <= actions
+                "toggle_stream", "undo", "redo", "save", "escape", "help"} <= actions
         assert all(f"class_{n}" in actions for n in range(10))
 
 
