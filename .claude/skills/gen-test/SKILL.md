@@ -53,6 +53,7 @@ from yololabeler.utils import auto_orient_image
 
 # ── auto_orient_image ───────────────────────────────────────────────────────
 
+
 class TestAutoOrientImage:
     def test_no_exif_returns_same_size(self):
         img = Image.new("RGB", (10, 20))

@@ -14,12 +14,14 @@ from yololabeler.label_io import write_json_atomic
 
 
 def read_json_or_quarantine(path):
-    """Return (data, None); (None, None) if missing; (None, moved_path) if corrupt."""
+    """Return (data, None); (None, None) if missing; (None, moved_path) if
+    corrupt.
+    """
     path = str(path)
     if not os.path.exists(path):
         return None, None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f), None
     except ValueError:
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -45,7 +47,9 @@ class AnnotationStats:
 
     @classmethod
     def load(cls, path):
-        """Read stats from path, quarantining a corrupt file, and return (instance, moved_path)."""
+        """Read stats from path, quarantining a corrupt file, and return
+        (instance, moved_path).
+        """
         data, moved = read_json_or_quarantine(path)
         return cls(data), moved
 
@@ -82,12 +86,20 @@ class AnnotationStats:
         """Return the completion record for name, or None if not completed."""
         return self.data["completion"].get(name)
 
-    def set_completion(self, name, by, blind, annotation_count, model, open_flags):
-        """Record a completion entry: author, timestamp, blind flag, counts, model, open flags."""
+    def set_completion(
+        self, name, by, blind, annotation_count, model, open_flags
+    ):
+        """Record a completion entry: author, timestamp, blind flag, counts,
+        model, open flags.
+        """
         self.data["completion"][name] = {
-            "by": by, "at": datetime.datetime.now().isoformat(timespec="seconds"),
-            "blind": bool(blind), "annotation_count": int(annotation_count),
-            "model": model, "open_flags": int(open_flags)}
+            "by": by,
+            "at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "blind": bool(blind),
+            "annotation_count": int(annotation_count),
+            "model": model,
+            "open_flags": int(open_flags),
+        }
 
     def clear_completion(self, name):
         """Remove the completion record for name, if any."""

@@ -15,6 +15,7 @@ gui = pytest.importorskip("yololabeler.gui")
 
 # ── _STATE_ATTRS ────────────────────────────────────────────────────────────
 
+
 class TestStateAttrs:
     def test_every_appstate_attribute_is_forwarded(self):
         missing = set(vars(AppState())) - gui.YoloLabeler._STATE_ATTRS
@@ -27,6 +28,7 @@ class TestStateAttrs:
 
 # ── window_geometry ─────────────────────────────────────────────────────────
 
+
 class TestWindowGeometry:
     def parse(self, spec):
         size, x, y = spec.split("+")
@@ -34,7 +36,7 @@ class TestWindowGeometry:
         return int(w), int(h), int(x), int(y)
 
     def test_a_roomy_screen_gets_the_asked_for_size_centred(self):
-        w, h, x, y = self.parse(gui.window_geometry(2560, 1440, 1600, 800))
+        w, h, x, _y = self.parse(gui.window_geometry(2560, 1440, 1600, 800))
         assert (w, h) == (1600, 800)
         assert x == (2560 - 1600) // 2
 
@@ -49,14 +51,19 @@ class TestWindowGeometry:
             assert x >= 0 and y >= 0
 
     def test_the_taskbar_allowance_keeps_the_bottom_clear(self):
-        w, h, x, y = self.parse(gui.window_geometry(1920, 1080, 1600, 1080))
+        _w, h, _x, y = self.parse(gui.window_geometry(1920, 1080, 1600, 1080))
         assert y + h < 1080
 
-    def test_dpi_scaling_clamps_the_logical_size_and_centres_the_physical_window(self):
-        w, h, x, y = self.parse(gui.window_geometry(1920, 1080, 1600, 800, scaling=1.5))
+    def test_dpi_scaling_clamps_the_logical_size_and_centres_the_window(
+        self,
+    ):
+        w, h, x, y = self.parse(
+            gui.window_geometry(1920, 1080, 1600, 800, scaling=1.5)
+        )
         assert x + w * 1.5 <= 1920 and y + h * 1.5 <= 1080
         assert x == int(1920 - w * 1.5) // 2
 
     def test_unit_scaling_leaves_the_unscaled_result_unchanged(self):
-        assert gui.window_geometry(2560, 1440, 1600, 800, scaling=1.0) == \
-            gui.window_geometry(2560, 1440, 1600, 800)
+        assert gui.window_geometry(
+            2560, 1440, 1600, 800, scaling=1.0
+        ) == gui.window_geometry(2560, 1440, 1600, 800)

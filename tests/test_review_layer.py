@@ -1,4 +1,6 @@
-"""Tests for yololabeler.review.layer on a real Tk canvas; skipped without a display."""
+"""Tests for yololabeler.review.layer on a real Tk canvas; skipped without a
+display.
+"""
 
 import tkinter as tk
 
@@ -8,7 +10,10 @@ from yololabeler.annotation.document import Document, new_annotation
 from yololabeler.predictions.store import Prediction
 from yololabeler.review.engine import QueueItem, match_document
 from yololabeler.review.layer import (
-    SELECTION_COLOR, STATUS_COLORS, LayerStyle, draw_prediction_layer,
+    SELECTION_COLOR,
+    STATUS_COLORS,
+    LayerStyle,
+    draw_prediction_layer,
 )
 from yololabeler.state import AppState
 
@@ -42,119 +47,231 @@ def red(class_id):
 def make_state():
     s = AppState()
     s.conf_threshold = 0.5
-    s.predictions = [Prediction("h:0", "box", ((10, 10), (50, 50)), 0, 0.9, 0),
-                     Prediction("h:1", "box", ((100, 100), (150, 150)), 0, 0.3, 1),
-                     Prediction("h:2", "polygon", ((200, 200), (250, 200), (250, 250)), 0, 0.8, 2)]
+    s.predictions = [
+        Prediction("h:0", "box", ((10, 10), (50, 50)), 0, 0.9, 0),
+        Prediction("h:1", "box", ((100, 100), (150, 150)), 0, 0.3, 1),
+        Prediction(
+            "h:2", "polygon", ((200, 200), (250, 200), (250, 250)), 0, 0.8, 2
+        ),
+    ]
     return s
 
 
 def texts(canvas):
-    return [canvas.itemcget(i, "text") for i in canvas.find_all() if canvas.type(i) == "text"]
+    return [
+        canvas.itemcget(i, "text")
+        for i in canvas.find_all()
+        if canvas.type(i) == "text"
+    ]
 
 
 def label_texts(canvas):
-    """Distinct label strings, ignoring the badge and the halo copies of each label."""
-    badge = {canvas.itemcget(i, "text") for i in canvas.find_withtag("badge")
-             if canvas.type(i) == "text"}
+    """Distinct label strings, ignoring the badge and the halo copies of each
+    label.
+    """
+    badge = {
+        canvas.itemcget(i, "text")
+        for i in canvas.find_withtag("badge")
+        if canvas.type(i) == "text"
+    }
     return set(texts(canvas)) - badge
 
 
 def label_fills(canvas, tag=None):
-    """Distinct label fills, ignoring the badge and the black halo copies of each label."""
+    """Distinct label fills, ignoring the badge and the black halo copies of
+    each label.
+    """
     badge = set(canvas.find_withtag("badge"))
     items = canvas.find_withtag(tag) if tag else canvas.find_all()
-    return {canvas.itemcget(i, "fill") for i in items
-            if canvas.type(i) == "text" and i not in badge} - {"black"}
+    return {
+        canvas.itemcget(i, "fill")
+        for i in items
+        if canvas.type(i) == "text" and i not in badge
+    } - {"black"}
 
 
 # ── draw_prediction_layer ───────────────────────────────────────────────────
 
+
 class TestDrawPredictionLayer:
     def test_low_confidence_not_drawn(self, canvas):
         s = make_state()
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
+        draw_prediction_layer(
+            canvas, ident, s, {0: "burr"}, "Arial", 9, True, True
+        )
         kinds = [canvas.type(i) for i in canvas.find_all()]
         assert kinds.count("rectangle") == 1 and kinds.count("polygon") == 1
 
     def test_show_pred_off_draws_nothing(self, canvas):
         s = make_state()
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, False)
+        draw_prediction_layer(
+            canvas, ident, s, {0: "burr"}, "Arial", 9, True, False
+        )
         assert canvas.find_all() == ()
 
     def test_predictions_are_dashed_at_the_callers_line_width(self, canvas):
         s = make_state()
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True, line_w=5)
+        draw_prediction_layer(
+            canvas, ident, s, {0: "burr"}, "Arial", 9, True, True, line_w=5
+        )
         for item in canvas.find_withtag("pred"):
             assert float(canvas.itemcget(item, "width")) == 5.0
             assert canvas.itemcget(item, "dash") != ""
 
     def test_prediction_uses_the_class_colour_untinted(self, canvas):
         s = make_state()
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
-                              LayerStyle(), red)
-        rect = [i for i in canvas.find_withtag("pred") if canvas.type(i) == "rectangle"][0]
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr"},
+            "Arial",
+            9,
+            True,
+            True,
+            LayerStyle(),
+            red,
+        )
+        rect = next(
+            i
+            for i in canvas.find_withtag("pred")
+            if canvas.type(i) == "rectangle"
+        )
         assert canvas.itemcget(rect, "outline") == "#FF0000"
 
-    def test_without_a_class_colour_predictions_keep_the_fallback(self, canvas):
+    def test_without_a_class_colour_predictions_keep_the_fallback(
+        self, canvas
+    ):
         s = make_state()
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
-        rect = [i for i in canvas.find_all() if canvas.type(i) == "rectangle"][0]
+        draw_prediction_layer(
+            canvas, ident, s, {0: "burr"}, "Arial", 9, True, True
+        )
+        rect = next(
+            i for i in canvas.find_all() if canvas.type(i) == "rectangle"
+        )
         assert canvas.itemcget(rect, "outline") == LayerStyle().pred_color
 
     def test_accepted_prediction_stays_drawn(self, canvas):
         s = make_state()
         s.verdicts = {"h:0": {"action": "accepted"}}
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
+        draw_prediction_layer(
+            canvas, ident, s, {0: "burr"}, "Arial", 9, True, True
+        )
         kinds = [canvas.type(i) for i in canvas.find_withtag("pred")]
         assert kinds.count("rectangle") == 1 and kinds.count("polygon") == 1
 
-    def test_rejected_prediction_is_dashed_like_any_other_and_has_no_fill(self, canvas):
+    def test_rejected_prediction_is_dashed_like_any_other_and_has_no_fill(
+        self, canvas
+    ):
         s = make_state()
         s.verdicts = {"h:0": {"action": "rejected"}}
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
-        rect = [i for i in canvas.find_withtag("pred") if canvas.type(i) == "rectangle"][0]
+        draw_prediction_layer(
+            canvas, ident, s, {0: "burr"}, "Arial", 9, True, True
+        )
+        rect = next(
+            i
+            for i in canvas.find_withtag("pred")
+            if canvas.type(i) == "rectangle"
+        )
         assert canvas.itemcget(rect, "dash") == LayerStyle().dash
         assert canvas.itemcget(rect, "fill") == ""
         assert canvas.itemcget(rect, "stipple") == ""
 
     def test_a_class_filter_keeps_only_that_classs_predictions(self, canvas):
         s = make_state()
-        s.predictions = [Prediction("h:0", "box", ((10, 10), (50, 50)), 0, 0.9, 0),
-                         Prediction("h:1", "box", ((100, 100), (150, 150)), 1, 0.9, 1)]
-        draw_prediction_layer(canvas, ident, s, {0: "burr", 1: "nut"}, "Arial", 9, True, True,
-                              class_filter=0)
+        s.predictions = [
+            Prediction("h:0", "box", ((10, 10), (50, 50)), 0, 0.9, 0),
+            Prediction("h:1", "box", ((100, 100), (150, 150)), 1, 0.9, 1),
+        ]
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr", 1: "nut"},
+            "Arial",
+            9,
+            True,
+            True,
+            class_filter=0,
+        )
         drawn = canvas.find_withtag("pred")
-        assert len(drawn) == 1 and canvas.coords(drawn[0]) == [10.0, 10.0, 50.0, 50.0]
+        assert len(drawn) == 1 and canvas.coords(drawn[0]) == [
+            10.0,
+            10.0,
+            50.0,
+            50.0,
+        ]
 
     def test_a_class_filter_still_draws_the_focused_item(self, canvas):
         s = make_state()
-        s.predictions = [Prediction("h:1", "box", ((100, 100), (150, 150)), 1, 0.9, 0)]
+        s.predictions = [
+            Prediction("h:1", "box", ((100, 100), (150, 150)), 1, 0.9, 0)
+        ]
         s.queue = [QueueItem("fp", s.predictions[0], None, None)]
         s.queue_index = 0
-        draw_prediction_layer(canvas, ident, s, {1: "nut"}, "Arial", 9, True, True,
-                              class_filter=0)
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {1: "nut"},
+            "Arial",
+            9,
+            True,
+            True,
+            class_filter=0,
+        )
         assert len(canvas.find_withtag("pred_focus")) == 1
 
-    def test_focused_fp_gets_a_blue_halo_in_class_colour_with_one_label(self, canvas):
+    def test_focused_fp_gets_a_blue_halo_in_class_colour_with_one_label(
+        self, canvas
+    ):
         s = make_state()
         s.queue = [QueueItem("fp", s.predictions[0], None, None)]
         s.queue_index = 0
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
-                              LayerStyle(), red)
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr"},
+            "Arial",
+            9,
+            True,
+            True,
+            LayerStyle(),
+            red,
+        )
         halo = canvas.find_withtag("focus_halo")
-        assert len(halo) == 1 and canvas.itemcget(halo[0], "outline") == SELECTION_COLOR
+        assert (
+            len(halo) == 1
+            and canvas.itemcget(halo[0], "outline") == SELECTION_COLOR
+        )
         focus = canvas.find_withtag("pred_focus")
-        assert len(focus) == 1 and canvas.itemcget(focus[0], "outline") == "#FF0000"
+        assert (
+            len(focus) == 1
+            and canvas.itemcget(focus[0], "outline") == "#FF0000"
+        )
         assert label_texts(canvas) == {"0: burr (0.90)"}
         assert "FP  not reviewed" in texts(canvas)
 
-    def test_an_unfocused_fp_gets_a_label_and_a_tp_prediction_does_not(self, canvas):
+    def test_an_unfocused_fp_gets_a_label_and_a_tp_prediction_does_not(
+        self, canvas
+    ):
         s = make_state()
         doc = Document("a.jpg", 300, 300)
         doc.add(new_annotation("box", ((12, 12), (52, 52)), 0, "z"))
         s.matches = match_document(doc, s.predictions, 0.5, s.conf_threshold)
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
-                              LayerStyle(), red)
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr"},
+            "Arial",
+            9,
+            True,
+            True,
+            LayerStyle(),
+            red,
+        )
         assert label_texts(canvas) == {"0: burr (0.80)"}
 
     def test_focused_rejected_prediction_stays_dashed(self, canvas):
@@ -162,7 +279,9 @@ class TestDrawPredictionLayer:
         s.queue = [QueueItem("fp", s.predictions[0], None, None)]
         s.queue_index = 0
         s.verdicts = {"h:0": {"action": "rejected"}}
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
+        draw_prediction_layer(
+            canvas, ident, s, {0: "burr"}, "Arial", 9, True, True
+        )
         focus = canvas.find_withtag("pred_focus")
         assert len(focus) == 1
         assert canvas.itemcget(focus[0], "dash") == LayerStyle().dash
@@ -173,15 +292,27 @@ class TestDrawPredictionLayer:
         s.queue = [QueueItem("tp", s.predictions[0], ann, 0.9)]
         s.queue_index = 0
         s.verdicts = {"h:0": {"action": "accepted"}}
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
-                              LayerStyle(), red)
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr"},
+            "Arial",
+            9,
+            True,
+            True,
+            LayerStyle(),
+            red,
+        )
         gt = canvas.find_withtag("gt_focus")
         assert len(gt) == 1 and canvas.itemcget(gt[0], "outline") == "#FF0000"
         pred = canvas.find_withtag("pred_focus")
         halo = canvas.find_withtag("focus_halo")
         assert len(halo) == 2
-        assert {tuple(canvas.coords(i)) for i in halo} == {tuple(canvas.coords(gt[0])),
-                                                           tuple(canvas.coords(pred[0]))}
+        assert {tuple(canvas.coords(i)) for i in halo} == {
+            tuple(canvas.coords(gt[0])),
+            tuple(canvas.coords(pred[0])),
+        }
         assert label_texts(canvas) == {"0: burr (0.90)"}
         assert "TP  accepted" in texts(canvas)
 
@@ -190,18 +321,36 @@ class TestDrawPredictionLayer:
         ann = new_annotation("box", ((12, 12), (52, 52)), 0, "z")
         s.queue = [QueueItem("tp", s.predictions[0], ann, 0.9)]
         s.queue_index = 0
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
-                              LayerStyle(), red, line_w=5)
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr"},
+            "Arial",
+            9,
+            True,
+            True,
+            LayerStyle(),
+            red,
+            line_w=5,
+        )
         focus = canvas.find_withtag("pred_focus")
-        assert len(focus) == 1 and float(canvas.itemcget(focus[0], "width")) == 5.0
+        assert (
+            len(focus) == 1
+            and float(canvas.itemcget(focus[0], "width")) == 5.0
+        )
 
-    def test_focused_gt_is_left_to_the_selection_drawing_when_selected(self, canvas):
+    def test_focused_gt_is_left_to_the_selection_drawing_when_selected(
+        self, canvas
+    ):
         s = make_state()
         ann = new_annotation("box", ((12, 12), (52, 52)), 0, "z")
         s.queue = [QueueItem("tp", s.predictions[0], ann, 0.9)]
         s.queue_index = 0
         s._selected_annotation_id = ann.id
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
+        draw_prediction_layer(
+            canvas, ident, s, {0: "burr"}, "Arial", 9, True, True
+        )
         assert canvas.find_withtag("gt_focus") == ()
         assert label_texts(canvas) == set()
 
@@ -209,48 +358,91 @@ class TestDrawPredictionLayer:
         s = make_state()
         s.queue = [QueueItem("fp", s.predictions[0], None, None)]
         s.queue_index = 0
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, False, False)
+        draw_prediction_layer(
+            canvas, ident, s, {0: "burr"}, "Arial", 9, False, False
+        )
         assert canvas.find_withtag("pred_focus") == ()
         assert canvas.find_all() == ()
 
 
 # ── status colours ──────────────────────────────────────────────────────────
 
+
 def badge_fill(canvas):
-    return [canvas.itemcget(i, "fill") for i in canvas.find_withtag("badge")
-            if canvas.type(i) == "text"][0]
+    return next(
+        canvas.itemcget(i, "fill")
+        for i in canvas.find_withtag("badge")
+        if canvas.type(i) == "text"
+    )
 
 
 class TestStatusColours:
-    @pytest.mark.parametrize("verdicts, status", [
-        ({}, "not_reviewed"),
-        ({"h:0": {"action": "accepted"}}, "accepted"),
-        ({"h:0": {"action": "rejected"}}, "rejected")])
-    def test_badge_text_takes_the_status_colour(self, canvas, verdicts, status):
+    @pytest.mark.parametrize(
+        "verdicts, status",
+        [
+            ({}, "not_reviewed"),
+            ({"h:0": {"action": "accepted"}}, "accepted"),
+            ({"h:0": {"action": "rejected"}}, "rejected"),
+        ],
+    )
+    def test_badge_text_takes_the_status_colour(
+        self, canvas, verdicts, status
+    ):
         s = make_state()
         s.queue = [QueueItem("fp", s.predictions[0], None, None)]
         s.queue_index = 0
         s.verdicts = verdicts
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True)
+        draw_prediction_layer(
+            canvas, ident, s, {0: "burr"}, "Arial", 9, True, True
+        )
         assert badge_fill(canvas) == STATUS_COLORS[status]
 
-    def test_predictions_take_the_status_colour_over_the_class_colour(self, canvas):
+    def test_predictions_take_the_status_colour_over_the_class_colour(
+        self, canvas
+    ):
         s = make_state()
         s.shape_statuses = {"h:0": "accepted", "h:2": "rejected"}
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
-                              LayerStyle(), red)
-        outlines = {canvas.type(i): canvas.itemcget(i, "outline")
-                    for i in canvas.find_withtag("pred")}
-        assert outlines == {"rectangle": STATUS_COLORS["accepted"],
-                            "polygon": STATUS_COLORS["rejected"]}
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr"},
+            "Arial",
+            9,
+            True,
+            True,
+            LayerStyle(),
+            red,
+        )
+        outlines = {
+            canvas.type(i): canvas.itemcget(i, "outline")
+            for i in canvas.find_withtag("pred")
+        }
+        assert outlines == {
+            "rectangle": STATUS_COLORS["accepted"],
+            "polygon": STATUS_COLORS["rejected"],
+        }
 
     def test_an_id_with_no_status_is_drawn_as_not_reviewed(self, canvas):
         s = make_state()
         s.shape_statuses = {}
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
-                              LayerStyle(), red)
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr"},
+            "Arial",
+            9,
+            True,
+            True,
+            LayerStyle(),
+            red,
+        )
         for item in canvas.find_withtag("pred"):
-            assert canvas.itemcget(item, "outline") == STATUS_COLORS["not_reviewed"]
+            assert (
+                canvas.itemcget(item, "outline")
+                == STATUS_COLORS["not_reviewed"]
+            )
 
     def test_focused_pair_takes_the_status_colour(self, canvas):
         s = make_state()
@@ -258,32 +450,76 @@ class TestStatusColours:
         s.queue = [QueueItem("tp", s.predictions[0], ann, 0.9)]
         s.queue_index = 0
         s.shape_statuses = {"h:0": "not_reviewed", ann.id: "not_reviewed"}
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
-                              LayerStyle(), red)
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr"},
+            "Arial",
+            9,
+            True,
+            True,
+            LayerStyle(),
+            red,
+        )
         gt = canvas.find_withtag("gt_focus")
-        assert canvas.itemcget(gt[0], "outline") == STATUS_COLORS["not_reviewed"]
+        assert (
+            canvas.itemcget(gt[0], "outline") == STATUS_COLORS["not_reviewed"]
+        )
         pred = canvas.find_withtag("pred_focus")
-        assert canvas.itemcget(pred[0], "outline") == STATUS_COLORS["not_reviewed"]
+        assert (
+            canvas.itemcget(pred[0], "outline")
+            == STATUS_COLORS["not_reviewed"]
+        )
 
-    def test_an_fp_label_keeps_the_class_colour_while_its_outline_takes_the_status(self, canvas):
+    def test_an_fp_label_keeps_the_class_colour_while_its_outline_takes_status(
+        self, canvas
+    ):
         s = make_state()
-        s.matches = match_document(Document("a.jpg", 300, 300), s.predictions, 0.5,
-                                   s.conf_threshold)
+        s.matches = match_document(
+            Document("a.jpg", 300, 300), s.predictions, 0.5, s.conf_threshold
+        )
         s.shape_statuses = {"h:0": "accepted", "h:2": "accepted"}
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
-                              LayerStyle(), red)
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr"},
+            "Arial",
+            9,
+            True,
+            True,
+            LayerStyle(),
+            red,
+        )
         assert label_fills(canvas, "pred_label") == {"#FF0000"}
         for item in canvas.find_withtag("pred"):
-            assert canvas.itemcget(item, "outline") == STATUS_COLORS["accepted"]
+            assert (
+                canvas.itemcget(item, "outline") == STATUS_COLORS["accepted"]
+            )
 
-    def test_the_focused_label_keeps_the_class_colour_while_its_geometry_takes_the_status(self, canvas):
+    def test_focused_label_keeps_the_class_colour_while_geometry_takes_status(
+        self, canvas
+    ):
         s = make_state()
         ann = new_annotation("box", ((12, 12), (52, 52)), 0, "z")
         s.queue = [QueueItem("tp", s.predictions[0], ann, 0.9)]
         s.queue_index = 0
         s.shape_statuses = {"h:0": "accepted", ann.id: "accepted"}
-        draw_prediction_layer(canvas, ident, s, {0: "burr"}, "Arial", 9, True, True,
-                              LayerStyle(), red)
+        draw_prediction_layer(
+            canvas,
+            ident,
+            s,
+            {0: "burr"},
+            "Arial",
+            9,
+            True,
+            True,
+            LayerStyle(),
+            red,
+        )
         assert label_fills(canvas) == {"#FF0000"}
-        assert canvas.itemcget(canvas.find_withtag("gt_focus")[0],
-                               "outline") == STATUS_COLORS["accepted"]
+        assert (
+            canvas.itemcget(canvas.find_withtag("gt_focus")[0], "outline")
+            == STATUS_COLORS["accepted"]
+        )

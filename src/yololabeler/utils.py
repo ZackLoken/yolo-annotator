@@ -1,8 +1,8 @@
 """Shared utilities: font loading, image orientation, Tk helpers."""
 
+import contextlib
 import os
 import sys
-import contextlib
 
 from PIL import Image
 
@@ -12,7 +12,9 @@ IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 
 
 def is_image_file(name):
-    """True for a real image by extension; false for a dotfile like macOS's ._name."""
+    """True for a real image by extension; false for a dotfile like macOS's
+    ._name.
+    """
     return not name.startswith(".") and name.lower().endswith(IMAGE_EXTENSIONS)
 
 
@@ -33,13 +35,20 @@ def suppress_tk_mac_warnings():
         yield
 
 
-_ARCHIVO_FILES = ("Archivo-Regular.ttf", "Archivo-Bold.ttf",
-                  "Archivo-Medium.ttf", "Archivo-SemiBold.ttf")
+_ARCHIVO_FILES = (
+    "Archivo-Regular.ttf",
+    "Archivo-Bold.ttf",
+    "Archivo-Medium.ttf",
+    "Archivo-SemiBold.ttf",
+)
 
 
 def _existing_font_paths():
-    return [p for p in (os.path.join(ASSETS_DIR, n) for n in _ARCHIVO_FILES)
-            if os.path.exists(p)]
+    return [
+        p
+        for p in (os.path.join(ASSETS_DIR, n) for n in _ARCHIVO_FILES)
+        if os.path.exists(p)
+    ]
 
 
 def _load_custom_fonts():
@@ -57,9 +66,12 @@ def _load_custom_fonts():
     if sys.platform.startswith("win"):
         try:
             import ctypes
+
             FR_PRIVATE = 0x10
             gdi32 = ctypes.windll.gdi32
-            added = [gdi32.AddFontResourceExW(path, FR_PRIVATE, 0) for path in paths]
+            added = [
+                gdi32.AddFontResourceExW(path, FR_PRIVATE, 0) for path in paths
+            ]
             _CUSTOM_FONT_LOADED = any(added)
             return _CUSTOM_FONT_LOADED
         except Exception:
@@ -68,26 +80,40 @@ def _load_custom_fonts():
         try:
             import ctypes
             import ctypes.util
+
             ct_path = ctypes.util.find_library("CoreText")
             if ct_path:
                 ct = ctypes.cdll.LoadLibrary(ct_path)
                 cf_path = ctypes.util.find_library("CoreFoundation")
                 cf = ctypes.cdll.LoadLibrary(cf_path)
-                # Undeclared, ctypes truncates the 64-bit CFURLRef to int and CoreText segfaults.
-                cf.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
+                # Undeclared, ctypes truncates the 64-bit CFURLRef to int and
+                # CoreText segfaults.
+                cf.CFURLCreateFromFileSystemRepresentation.restype = (
+                    ctypes.c_void_p
+                )
                 cf.CFURLCreateFromFileSystemRepresentation.argtypes = [
-                    ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_bool]
+                    ctypes.c_void_p,
+                    ctypes.c_char_p,
+                    ctypes.c_long,
+                    ctypes.c_bool,
+                ]
                 cf.CFRelease.argtypes = [ctypes.c_void_p]
                 ct.CTFontManagerRegisterFontsForURL.restype = ctypes.c_bool
                 ct.CTFontManagerRegisterFontsForURL.argtypes = [
-                    ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p]
+                    ctypes.c_void_p,
+                    ctypes.c_uint32,
+                    ctypes.c_void_p,
+                ]
                 registered = False
                 for path in paths:
                     encoded = path.encode("utf-8")
                     url_ref = cf.CFURLCreateFromFileSystemRepresentation(
-                        None, encoded, len(encoded), False)
+                        None, encoded, len(encoded), False
+                    )
                     if url_ref:
-                        if ct.CTFontManagerRegisterFontsForURL(url_ref, 1, None):
+                        if ct.CTFontManagerRegisterFontsForURL(
+                            url_ref, 1, None
+                        ):
                             registered = True
                         cf.CFRelease(url_ref)
                 _CUSTOM_FONT_LOADED = registered
@@ -98,22 +124,32 @@ def _load_custom_fonts():
 
 
 def _get_font_family():
-    """Pick the UI font family: bundled Archivo if registered, else a system sans."""
+    """Pick the UI font family: bundled Archivo if registered, else a system
+    sans.
+    """
     import tkinter.font as tkFont
+
     if _CUSTOM_FONT_LOADED:
         return "Archivo"
     try:
         available = set(tkFont.families())
     except Exception:
         available = set()
-    for family in ("Segoe UI", "Helvetica Neue", "Helvetica",
-                   "Arial", "DejaVu Sans", "sans-serif"):
+    for family in (
+        "Segoe UI",
+        "Helvetica Neue",
+        "Helvetica",
+        "Arial",
+        "DejaVu Sans",
+        "sans-serif",
+    ):
         if family in available:
             return family
     return "TkDefaultFont"
 
 
-# TIFF/EXIF tag id for Orientation; ExifTags.Base needs Pillow 9.4, so use the number.
+# TIFF/EXIF tag id for Orientation; ExifTags.Base needs Pillow 9.4, so use the
+# number.
 _EXIF_ORIENTATION_TAG = 0x0112
 
 _ORIENTATION_TRANSPOSE = {
@@ -128,7 +164,9 @@ _ORIENTATION_TRANSPOSE = {
 
 
 def oriented_size(path):
-    """(width, height, orientation) of an image file after EXIF rotation, without decoding."""
+    """(width, height, orientation) of an image file after EXIF rotation,
+    without decoding.
+    """
     with Image.open(path) as img:
         width, height = img.size
         try:

@@ -1,4 +1,6 @@
-"""Convert external prediction files into the canonical on-disk layout (spec 4.2)."""
+"""Convert external prediction files into the canonical on-disk layout (spec
+4.2).
+"""
 
 from __future__ import annotations
 
@@ -6,10 +8,12 @@ import datetime
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
 
 from yololabeler.label_io import (
-    _write_label_lines, format_detect_line, format_segment_line, parse_label_file,
+    _write_label_lines,
+    format_detect_line,
+    format_segment_line,
+    parse_label_file,
 )
 from yololabeler.predictions.store import write_manifest
 from yololabeler.utils import is_image_file, oriented_size
@@ -20,71 +24,93 @@ FORMATS = ("yololabeler", "ultralytics_txt", "bur_detect_json")
 @dataclass
 class ImportResult:
     """What an import wrote, skipped and rejected, for the banner."""
+
     files_written: int = 0
-    files_skipped: List[str] = field(default_factory=list)
+    files_skipped: list[str] = field(default_factory=list)
     lines_rejected: int = 0
     rotated_images: int = 0
     files_removed: int = 0
 
     def summary(self):
-        """One-line human-readable summary of the import, for the status banner."""
+        """One-line human-readable summary of the import, for the status
+        banner.
+        """
         parts = [f"Imported predictions for {self.files_written} images"]
         if self.files_skipped:
-            parts.append(f"{len(self.files_skipped)} files skipped (no matching image)")
+            parts.append(
+                f"{len(self.files_skipped)} files skipped (no matching image)"
+            )
         if self.lines_rejected:
             parts.append(f"{self.lines_rejected} lines rejected")
         if self.files_removed:
-            parts.append(f"{self.files_removed} existing prediction files removed "
-                         "(this import had nothing for them)")
+            parts.append(
+                f"{self.files_removed} existing prediction files removed "
+                "(this import had nothing for them)"
+            )
         if self.rotated_images:
             noun = "image has" if self.rotated_images == 1 else "images have"
-            parts.append(f"{self.rotated_images} {noun} an EXIF rotation; "
-                         "predictions are assumed to be in the rotated frame")
+            parts.append(
+                f"{self.rotated_images} {noun} an EXIF rotation; "
+                "predictions are assumed to be in the rotated frame"
+            )
         return ". ".join(parts) + "."
 
 
 def _image_index(image_folder):
     """stem -> (width, height, orientation) for every image in the folder."""
-    index: Dict[str, Tuple[int, int, int]] = {}
+    index: dict[str, tuple[int, int, int]] = {}
     for name in sorted(os.listdir(image_folder)):
         if is_image_file(name):
-            index[os.path.splitext(name)[0]] = oriented_size(os.path.join(image_folder, name))
+            index[os.path.splitext(name)[0]] = oriented_size(
+                os.path.join(image_folder, name)
+            )
     return index
 
 
 def _detect_line(class_id, conf, x1, y1, x2, y2, w, h):
-    """Format one canonical detect prediction line with confidence in column two."""
+    """Format one canonical detect prediction line with confidence in column
+    two.
+    """
     return format_detect_line(x1, y1, x2, y2, class_id, w, h).replace(
-        f"{class_id} ", f"{class_id} {conf:.6f} ", 1)
+        f"{class_id} ", f"{class_id} {conf:.6f} ", 1
+    )
 
 
 def _segment_line(class_id, conf, points, w, h):
-    """Format one canonical segment prediction line with confidence in column two."""
+    """Format one canonical segment prediction line with confidence in column
+    two.
+    """
     return format_segment_line(points, class_id, w, h).replace(
-        f"{class_id} ", f"{class_id} {conf:.6f} ", 1)
+        f"{class_id} ", f"{class_id} {conf:.6f} ", 1
+    )
 
 
 def _convert_bur_json(path, class_id, w, h):
-    """Convert one bur_detect_json file's pixel boxes into canonical detect lines.
+    """Convert one bur_detect_json file's pixel boxes into canonical detect
+    lines.
 
     A file whose boxes and scores lists differ in length converts the pairs it
     has and reports the unpaired remainder as rejected rather than truncating
     silently.
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     boxes, scores = data.get("boxes", []), data.get("scores", [])
-    pairs = list(zip(boxes, scores))
-    lines = [_detect_line(class_id, float(score), x1, y1, x2, y2, w, h)
-             for (x1, y1, x2, y2), score in pairs]
+    pairs = list(zip(boxes, scores, strict=False))
+    lines = [
+        _detect_line(class_id, float(score), x1, y1, x2, y2, w, h)
+        for (x1, y1, x2, y2), score in pairs
+    ]
     confidences = [float(score) for _, score in pairs]
     return lines, [], abs(len(boxes) - len(scores)), confidences
 
 
 def _convert_ultralytics(path, w, h):
-    """Convert one Ultralytics save_txt(save_conf=True) file, moving confidence to column two."""
+    """Convert one Ultralytics save_txt(save_conf=True) file, moving confidence
+    to column two.
+    """
     detect, segment, rejected, confidences = [], [], 0, []
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         for raw in f:
             parts = raw.split()
             if not parts:
@@ -99,11 +125,16 @@ def _convert_ultralytics(path, w, h):
                 cx, cy, bw, bh, conf = vals
                 x1, y1 = (cx - bw / 2) * w, (cy - bh / 2) * h
                 x2, y2 = (cx + bw / 2) * w, (cy + bh / 2) * h
-                detect.append(_detect_line(class_id, conf, x1, y1, x2, y2, w, h))
+                detect.append(
+                    _detect_line(class_id, conf, x1, y1, x2, y2, w, h)
+                )
                 confidences.append(conf)
             elif len(vals) >= 7 and len(vals) % 2 == 1:
                 conf = vals[-1]
-                pts = [(vals[i] * w, vals[i + 1] * h) for i in range(0, len(vals) - 1, 2)]
+                pts = [
+                    (vals[i] * w, vals[i + 1] * h)
+                    for i in range(0, len(vals) - 1, 2)
+                ]
                 segment.append(_segment_line(class_id, conf, pts, w, h))
                 confidences.append(conf)
             else:
@@ -112,7 +143,9 @@ def _convert_ultralytics(path, w, h):
 
 
 def _convert_yololabeler(source_dir, stem, w, h):
-    """Re-format one stem's canonical-layout detect and segment prediction files."""
+    """Re-format one stem's canonical-layout detect and segment prediction
+    files.
+    """
     out = {}
     rejected = 0
     confidences = []
@@ -122,40 +155,64 @@ def _convert_yololabeler(source_dir, stem, w, h):
         rejected += len(parsed.rejected)
         confidences.extend(r.confidence for r in parsed.rows)
         if kind == "box":
-            out[sub] = [_detect_line(r.class_id, r.confidence, *r.points[0], *r.points[1], w, h)
-                        for r in parsed.rows]
+            out[sub] = [
+                _detect_line(
+                    r.class_id, r.confidence, *r.points[0], *r.points[1], w, h
+                )
+                for r in parsed.rows
+            ]
         else:
-            out[sub] = [_segment_line(r.class_id, r.confidence, r.points, w, h)
-                        for r in parsed.rows]
+            out[sub] = [
+                _segment_line(r.class_id, r.confidence, r.points, w, h)
+                for r in parsed.rows
+            ]
     return out["detect"], out["segment"], rejected, confidences
 
 
 def _source_stems(source_dir, fmt):
-    """List (stem, filename) pairs of source files to convert, for the given format."""
+    """List (stem, filename) pairs of source files to convert, for the given
+    format.
+    """
     if fmt == "yololabeler":
         stems = set()
         for sub in ("detect", "segment"):
             folder = os.path.join(source_dir, sub)
             if os.path.isdir(folder):
-                stems.update(os.path.splitext(n)[0] for n in os.listdir(folder)
-                             if n.endswith(".txt"))
+                stems.update(
+                    os.path.splitext(n)[0]
+                    for n in os.listdir(folder)
+                    if n.endswith(".txt")
+                )
         return sorted((s, s) for s in stems)
     ext = ".json" if fmt == "bur_detect_json" else ".txt"
-    return sorted((os.path.splitext(n)[0], n) for n in os.listdir(source_dir)
-                  if n.endswith(ext))
+    return sorted(
+        (os.path.splitext(n)[0], n)
+        for n in os.listdir(source_dir)
+        if n.endswith(ext)
+    )
 
 
-def import_predictions(source_dir, image_folder, fmt, model_name, class_id, user):
-    """Convert source files into image_folder/predictions and write the manifest."""
+def import_predictions(
+    source_dir, image_folder, fmt, model_name, class_id, user
+):
+    """Convert source files into image_folder/predictions and write the
+    manifest.
+    """
     if fmt not in FORMATS:
-        raise ValueError(f"Unknown prediction format {fmt!r}; choose one of {FORMATS}")
+        raise ValueError(
+            f"Unknown prediction format {fmt!r}; choose one of {FORMATS}"
+        )
     if fmt == "bur_detect_json" and class_id is None:
-        raise ValueError("bur_detect_json files carry no class; a class id is required")
+        raise ValueError(
+            "bur_detect_json files carry no class; a class id is required"
+        )
     source_dir, image_folder = str(source_dir), str(image_folder)
     images = _image_index(image_folder)
-    result = ImportResult(rotated_images=sum(1 for _, _, o in images.values() if o != 1))
-    converted: Dict[str, Tuple[List[str], List[str]]] = {}
-    confidences: List[float] = []
+    result = ImportResult(
+        rotated_images=sum(1 for _, _, o in images.values() if o != 1)
+    )
+    converted: dict[str, tuple[list[str], list[str]]] = {}
+    confidences: list[float] = []
     for stem, filename in _source_stems(source_dir, fmt):
         if stem not in images:
             result.files_skipped.append(filename)
@@ -163,12 +220,16 @@ def import_predictions(source_dir, image_folder, fmt, model_name, class_id, user
         w, h, _ = images[stem]
         if fmt == "bur_detect_json":
             detect, segment, rejected, confs = _convert_bur_json(
-                os.path.join(source_dir, filename), class_id, w, h)
+                os.path.join(source_dir, filename), class_id, w, h
+            )
         elif fmt == "ultralytics_txt":
             detect, segment, rejected, confs = _convert_ultralytics(
-                os.path.join(source_dir, filename), w, h)
+                os.path.join(source_dir, filename), w, h
+            )
         else:
-            detect, segment, rejected, confs = _convert_yololabeler(source_dir, stem, w, h)
+            detect, segment, rejected, confs = _convert_yololabeler(
+                source_dir, stem, w, h
+            )
         result.lines_rejected += rejected
         confidences.extend(confs)
         converted[stem] = (detect, segment)
@@ -181,13 +242,22 @@ def import_predictions(source_dir, image_folder, fmt, model_name, class_id, user
             path = os.path.join(folder, f"{stem}.txt")
             if not lines and os.path.exists(path):
                 result.files_removed += 1
-            _write_label_lines(path, [l + "\n" for l in lines])
+            _write_label_lines(path, [line + "\n" for line in lines])
         if detect or segment:
             result.files_written += 1
-    write_manifest(os.path.join(image_folder, "predictions"), {
-        "model": model_name, "source_format": fmt, "source_dir": source_dir,
-        "imported_at": datetime.datetime.now().isoformat(timespec="seconds"),
-        "imported_by": user, "class_id_default": class_id,
-        "files": result.files_written,
-        "min_conf": min(confidences) if confidences else None})
+    write_manifest(
+        os.path.join(image_folder, "predictions"),
+        {
+            "model": model_name,
+            "source_format": fmt,
+            "source_dir": source_dir,
+            "imported_at": datetime.datetime.now().isoformat(
+                timespec="seconds"
+            ),
+            "imported_by": user,
+            "class_id_default": class_id,
+            "files": result.files_written,
+            "min_conf": min(confidences) if confidences else None,
+        },
+    )
     return result

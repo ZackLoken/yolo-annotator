@@ -5,14 +5,19 @@ import json
 import pytest
 
 from yololabeler.label_io import (
-    write_detect_labels, write_segment_labels,
-    format_detect_line, format_segment_line, parse_label_file, write_json_atomic,
+    format_detect_line,
+    format_segment_line,
+    parse_label_file,
+    write_detect_labels,
+    write_json_atomic,
+    write_segment_labels,
 )
 
 IMG_W, IMG_H = 640, 480
 
 
 # ── write_detect_labels ─────────────────────────────────────────────────────
+
 
 class TestWriteDetectLabels:
     def test_roundtrip(self, tmp_path):
@@ -21,7 +26,11 @@ class TestWriteDetectLabels:
         write_detect_labels(p, boxes, IMG_W, IMG_H)
         rows = parse_label_file(p, "box", IMG_W, IMG_H).rows
         assert len(rows) == 1 and rows[0].class_id == 0
-        for a, b in zip(boxes[0][:4], (*rows[0].points[0], *rows[0].points[1])):
+        for a, b in zip(
+            boxes[0][:4],
+            (*rows[0].points[0], *rows[0].points[1]),
+            strict=True,
+        ):
             assert pytest.approx(a, abs=0.1) == b
 
     def test_empty_removes_file(self, tmp_path):
@@ -37,6 +46,7 @@ class TestWriteDetectLabels:
 
 # ── write_segment_labels ────────────────────────────────────────────────────
 
+
 class TestWriteSegmentLabels:
     def test_roundtrip(self, tmp_path):
         p = str(tmp_path / "seg.txt")
@@ -44,7 +54,9 @@ class TestWriteSegmentLabels:
         write_segment_labels(p, polys, IMG_W, IMG_H)
         rows = parse_label_file(p, "polygon", IMG_W, IMG_H).rows
         assert len(rows) == 1 and rows[0].class_id == 1
-        for (ax, ay), (bx, by) in zip(polys[0][0], rows[0].points):
+        for (ax, ay), (bx, by) in zip(
+            polys[0][0], rows[0].points, strict=True
+        ):
             assert pytest.approx(ax, abs=0.1) == bx
             assert pytest.approx(ay, abs=0.1) == by
 
@@ -57,6 +69,7 @@ class TestWriteSegmentLabels:
 
 # ── format lines ────────────────────────────────────────────────────────────
 
+
 class TestFormatLines:
     def test_detect_line_matches_writer_output(self):
         line = format_detect_line(10, 20, 30, 60, 2, 100, 200)
@@ -64,10 +77,13 @@ class TestFormatLines:
 
     def test_segment_line(self):
         line = format_segment_line([(0, 0), (50, 0), (50, 100)], 1, 100, 200)
-        assert line == "1 0.000000 0.000000 0.500000 0.000000 0.500000 0.500000"
+        assert (
+            line == "1 0.000000 0.000000 0.500000 0.000000 0.500000 0.500000"
+        )
 
 
 # ── parse_label_file ────────────────────────────────────────────────────────
+
 
 class TestParseLabelFile:
     def test_missing_file_is_empty(self, tmp_path):
@@ -76,7 +92,9 @@ class TestParseLabelFile:
 
     def test_reports_rejected_line_numbers(self, tmp_path):
         p = tmp_path / "a.txt"
-        p.write_text("0 0.5 0.5 0.2 0.2\nbad line\n1 0.1 0.1 0.1\n", encoding="utf-8")
+        p.write_text(
+            "0 0.5 0.5 0.2 0.2\nbad line\n1 0.1 0.1 0.1\n", encoding="utf-8"
+        )
         result = parse_label_file(p, "box", 100, 100)
         assert [r.class_id for r in result.rows] == [0]
         assert result.rejected == [2, 3]
@@ -93,11 +111,16 @@ class TestParseLabelFile:
         p = tmp_path / "a.txt"
         p.write_text("3 0 0 0.5 0 0.5 0.5\n3 0 0 0.5\n", encoding="utf-8")
         result = parse_label_file(p, "polygon", 100, 200)
-        assert result.rows[0].points == ((0.0, 0.0), (50.0, 0.0), (50.0, 100.0))
+        assert result.rows[0].points == (
+            (0.0, 0.0),
+            (50.0, 0.0),
+            (50.0, 100.0),
+        )
         assert result.rejected == [2]
 
 
 # ── write_json_atomic ───────────────────────────────────────────────────────
+
 
 class TestWriteJsonAtomic:
     def test_round_trip_and_no_temp_left(self, tmp_path):

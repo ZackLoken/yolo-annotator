@@ -5,8 +5,13 @@ import tkinter as tk
 import pytest
 
 from yololabeler.rendering import (
-    halo_text, place_label, rounded_rect, _cached_font, _font_cache, _HALO_OFFSETS,
+    _HALO_OFFSETS,
     _LABEL_NUDGE,
+    _cached_font,
+    _font_cache,
+    halo_text,
+    place_label,
+    rounded_rect,
 )
 
 
@@ -32,6 +37,7 @@ def canvas(tk_root):
 
 # ── _HALO_OFFSETS ───────────────────────────────────────────────────────────
 
+
 class TestHaloOffsets:
     def test_offsets_are_unique(self):
         assert len(set(_HALO_OFFSETS)) == len(_HALO_OFFSETS)
@@ -45,6 +51,7 @@ class TestHaloOffsets:
 
 # ── halo_text ───────────────────────────────────────────────────────────────
 
+
 class TestHaloText:
     def test_item_count(self, canvas):
         halo_text(canvas, 50, 60, "hello", "white")
@@ -52,8 +59,9 @@ class TestHaloText:
 
     def test_all_items_share_the_text(self, canvas):
         halo_text(canvas, 50, 60, "hello", "white")
-        assert all(canvas.itemcget(i, "text") == "hello"
-                   for i in canvas.find_all())
+        assert all(
+            canvas.itemcget(i, "text") == "hello" for i in canvas.find_all()
+        )
 
     def test_halo_items_are_black(self, canvas):
         halo_text(canvas, 50, 60, "hello", "white")
@@ -79,8 +87,9 @@ class TestHaloText:
 
     def test_keyword_arguments_are_forwarded(self, canvas):
         halo_text(canvas, 50, 60, "hello", "white", anchor="nw")
-        assert all(canvas.itemcget(i, "anchor") == "nw"
-                   for i in canvas.find_all())
+        assert all(
+            canvas.itemcget(i, "anchor") == "nw" for i in canvas.find_all()
+        )
 
     def test_float_coordinates_accepted(self, canvas):
         halo_text(canvas, 10.5, 20.5, "x", "white")
@@ -99,9 +108,12 @@ class TestHaloText:
 
 # ── rounded_rect ──────────────────────────────────────────────────────────
 
+
 class TestRoundedRect:
     def test_is_one_smoothed_polygon_spanning_the_box(self, canvas):
-        item = rounded_rect(canvas, 10, 20, 110, 70, fill="black", outline="white", tags="p")
+        item = rounded_rect(
+            canvas, 10, 20, 110, 70, fill="black", outline="white", tags="p"
+        )
         assert canvas.type(item) == "polygon"
         assert canvas.itemcget(item, "smooth") in ("1", "true")
         assert canvas.itemcget(item, "fill") == "black"
@@ -114,7 +126,9 @@ class TestRoundedRect:
         item = rounded_rect(canvas, 0, 0, 100, 50, radius=6)
         coords = canvas.coords(item)
         xs, ys = coords[0::2], coords[1::2]
-        assert min(xs) == 0 and max(xs) == 100 and min(ys) == 0 and max(ys) == 50
+        assert (
+            min(xs) == 0 and max(xs) == 100 and min(ys) == 0 and max(ys) == 50
+        )
         assert xs.count(0) >= 3 and xs.count(100) >= 3
 
     def test_radius_is_clamped_to_half_the_shorter_side(self, canvas):
@@ -124,6 +138,7 @@ class TestRoundedRect:
 
 
 # ── place_label ───────────────────────────────────────────────────────────
+
 
 class TestPlaceLabel:
     FONT = ("Arial", 10)
@@ -135,7 +150,9 @@ class TestPlaceLabel:
         last = canvas.find_all()[-1]
         assert canvas.coords(last) == [50.0, 60.0]
 
-    def test_second_label_at_same_anchor_is_nudged_and_agrees_with_its_box(self, canvas):
+    def test_second_label_at_same_anchor_is_nudged_and_agrees_with_its_box(
+        self, canvas
+    ):
         placed = []
         place_label(canvas, placed, 50, 60, "hello", "white", font=self.FONT)
         place_label(canvas, placed, 50, 60, "hello", "white", font=self.FONT)
@@ -143,7 +160,8 @@ class TestPlaceLabel:
         last = canvas.find_all()[-1]
         drawn_y = canvas.coords(last)[1]
         assert drawn_y >= 60 + _LABEL_NUDGE
-        # anchor "sw": box_at sets y1 to the y actually drawn, so the two must agree
+        # anchor "sw": box_at sets y1 to the y actually drawn, so the two must
+        # agree
         assert placed[1][3] == pytest.approx(drawn_y)
 
     def test_two_labels_far_apart_are_both_unnudged(self, canvas):
@@ -159,24 +177,34 @@ class TestPlaceLabel:
 
 # ── _cached_font ──────────────────────────────────────────────────────────
 
+
 class TestCachedFontStaleInterpreter:
     """A cached Font is bound to the Tk interpreter live when it was built; a
     stale one (its interpreter torn down) must be rebuilt, not raise."""
 
     FONT = ("Arial", 11, "bold")
 
-    def test_rebuilds_when_the_cached_font_reports_a_destroyed_interpreter(self, tk_root, monkeypatch):
+    def test_rebuilds_when_the_cached_font_reports_a_destroyed_interpreter(
+        self, tk_root, monkeypatch
+    ):
         _font_cache.pop(self.FONT, None)
         first = _cached_font(self.FONT)
         first.metrics("linespace")  # sanity check: a real, working Font
 
         def stale_metrics(*args, **kwargs):
-            raise tk.TclError('can\'t invoke "font" command: application has been destroyed')
+            raise tk.TclError(
+                'can\'t invoke "font" command: application has been destroyed'
+            )
+
         monkeypatch.setattr(first, "metrics", stale_metrics)
 
-        second = _cached_font(self.FONT)  # must not raise despite the stale cache hit
+        second = _cached_font(
+            self.FONT
+        )  # must not raise despite the stale cache hit
         assert second is not first
         assert _font_cache[self.FONT] is second
-        assert second.metrics("linespace") > 0  # the rebuilt Font is real and usable
+        assert (
+            second.metrics("linespace") > 0
+        )  # the rebuilt Font is real and usable
 
         _font_cache.pop(self.FONT, None)

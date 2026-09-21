@@ -1,4 +1,5 @@
-"""AnnotateTab: annotation canvas, interaction and rendering for the Annotate tab.
+"""AnnotateTab: annotation canvas, interaction and rendering for the Annotate
+tab.
 
 Covers canvas construction, bindings, coordinate conversion, pan/zoom, image
 loading, box/polygon interaction, snapping, vertex streaming, undo/redo, save,
@@ -21,28 +22,59 @@ from yololabeler.matching import point_to_segment_dist
 from yololabeler.rendering import place_label, rounded_rect
 from yololabeler.review.engine import build_queue
 from yololabeler.review.layer import (
-    FLAG_COLOR, FLAG_MARK, SELECTION_COLOR, STATUS_COLORS, LayerStyle, draw_prediction_layer,
-    label_text, status_color, status_colors_active,
+    FLAG_COLOR,
+    FLAG_MARK,
+    SELECTION_COLOR,
+    STATUS_COLORS,
+    LayerStyle,
+    draw_prediction_layer,
+    label_text,
+    status_color,
+    status_colors_active,
 )
 from yololabeler.utils import auto_orient_image
 
 # Interaction constants, carried over from the original implementation
-VERTEX_HANDLE_RADIUS = 4      # base vertex marker radius in canvas px
-BOX_CORNER_HIT_RADIUS = 8     # canvas px; matches _find_nearest_vertex's default tolerance
-BOX_EDGE_HIT_RADIUS = 8       # canvas px from a box outline that selects or drags it; same as corners, provisional
-MIN_BOX_SIDE = 3              # image px; the minimum box side enforced when drawing
+VERTEX_HANDLE_RADIUS = 4  # base vertex marker radius in canvas px
+BOX_CORNER_HIT_RADIUS = (
+    8  # canvas px; matches _find_nearest_vertex's default tolerance
+)
+# canvas px from a box outline that selects or drags it; same as corners,
+# provisional
+BOX_EDGE_HIT_RADIUS = 8
+MIN_BOX_SIDE = 3  # image px; the minimum box side enforced when drawing
 # Streaming and snapping values taken from TCIP Agent's AnnotateTab.tsx
-STREAM_MIN_DISTANCE = 15      # canvas px the pointer moves before the next traced vertex; the user's value, provisional
-SNAP_RADIUS = 15              # canvas px radius for snapping to an existing vertex
-# The ring is wider than the snap radius so it surrounds the crosshair cursor instead of hiding under it.
-SNAP_INDICATOR_RADIUS = SNAP_RADIUS + 3   # canvas px radius of the dashed snap-target ring
-SNAP_TARGET_DOT_RADIUS = 3    # canvas px; a filled dot on the target vertex itself, visible beside the crosshair
-SNAP_LEGEND_RADIUS = 7        # canvas px; the ring drawn at legend row height, where the full ring does not fit
+# canvas px the pointer moves before the next traced vertex; the user's value,
+# provisional
+STREAM_MIN_DISTANCE = 15
+SNAP_RADIUS = 15  # canvas px radius for snapping to an existing vertex
+# The ring is wider than the snap radius so it surrounds the crosshair cursor
+# instead of hiding under it.
+SNAP_INDICATOR_RADIUS = (
+    SNAP_RADIUS + 3
+)  # canvas px radius of the dashed snap-target ring
+# canvas px; a filled dot on the target vertex itself, visible beside the
+# crosshair
+SNAP_TARGET_DOT_RADIUS = 3
+# canvas px; the ring drawn at legend row height, where the full ring does not
+# fit
+SNAP_LEGEND_RADIUS = 7
 SNAP_INDICATOR_COLOR = "#FFE7B1"
-CLICK_SLOP = 3                # canvas px a press may move and still count as a click; provisional
-# Bit of a Tk event's state word that says Alt (Option on macOS) is held: Tk's platform modifier tables.
-ALT_STATE_MASK = 0x20000 if sys.platform == "win32" else 0x10 if sys.platform == "darwin" else 0x8
-HELP_FONT_SIZE = 12           # pt; the banner's 14 filled half a laptop screen, the user asked for smaller, then a touch back up
+CLICK_SLOP = (
+    3  # canvas px a press may move and still count as a click; provisional
+)
+# Bit of a Tk event's state word that says Alt (Option on macOS) is held: Tk's
+# platform modifier tables.
+ALT_STATE_MASK = (
+    0x20000
+    if sys.platform == "win32"
+    else 0x10
+    if sys.platform == "darwin"
+    else 0x8
+)
+# pt; the banner's 14 filled half a laptop screen, the user asked for smaller,
+# then a touch back up
+HELP_FONT_SIZE = 12
 FG_COLOR = "#E0E0E0"
 CANVAS_BG = "#2D2D2D"
 LEGEND_BG = "#1A1A1A"
@@ -50,7 +82,9 @@ LEGEND_BORDER = "#444444"
 
 
 def _clamp_delta(delta, lo, hi):
-    """delta held within [lo, hi]; unclamped when lo exceeds hi, a shape too large to fit."""
+    """delta held within [lo, hi]; unclamped when lo exceeds hi, a shape too
+    large to fit.
+    """
     if lo > hi:
         return delta
     return max(lo, min(hi, delta))
@@ -62,7 +96,8 @@ class AnnotateTab:
     def __init__(self, app):
         self.app = app
         self.engine = app._engine
-        self.canvas: tk.Canvas = None  # type: ignore[assignment]  # set in build()
+        # set in build()
+        self.canvas: tk.Canvas = None  # type: ignore[assignment]
 
         # View transform
         self.scale = 1.0
@@ -72,8 +107,26 @@ class AnnotateTab:
         self._cached_tk_image = None
 
         self.zoom_levels = [
-            0.05, 0.075, 0.1, 0.15, 0.2, 0.25, 0.33, 0.5, 0.67,
-            0.75, 0.85, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 5.0, 7.0, 10.0,
+            0.05,
+            0.075,
+            0.1,
+            0.15,
+            0.2,
+            0.25,
+            0.33,
+            0.5,
+            0.67,
+            0.75,
+            0.85,
+            1.0,
+            1.25,
+            1.5,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            7.0,
+            10.0,
         ]
         self.zoom_index = 0
 
@@ -88,9 +141,13 @@ class AnnotateTab:
         self._motion_last_time = 0.0
         self._resize_after_id = None
         self._fast_resample = False
-        self._canvas_size = None      # (w, h) at the last Configure, so a resize can re-centre
-        self._fit_pending = False     # True when the last fit guessed the size of an unrealised canvas
-        # True while load_image runs, so its many refreshes render once, at the end.
+        self._canvas_size = (
+            None  # (w, h) at the last Configure, so a resize can re-centre
+        )
+        # True when the last fit guessed the size of an unrealised canvas
+        self._fit_pending = False
+        # True while load_image runs, so its many refreshes render once, at the
+        # end.
         self._loading = False
 
         # Mouse tracking
@@ -105,16 +162,19 @@ class AnnotateTab:
         self._legend_bbox = None
         self._legend_press = False
 
-        # A press on a selected polygon's vertex: a drag moves it, a click starts a polygon there
+        # A press on a selected polygon's vertex: a drag moves it, a click
+        # starts a polygon there
         self._vertex_press = None
         self._vertex_drag_started = False
-        # Shift+drag of the selected shape: (id, original points, press image point, dirty)
+        # Shift+drag of the selected shape: (id, original points, press image
+        # point, dirty)
         self._shape_move = None
 
     def build(self, parent):
         """Create the annotate canvas and bind events."""
         self.canvas = tk.Canvas(
-            parent, cursor="cross", bg=CANVAS_BG, highlightthickness=0)
+            parent, cursor="cross", bg=CANVAS_BG, highlightthickness=0
+        )
         self.canvas.pack(fill="both", expand=True)
         self._setup_bindings()
 
@@ -126,7 +186,8 @@ class AnnotateTab:
         c.bind("<ButtonPress-1>", self.on_button_press)
         c.bind("<Shift-ButtonPress-1>", self.on_shift_press)
         c.bind("<Alt-ButtonPress-1>", self.on_alt_press)
-        # Key events go to the focused widget, so the Alt cursor cue is bound on the root.
+        # Key events go to the focused widget, so the Alt cursor cue is bound
+        # on the root.
         for key in ("Alt_L", "Alt_R"):
             self.app.root.bind(f"<KeyPress-{key}>", self._on_alt_down)
             self.app.root.bind(f"<KeyRelease-{key}>", self._on_alt_up)
@@ -157,7 +218,7 @@ class AnnotateTab:
         c.bind("<Shift-Button-4>", self._on_shift_mousewheel_linux)
         c.bind("<Shift-Button-5>", self._on_shift_mousewheel_linux)
 
-    # ── Coordinate conversion ─────────────────────────────────────────────────
+    # ── Coordinate conversion ────────────────────────────────────────────────
     def canvas_to_image(self, cx, cy):
         ix = (cx - self.offset_x) / self.scale
         iy = (cy - self.offset_y) / self.scale
@@ -168,9 +229,11 @@ class AnnotateTab:
         cy = iy * self.scale + self.offset_y
         return cx, cy
 
-    # ── Load image ────────────────────────────────────────────────────────────
+    # ── Load image ───────────────────────────────────────────────────────────
     def load_image(self):
-        """Load the image at a.index with its labels and predictions, then render once."""
+        """Load the image at a.index with its labels and predictions, then
+        render once.
+        """
         a = self.app
         if not a.images or not a.image_folder:
             return
@@ -188,7 +251,10 @@ class AnnotateTab:
             a.index = 0
         if a.index < 0:
             a.index = len(a.images) - 1
-        print(f"[YoloLabeler] Loading image {a.index + 1}/{len(a.images)}: {a.images[a.index]}")
+        print(
+            f"[YoloLabeler] Loading image {a.index + 1}/{len(a.images)}: "
+            f"{a.images[a.index]}"
+        )
 
         a.document = None
         self._invalidate_poly_bboxes()
@@ -247,27 +313,38 @@ class AnnotateTab:
         a.load_errors = rejected
         messages = []
         if skipped:
-            messages.append(f"{len(skipped)} images could not be opened and were "
-                            f"skipped ({'; '.join(skipped)}).")
+            messages.append(
+                f"{len(skipped)} images could not be opened and were "
+                f"skipped ({'; '.join(skipped)})."
+            )
         if sidecar_moved:
-            messages.append(f"This image's sidecar could not be read and was moved to "
-                            f"{os.path.basename(sidecar_moved)}. Its annotations keep their "
-                            f"geometry but lose their authors and provenance.")
+            messages.append(
+                f"This image's sidecar could not be read and was moved to "
+                f"{os.path.basename(sidecar_moved)}. Its annotations keep "
+                f"their geometry but lose their authors and provenance."
+            )
         if rejected:
-            messages.append(f"{len(rejected)} label lines could not be read "
-                            f"({'; '.join(rejected)}). This image will not be saved until they are fixed.")
+            messages.append(
+                f"{len(rejected)} label lines could not be read "
+                f"({'; '.join(rejected)}). This image will not be saved "
+                f"until they are fixed."
+            )
         img_name = a.images[a.index]
         if img_name not in a._session_loaded_counts:
             a._session_loaded_counts[img_name] = len(a.document.annotations)
         a.verdicts = a._review.verdicts(img_name)
         a._review_panel.load_predictions_for_current_image()
         if a.predictions_rejected:
-            messages.append(f"{len(a.predictions_rejected)} prediction lines could not be read "
-                            f"({'; '.join(a.predictions_rejected)}).")
+            messages.append(
+                f"{len(a.predictions_rejected)} prediction lines could not "
+                f"be read ({'; '.join(a.predictions_rejected)})."
+            )
         if messages:
             a.banner_text = "\n".join(messages)
         a._review_panel.refresh(keep_focus=False)
-        a._review_panel.focus_item(a._review_panel.first_unreviewed(), switch_class=False)
+        a._review_panel.focus_item(
+            a._review_panel.first_unreviewed(), switch_class=False
+        )
         a._review_panel.update_labels()
         a.update_title()
         a._update_status()
@@ -278,8 +355,8 @@ class AnnotateTab:
             return
         cw = self.canvas.winfo_width()
         ch = self.canvas.winfo_height()
-        # Before the window is mapped the canvas reports a placeholder size; the
-        # first Configure with the real size redoes this fit.
+        # Before the window is mapped the canvas reports a placeholder size;
+        # the first Configure with the real size redoes this fit.
         self._fit_pending = cw < 10 or ch < 10
         if cw < 10:
             cw = 1200
@@ -300,7 +377,9 @@ class AnnotateTab:
         self._request_redraw()
 
     def zoom_centered(self, scale):
-        """Zoom to the zoom level nearest scale with the whole image centred in the canvas."""
+        """Zoom to the zoom level nearest scale with the whole image centred in
+        the canvas.
+        """
         a = self.app
         cw = self.canvas.winfo_width() or 800
         ch = self.canvas.winfo_height() or 600
@@ -313,7 +392,7 @@ class AnnotateTab:
         a._update_status()
 
     def zoom_to_bbox(self, x1, y1, x2, y2):
-        """Zoom so the box fills one third of the canvas, centred (spec 4.3)."""
+        """Zoom so the box fills a third of the canvas, centred (spec 4.3)."""
         a = self.app
         cw = self.canvas.winfo_width() or 800
         ch = self.canvas.winfo_height() or 600
@@ -338,7 +417,7 @@ class AnnotateTab:
                 best_idx = i
         return best_idx
 
-    # ── Load the document for the current image ───────────────────────────────
+    # ── Load the document for the current image ──────────────────────────────
     def load_document_for_current_image(self):
         """Read label files plus sidecar into a.document.
 
@@ -349,62 +428,85 @@ class AnnotateTab:
         detect, segment, sidecar = self.engine.label_paths()
         legacy_authors = a._stats_store.pop_legacy_authors(img_name)
         a.document, rejected, sidecar_moved = load_document(
-            img_name, a.img_width, a.img_height, detect, segment, sidecar,
-            legacy_authors=legacy_authors)
+            img_name,
+            a.img_width,
+            a.img_height,
+            detect,
+            segment,
+            sidecar,
+            legacy_authors=legacy_authors,
+        )
         if legacy_authors is not None:
             a._save_stats()
         a._register_class_ids({ann.class_id for ann in a.document.annotations})
         self._invalidate_poly_bboxes()
         return rejected, sidecar_moved
 
-    # ── Visibility and selection ──────────────────────────────────────────────
+    # ── Visibility and selection ─────────────────────────────────────────────
 
     def visible_annotations(self):
-        """Annotations drawn right now, in draw order; hit-testing uses the same list.
+        """Annotations drawn right now, in draw order; hit-testing uses the
+        same list.
 
-        The class dropdown's "All" lifts the class filter but not the kind filter,
-        so Box mode still draws only boxes.
+        The class dropdown's "All" lifts the class filter but not the kind
+        filter, so Box mode still draws only boxes.
         """
         a = self.app
         if a.document is None or not a._annotation_visible:
             return []
-        focus_pair = a.queue[a.queue_index].annotation if (
-            a.queue and 0 <= a.queue_index < len(a.queue)) else None
+        focus_pair = (
+            a.queue[a.queue_index].annotation
+            if (a.queue and 0 <= a.queue_index < len(a.queue))
+            else None
+        )
         out = []
         for ann in a.document.annotations:
-            if ann.id == a._selected_annotation_id or (focus_pair and ann.id == focus_pair.id):
-                out.append(ann)
-            elif ann.kind == a.mode and (a._review_filter_class == "all"
-                                         or ann.class_id == a.active_class):
+            if (
+                ann.id == a._selected_annotation_id
+                or (focus_pair and ann.id == focus_pair.id)
+                or (
+                    ann.kind == a.mode
+                    and (
+                        a._review_filter_class == "all"
+                        or ann.class_id == a.active_class
+                    )
+                )
+            ):
                 out.append(ann)
         return out
 
     def _alive(self, ann_id):
-        """True when ann_id still names an annotation of the current document."""
+        """True when ann_id still names an annotation of the document."""
         doc = self.app.document
         if ann_id is None or doc is None:
             return False
         return any(ann.id == ann_id for ann in doc.annotations)
 
     def select_annotation(self, ann_id):
-        """Select an annotation by id, switching the annotate mode to match its kind."""
+        """Select an annotation by id, switching the annotate mode to match its
+        kind.
+        """
         a = self.app
         if ann_id is not None:
             a._set_mode(a.document.get(ann_id).kind)
         a._selected_annotation_id = ann_id
         self.display_image()
 
-    # ── Canvas resize debounce ────────────────────────────────────────────────
+    # ── Canvas resize debounce ───────────────────────────────────────────────
     def _on_canvas_configure(self, event=None):
-        """Keep the zoom across a resize, moving the image with the canvas centre.
+        """Keep the zoom across a resize, moving the image with the canvas
+        centre.
 
         The only fit here is the one owed from a load that ran before the
         canvas had its real size; otherwise the user's zoom and pan stand and
         `f` fits on demand.
         """
         a = self.app
-        new_size = ((event.width, event.height) if event is not None
-                    else (self.canvas.winfo_width(), self.canvas.winfo_height()))
+        new_size = (
+            (event.width, event.height)
+            if event is not None
+            else (self.canvas.winfo_width(), self.canvas.winfo_height())
+        )
         old_size = self._canvas_size
         self._canvas_size = new_size
         if a.original_image is None:
@@ -427,7 +529,7 @@ class AnnotateTab:
         self._cached_scale = None
         self.display_image()
 
-    # ── Display (throttled) ───────────────────────────────────────────────────
+    # ── Display (throttled) ──────────────────────────────────────────────────
     def _request_redraw(self):
         if not self._redraw_pending and not self._loading:
             self._redraw_pending = True
@@ -446,7 +548,7 @@ class AnnotateTab:
         a.show_help = not a.show_help
         self.display_image()
 
-    # ── Scroll / Zoom / Pan ───────────────────────────────────────────────────
+    # ── Scroll / Zoom / Pan ──────────────────────────────────────────────────
     def _on_mousewheel(self, event):
         delta = event.delta
         if sys.platform == "darwin":
@@ -508,10 +610,8 @@ class AnnotateTab:
     def on_middle_drag(self, event):
         if self.pan_start_x is None:
             return
-        self.offset_x = self.pan_start_offset_x + (
-            event.x - self.pan_start_x)
-        self.offset_y = self.pan_start_offset_y + (
-            event.y - self.pan_start_y)
+        self.offset_x = self.pan_start_offset_x + (event.x - self.pan_start_x)
+        self.offset_y = self.pan_start_offset_y + (event.y - self.pan_start_y)
         self._request_redraw()
 
     def on_middle_release(self, event):
@@ -519,29 +619,43 @@ class AnnotateTab:
         self.pan_start_y = None
         self.canvas.config(cursor="cross")
 
-    # ── Mouse motion ──────────────────────────────────────────────────────────
+    # ── Mouse motion ─────────────────────────────────────────────────────────
     def _on_motion(self, event):
         a = self.app
         self._mouse_canvas_x = event.x
         self._mouse_canvas_y = event.y
-        # Windows repaints the cursor on motion, so the Alt cue is re-read here as well as on the key.
+        # Windows repaints the cursor on motion, so the Alt cue is re-read here
+        # as well as on the key.
         if getattr(event, "state", 0) & ALT_STATE_MASK:
             self._on_alt_down()
         else:
             self._on_alt_up()
 
-        # Streaming: between the start and pause clicks, lay a vertex each time the
-        # pointer has moved STREAM_MIN_DISTANCE screen pixels from the last one.
-        if (a.mode == "polygon" and a._stream_mode
-                and a._stream_active and a.current_polygon):
+        # Streaming: between the start and pause clicks, lay a vertex each time
+        # the pointer has moved STREAM_MIN_DISTANCE screen pixels from the last
+        # one.
+        if (
+            a.mode == "polygon"
+            and a._stream_mode
+            and a._stream_active
+            and a.current_polygon
+        ):
             last_cx, last_cy = self.image_to_canvas(*a.current_polygon[-1])
-            if math.hypot(event.x - last_cx, event.y - last_cy) >= STREAM_MIN_DISTANCE:
-                ix, iy = self._clamp(*self._maybe_snap(*self.canvas_to_image(event.x, event.y)))
+            if (
+                math.hypot(event.x - last_cx, event.y - last_cy)
+                >= STREAM_MIN_DISTANCE
+            ):
+                ix, iy = self._clamp(
+                    *self._maybe_snap(*self.canvas_to_image(event.x, event.y))
+                )
                 if a.current_polygon[-1] != (ix, iy):
                     a.current_polygon.append((ix, iy))
                     a._last_stream_pos = (ix, iy)
-                    # Only the new segment; a full render here coalesces motion events.
-                    self._draw_current_polygon_vertex(len(a.current_polygon) - 1)
+                    # Only the new segment; a full render here coalesces motion
+                    # events.
+                    self._draw_current_polygon_vertex(
+                        len(a.current_polygon) - 1
+                    )
 
         # Throttle expensive hover/snap checks (~60fps cap)
         now = time.monotonic()
@@ -550,15 +664,19 @@ class AnnotateTab:
         if not _motion_throttled:
             self._update_snap_indicator()
 
-        # Hover: the shape whose outline is under the pointer shows its handles.
+        # Hover: the shape whose outline is under the pointer shows its
+        # handles.
         if not _motion_throttled:
             self._motion_last_time = now
             new_hover = None
             if a.mode == "polygon":
                 hover_thr = 25
-                # Vertices get a wider hit radius while a polygon is being drawn.
+                # Vertices get a wider hit radius while a polygon is being
+                # drawn.
                 vertex_thr = hover_thr + 5 if a.current_polygon else hover_thr
-                vhit = self._find_nearest_vertex(event.x, event.y, threshold=vertex_thr)
+                vhit = self._find_nearest_vertex(
+                    event.x, event.y, threshold=vertex_thr
+                )
                 if vhit:
                     new_hover = vhit[0]
                 else:
@@ -577,30 +695,44 @@ class AnnotateTab:
                 self._request_redraw()
 
         # Polygon preview line
-        if a.mode == "polygon" and a.current_polygon:
-            if self._poly_preview_line is not None:
-                try:
-                    last_cx, last_cy = self.image_to_canvas(
-                        *a.current_polygon[-1])
-                    self.canvas.coords(
-                        self._poly_preview_line,
-                        last_cx, last_cy, event.x, event.y)
-                except tk.TclError:
-                    pass
+        if (
+            a.mode == "polygon"
+            and a.current_polygon
+            and self._poly_preview_line is not None
+        ):
+            try:
+                last_cx, last_cy = self.image_to_canvas(*a.current_polygon[-1])
+                self.canvas.coords(
+                    self._poly_preview_line,
+                    last_cx,
+                    last_cy,
+                    event.x,
+                    event.y,
+                )
+            except tk.TclError:
+                pass
 
-    # ── Vertex snapping ───────────────────────────────────────────────────────
+    # ── Vertex snapping ──────────────────────────────────────────────────────
     def _clamp(self, ix, iy):
         """Clamp an image point to the image bounds."""
         a = self.app
         return max(0, min(a.img_width, ix)), max(0, min(a.img_height, iy))
 
     def _update_snap_indicator(self):
-        """Ring the vertex a click at the pointer would snap to, or hide the ring."""
+        """Ring the vertex a click at the pointer would snap to, or hide the
+        ring.
+        """
         a = self.app
-        if a.mode != "polygon" or not a.snap_enabled or a.original_image is None:
+        if (
+            a.mode != "polygon"
+            or not a.snap_enabled
+            or a.original_image is None
+        ):
             self._hide_snap_indicator()
             return
-        ix, iy = self.canvas_to_image(self._mouse_canvas_x, self._mouse_canvas_y)
+        ix, iy = self.canvas_to_image(
+            self._mouse_canvas_x, self._mouse_canvas_y
+        )
         exclude = a._dragging_vertex if self._vertex_drag_started else None
         snapped = self._maybe_snap(ix, iy, exclude=exclude)
         if snapped != (ix, iy):
@@ -614,10 +746,18 @@ class AnnotateTab:
         A dashed ring wider than the snap radius, so it surrounds the crosshair
         rather than sitting under it, plus a filled dot on the vertex itself.
         """
-        ring = (sx - SNAP_INDICATOR_RADIUS, sy - SNAP_INDICATOR_RADIUS,
-                sx + SNAP_INDICATOR_RADIUS, sy + SNAP_INDICATOR_RADIUS)
-        dot = (sx - SNAP_TARGET_DOT_RADIUS, sy - SNAP_TARGET_DOT_RADIUS,
-               sx + SNAP_TARGET_DOT_RADIUS, sy + SNAP_TARGET_DOT_RADIUS)
+        ring = (
+            sx - SNAP_INDICATOR_RADIUS,
+            sy - SNAP_INDICATOR_RADIUS,
+            sx + SNAP_INDICATOR_RADIUS,
+            sy + SNAP_INDICATOR_RADIUS,
+        )
+        dot = (
+            sx - SNAP_TARGET_DOT_RADIUS,
+            sy - SNAP_TARGET_DOT_RADIUS,
+            sx + SNAP_TARGET_DOT_RADIUS,
+            sy + SNAP_TARGET_DOT_RADIUS,
+        )
         if self._snap_indicator_item:
             try:
                 self.canvas.coords(self._snap_indicator_item, *ring)
@@ -628,9 +768,11 @@ class AnnotateTab:
             except tk.TclError:
                 self._snap_indicator_item = None
         self._snap_indicator_item = self.canvas.create_oval(
-            *ring, outline=SNAP_INDICATOR_COLOR, fill="", width=2, dash=(3, 3))
+            *ring, outline=SNAP_INDICATOR_COLOR, fill="", width=2, dash=(3, 3)
+        )
         self._snap_target_dot_item = self.canvas.create_oval(
-            *dot, outline="black", fill=SNAP_INDICATOR_COLOR, width=1)
+            *dot, outline="black", fill=SNAP_INDICATOR_COLOR, width=1
+        )
 
     def _hide_snap_indicator(self):
         if self._snap_indicator_item:
@@ -643,11 +785,12 @@ class AnnotateTab:
             self._snap_target_dot_item = None
 
     def _maybe_snap(self, ix, iy, exclude=None):
-        """The nearest visible polygon vertex within SNAP_RADIUS screen px, else the point itself.
+        """The nearest visible polygon vertex within SNAP_RADIUS screen px,
+        else the point itself.
 
         Vertices only, never a point along an edge, so a shared boundary reuses
-        the neighbour's own vertices. exclude is an (annotation id, vertex index)
-        to skip, the vertex being dragged.
+        the neighbour's own vertices. exclude is an (annotation id, vertex
+        index) to skip, the vertex being dragged.
         """
         a = self.app
         if not a.snap_enabled:
@@ -663,8 +806,12 @@ class AnnotateTab:
             bbox = a._poly_bboxes.get(ann.id)
             if bbox is not None:
                 bx1, by1, bx2, by2 = bbox
-                if (ix + img_thr < bx1 or ix - img_thr > bx2
-                        or iy + img_thr < by1 or iy - img_thr > by2):
+                if (
+                    ix + img_thr < bx1
+                    or ix - img_thr > bx2
+                    or iy + img_thr < by1
+                    or iy - img_thr > by2
+                ):
                     continue
             for vidx, (px, py) in enumerate(ann.points):
                 if exclude is not None and (ann.id, vidx) == exclude:
@@ -678,11 +825,15 @@ class AnnotateTab:
             return best_pt
         return (ix, iy)
 
-    # ── Mouse event dispatch ──────────────────────────────────────────────────
+    # ── Mouse event dispatch ─────────────────────────────────────────────────
     def _in_legend(self, event):
         """True when a canvas point falls on the drawn legend chip or panel."""
         box = self._legend_bbox
-        return box is not None and box[0] <= event.x <= box[2] and box[1] <= event.y <= box[3]
+        return (
+            box is not None
+            and box[0] <= event.x <= box[2]
+            and box[1] <= event.y <= box[3]
+        )
 
     def on_button_press(self, event):
         self._legend_press = self._in_legend(event)
@@ -718,17 +869,25 @@ class AnnotateTab:
         else:
             self._poly_release(event)
 
-    # ── Shift+click: insert a vertex on the selected polygon's edge ───────────
+    # ── Shift+click: insert a vertex on the selected polygon's edge ──────────
     def on_shift_press(self, event):
-        """Insert a vertex where the selected polygon's edge is pressed and start dragging it.
+        """Insert a vertex where the selected polygon's edge is pressed and
+        start dragging it.
 
-        Shift is the add-geometry modifier; anywhere else it is an ordinary press.
+        Shift is the add-geometry modifier; anywhere else it is an ordinary
+        press.
         """
         a = self.app
         sel_id = a._selected_annotation_id
-        if (a.mode != "polygon" or a.current_polygon or self._in_legend(event)
-                or not a._annotation_visible or not self._alive(sel_id) or not a._editable()
-                or a.document.get(sel_id).kind != "polygon"):
+        if (
+            a.mode != "polygon"
+            or a.current_polygon
+            or self._in_legend(event)
+            or not a._annotation_visible
+            or not self._alive(sel_id)
+            or not a._editable()
+            or a.document.get(sel_id).kind != "polygon"
+        ):
             self.on_button_press(event)
             return
         pts_sel = a.document.get(sel_id).points
@@ -745,7 +904,14 @@ class AnnotateTab:
                 if len_sq == 0:
                     proj_cx, proj_cy = ax, ay
                 else:
-                    t = max(0.0, min(1.0, ((event.x - ax) * edx + (event.y - ay) * edy) / len_sq))
+                    t = max(
+                        0.0,
+                        min(
+                            1.0,
+                            ((event.x - ax) * edx + (event.y - ay) * edy)
+                            / len_sq,
+                        ),
+                    )
                     proj_cx = ax + t * edx
                     proj_cy = ay + t * edy
                 best_ei = ei
@@ -765,10 +931,17 @@ class AnnotateTab:
         self.display_image()
 
     def _start_shape_move(self, ann, event):
-        """Select a shape and arm a whole-shape move from this press; a plain release just selects."""
+        """Select a shape and arm a whole-shape move from this press; a plain
+        release just selects.
+        """
         self.app._selected_annotation_id = ann.id
         self._clear_drag_state()
-        self._shape_move = (ann.id, ann.points, self.canvas_to_image(event.x, event.y), False)
+        self._shape_move = (
+            ann.id,
+            ann.points,
+            self.canvas_to_image(event.x, event.y),
+            False,
+        )
         self.canvas.config(cursor="fleur")
         self.display_image()
 
@@ -817,7 +990,8 @@ class AnnotateTab:
         self.canvas.config(cursor="cross")
 
     def _delete_annotation(self, ann_id):
-        """Delete an annotation, dropping its item's verdict and resolving an open flag keyed by it.
+        """Delete an annotation, dropping its item's verdict and resolving an
+        open flag keyed by it.
 
         The verdict goes because the item it judged is gone: a miss has no key
         left, and a match's prediction is an unreviewed FP again. The flag has
@@ -829,7 +1003,9 @@ class AnnotateTab:
         self.engine.delete_annotation(ann_id)
         if item is not None:
             a._review.remove_verdict(img_name, item.key)
-        a._review.resolve_flag(img_name, ann_id, a._current_user, note="deleted")
+        a._review.resolve_flag(
+            img_name, ann_id, a._current_user, note="deleted"
+        )
         a._rebuild_filter()
         a._update_filter_label()
 
@@ -850,7 +1026,8 @@ class AnnotateTab:
             if self._alive(sel_id):
                 selected = a.document.get(sel_id)
                 vertex_hit = self._find_nearest_vertex(
-                    event.x, event.y, threshold=10)
+                    event.x, event.y, threshold=10
+                )
                 if vertex_hit and vertex_hit[0] == sel_id:
                     vi = vertex_hit[1]
                     new_pts = list(selected.points)
@@ -859,7 +1036,8 @@ class AnnotateTab:
                         self._push_undo()
                         self._delete_annotation(sel_id)
                     elif polygon_is_degenerate(new_pts):
-                        # Dropping this vertex would flatten the polygon; leave it be.
+                        # Dropping this vertex would flatten the polygon; leave
+                        # it be.
                         return
                     else:
                         self._push_undo()
@@ -873,8 +1051,11 @@ class AnnotateTab:
             a._selected_annotation_id = None
             self.display_image()
 
-        outlined = (self._box_at_outline(event.x, event.y) if a.mode == "box"
-                    else self._polygon_at_outline(event.x, event.y))
+        outlined = (
+            self._box_at_outline(event.x, event.y)
+            if a.mode == "box"
+            else self._polygon_at_outline(event.x, event.y)
+        )
         if outlined is not None:
             self._push_undo()
             self._clear_drag_state()
@@ -884,18 +1065,25 @@ class AnnotateTab:
             self.display_image()
             a.update_title()
 
-    # ── Box mode ──────────────────────────────────────────────────────────────
+    # ── Box mode ─────────────────────────────────────────────────────────────
     def _unfiltered_item_for(self, ann_id):
         """The queue item holding that annotation under no filters, or None."""
         a = self.app
         if a.document is None or a.predictions_blind or not a.matches:
             return None
         items = build_queue(a.document, a.predictions, a.matches, a.verdicts)
-        return next((qi for qi in items
-                     if qi.annotation is not None and qi.annotation.id == ann_id), None)
+        return next(
+            (
+                qi
+                for qi in items
+                if qi.annotation is not None and qi.annotation.id == ann_id
+            ),
+            None,
+        )
 
     def _refresh_review_after_edit(self, ann_id, img_name):
-        """Refresh the review queue after a GT geometry edit, moving its verdict with it.
+        """Refresh the review queue after a GT geometry edit, moving its
+        verdict with it.
 
         When the edit reclassifies the item under a new key (a match that
         became a miss, say), the verdict and flag history move to the new key,
@@ -933,8 +1121,9 @@ class AnnotateTab:
         a._box_edit_dirty = False
 
     def _box_edit_hit(self, ann, cx, cy):
-        """Nearest-corner hit within tolerance (returns the fixed opposite corner),
-        else "move" if inside the box body, else None."""
+        """Nearest-corner hit within tolerance (returns the fixed opposite
+        corner), else "move" if inside the box body, else None.
+        """
         (x1, y1), (x2, y2) = ann.points
         corners = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
         opposite = [(x2, y2), (x1, y2), (x1, y1), (x2, y1)]
@@ -952,17 +1141,26 @@ class AnnotateTab:
         return None
 
     def _box_outline_distance(self, ann, cx, cy):
-        """Canvas-pixel distance from (cx, cy) to the nearest edge of a box annotation."""
+        """Canvas-pixel distance from (cx, cy) to the nearest edge of a box
+        annotation.
+        """
         (x1, y1), (x2, y2) = ann.points
-        corners = [self.image_to_canvas(x, y) for x, y in ((x1, y1), (x2, y1), (x2, y2), (x1, y2))]
-        return min(point_to_segment_dist(cx, cy, *corners[i], *corners[(i + 1) % 4])
-                   for i in range(4))
+        corners = [
+            self.image_to_canvas(x, y)
+            for x, y in ((x1, y1), (x2, y1), (x2, y2), (x1, y2))
+        ]
+        return min(
+            point_to_segment_dist(cx, cy, *corners[i], *corners[(i + 1) % 4])
+            for i in range(4)
+        )
 
     def _box_at_outline(self, cx, cy):
-        """The visible box whose outline is nearest (cx, cy) within BOX_EDGE_HIT_RADIUS, or None.
+        """The visible box whose outline is nearest (cx, cy) within
+        BOX_EDGE_HIT_RADIUS, or None.
 
-        Boxes are picked by their outline, never their interior, so a press inside
-        a box can start a new box, e.g. a bur sitting inside a neighbour's box.
+        Boxes are picked by their outline, never their interior, so a press
+        inside a box can start a new box, e.g. a bur sitting inside a
+        neighbour's box.
         """
         best, best_d = None, BOX_EDGE_HIT_RADIUS
         for ann in self.visible_annotations():
@@ -974,7 +1172,9 @@ class AnnotateTab:
         return best
 
     def _start_box_move(self, ann, event):
-        """Begin dragging a box by its outline; a release without movement changes nothing."""
+        """Begin dragging a box by its outline; a release without movement
+        changes nothing.
+        """
         a = self.app
         p1, p2 = ann.points
         ix, iy = self.canvas_to_image(event.x, event.y)
@@ -985,11 +1185,16 @@ class AnnotateTab:
 
     def _box_press(self, event):
         a = self.app
-        # Dropped here so a press that starts no rectangle cannot commit one on release.
+        # Dropped here so a press that starts no rectangle cannot commit one on
+        # release.
         a.start_x = None
         a.start_y = None
         sel_id = a._selected_annotation_id
-        if sel_id is not None and a._annotation_visible and self._alive(sel_id):
+        if (
+            sel_id is not None
+            and a._annotation_visible
+            and self._alive(sel_id)
+        ):
             selected = a.document.get(sel_id)
             if selected.kind == "box":
                 hit = self._box_edit_hit(selected, event.x, event.y)
@@ -1016,8 +1221,8 @@ class AnnotateTab:
         a.start_y = event.y
         color = a._get_class_color(a.active_class)
         a.rect = self.canvas.create_rectangle(
-            a.start_x, a.start_y, a.start_x, a.start_y,
-            outline=color, width=2)
+            a.start_x, a.start_y, a.start_x, a.start_y, outline=color, width=2
+        )
 
     def _box_drag(self, event):
         a = self.app
@@ -1034,7 +1239,9 @@ class AnnotateTab:
                 self._push_undo()
                 a._box_edit_dirty = True
             self.engine.set_points(
-                sel_id, ((min(ax, ix), min(ay, iy)), (max(ax, ix), max(ay, iy))))
+                sel_id,
+                ((min(ax, ix), min(ay, iy)), (max(ax, ix), max(ay, iy))),
+            )
             self.display_image()
             return
         if a._box_edit_mode == "move":
@@ -1049,13 +1256,12 @@ class AnnotateTab:
                 self._push_undo()
                 a._box_edit_dirty = True
             self.engine.set_points(
-                sel_id, ((ox1 + dx, oy1 + dy), (ox2 + dx, oy2 + dy)))
+                sel_id, ((ox1 + dx, oy1 + dy), (ox2 + dx, oy2 + dy))
+            )
             self.display_image()
             return
-        if (a.rect and a.start_x is not None
-                and a.start_y is not None):
-            self.canvas.coords(
-                a.rect, a.start_x, a.start_y, event.x, event.y)
+        if a.rect and a.start_x is not None and a.start_y is not None:
+            self.canvas.coords(a.rect, a.start_x, a.start_y, event.x, event.y)
 
     def _box_release(self, event):
         a = self.app
@@ -1067,9 +1273,12 @@ class AnnotateTab:
             self.canvas.config(cursor="cross")
             if dirty and self._alive(sel_id):
                 (x1, y1), (x2, y2) = a.document.get(sel_id).points
-                if mode == "resize" and (x2 - x1 < MIN_BOX_SIDE or y2 - y1 < MIN_BOX_SIDE):
-                    # Roll the degenerate box back, then drop the snapshot undo_snapshot
-                    # pushed onto the redo stack so Ctrl+Y cannot restore it.
+                if mode == "resize" and (
+                    x2 - x1 < MIN_BOX_SIDE or y2 - y1 < MIN_BOX_SIDE
+                ):
+                    # Roll the degenerate box back, then drop the snapshot
+                    # undo_snapshot pushed onto the redo stack so Ctrl+Y cannot
+                    # restore it.
                     if self.engine.undo_snapshot():
                         a._redo_stack.pop()
                 else:
@@ -1102,7 +1311,7 @@ class AnnotateTab:
         a.accept_drawn_annotation(added)
         a.update_title()
 
-    # ── Polygon mode ──────────────────────────────────────────────────────────
+    # ── Polygon mode ─────────────────────────────────────────────────────────
     def _poly_press(self, event):
         a = self.app
         ix, iy = self.canvas_to_image(event.x, event.y)
@@ -1133,28 +1342,33 @@ class AnnotateTab:
             return
 
         sel_id = a._selected_annotation_id
-        if sel_id is not None:
-            if self._alive(sel_id) and a.document.get(sel_id).kind == "polygon":
-                pts_sel = a.document.get(sel_id).points
-                best_vi, best_vd = None, 8
-                for vi, (px, py) in enumerate(pts_sel):
-                    vcx, vcy = self.image_to_canvas(px, py)
-                    d = math.hypot(event.x - vcx, event.y - vcy)
-                    if d < best_vd:
-                        best_vd = d
-                        best_vi = vi
-                if best_vi is not None:
-                    # Undo is pushed once the pointer actually moves; a release
-                    # without movement starts a new polygon on this vertex instead.
-                    a._dragging_vertex = (sel_id, best_vi)
-                    a._drag_orig_pos = pts_sel[best_vi]
-                    self._vertex_press = (event.x, event.y)
-                    self._vertex_drag_started = False
-                    return
+        if (
+            sel_id is not None
+            and self._alive(sel_id)
+            and a.document.get(sel_id).kind == "polygon"
+        ):
+            pts_sel = a.document.get(sel_id).points
+            best_vi, best_vd = None, 8
+            for vi, (px, py) in enumerate(pts_sel):
+                vcx, vcy = self.image_to_canvas(px, py)
+                d = math.hypot(event.x - vcx, event.y - vcy)
+                if d < best_vd:
+                    best_vd = d
+                    best_vi = vi
+            if best_vi is not None:
+                # Undo is pushed once the pointer actually moves; a release
+                # without movement starts a new polygon on this vertex instead.
+                a._dragging_vertex = (sel_id, best_vi)
+                a._drag_orig_pos = pts_sel[best_vi]
+                self._vertex_press = (event.x, event.y)
+                self._vertex_drag_started = False
+                return
 
-        # Any vertex starts a new polygon there, selected or not, Snap on or off;
-        # Alt+click (on_alt_press) selects instead.
-        vhit = self._find_nearest_vertex(event.x, event.y, threshold=SNAP_RADIUS)
+        # Any vertex starts a new polygon there, selected or not, Snap on or
+        # off; Alt+click (on_alt_press) selects instead.
+        vhit = self._find_nearest_vertex(
+            event.x, event.y, threshold=SNAP_RADIUS
+        )
         if vhit:
             vertex = a.document.get(vhit[0]).points[vhit[1]]
             a._selected_annotation_id = None
@@ -1174,7 +1388,9 @@ class AnnotateTab:
         self._start_polygon(ix, iy)
 
     def _polygon_under_pointer(self, cx, cy):
-        """The id of the polygon whose vertex or outline is under canvas point (cx, cy), or None."""
+        """The id of the polygon whose vertex or outline is under canvas point
+        (cx, cy), or None.
+        """
         vhit = self._find_nearest_vertex(cx, cy, threshold=SNAP_RADIUS)
         if vhit:
             return vhit[0]
@@ -1182,8 +1398,13 @@ class AnnotateTab:
         return outlined.id if outlined is not None else None
 
     def _on_alt_down(self, event=None):
-        """Show the arrow while Alt is held in polygon mode: the next press selects, not draws."""
-        if self.app.mode == "polygon" and self.canvas.cget("cursor") == "cross":
+        """Show the arrow while Alt is held in polygon mode: the next press
+        selects, not draws.
+        """
+        if (
+            self.app.mode == "polygon"
+            and self.canvas.cget("cursor") == "cross"
+        ):
             self.canvas.config(cursor="arrow")
 
     def _on_alt_up(self, event=None):
@@ -1191,13 +1412,18 @@ class AnnotateTab:
             self.canvas.config(cursor="cross")
 
     def on_alt_press(self, event):
-        """Select the polygon under the pointer even where a plain click would snap and start one.
+        """Select the polygon under the pointer even where a plain click would
+        snap and start one.
 
         Anywhere else, or outside polygon mode, it is an ordinary press.
         """
         a = self.app
-        if (a.mode != "polygon" or self._in_legend(event) or not a._editable()
-                or a.current_polygon):
+        if (
+            a.mode != "polygon"
+            or self._in_legend(event)
+            or not a._editable()
+            or a.current_polygon
+        ):
             self.on_button_press(event)
             return
         picked = self._polygon_under_pointer(event.x, event.y)
@@ -1215,7 +1441,9 @@ class AnnotateTab:
         a._last_stream_pos = None
 
     def _start_polygon(self, ix, iy):
-        """Start a new polygon at an image point, snapped, and begin streaming if Stream is on."""
+        """Start a new polygon at an image point, snapped, and begin streaming
+        if Stream is on.
+        """
         a = self.app
         if a._review_filter_class == "all":
             a.show_banner("Select a class before drawing.")
@@ -1261,8 +1489,11 @@ class AnnotateTab:
 
     def _poly_release(self, event):
         a = self.app
-        if a._dragging_vertex is not None and self._vertex_press is not None \
-                and not self._vertex_drag_started:
+        if (
+            a._dragging_vertex is not None
+            and self._vertex_press is not None
+            and not self._vertex_drag_started
+        ):
             ann_id, vi = a._dragging_vertex
             self._vertex_press = None
             self._clear_drag_state()
@@ -1279,10 +1510,14 @@ class AnnotateTab:
             a._dragging_vertex = None
             a._drag_orig_pos = None
             self.canvas.config(cursor="cross")
-            if started and self._alive(ann_id) and polygon_is_degenerate(
-                    a.document.get(ann_id).points):
-                # Roll the flattened polygon back and drop the snapshot undo_snapshot
-                # pushed onto the redo stack so Ctrl+Y cannot restore it.
+            if (
+                started
+                and self._alive(ann_id)
+                and polygon_is_degenerate(a.document.get(ann_id).points)
+            ):
+                # Roll the flattened polygon back and drop the snapshot
+                # undo_snapshot pushed onto the redo stack so Ctrl+Y cannot
+                # restore it.
                 if self.engine.undo_snapshot():
                     a._redo_stack.pop()
                 self.display_image()
@@ -1302,14 +1537,14 @@ class AnnotateTab:
         a.accept_drawn_annotation(added)
         a.update_title()
 
-    # ── Polygon spatial index ─────────────────────────────────────────────────
+    # ── Polygon spatial index ────────────────────────────────────────────────
     def _invalidate_poly_bboxes(self):
         self.engine.invalidate_poly_bboxes()
 
     def _ensure_poly_bboxes(self):
         self.engine.ensure_poly_bboxes()
 
-    # ── Polygon geometry helpers ──────────────────────────────────────────────
+    # ── Polygon geometry helpers ─────────────────────────────────────────────
     def _find_nearest_vertex(self, cx, cy, threshold=8):
         a = self.app
         self._ensure_poly_bboxes()
@@ -1323,8 +1558,12 @@ class AnnotateTab:
             bbox = a._poly_bboxes.get(ann.id)
             if bbox is not None:
                 bx1, by1, bx2, by2 = bbox
-                if (qix + img_thr < bx1 or qix - img_thr > bx2
-                        or qiy + img_thr < by1 or qiy - img_thr > by2):
+                if (
+                    qix + img_thr < bx1
+                    or qix - img_thr > bx2
+                    or qiy + img_thr < by1
+                    or qiy - img_thr > by2
+                ):
                     continue
             for vi, (px, py) in enumerate(ann.points):
                 vcx, vcy = self.image_to_canvas(px, py)
@@ -1335,15 +1574,22 @@ class AnnotateTab:
         return best
 
     def _polygon_outline_distance(self, ann, cx, cy):
-        """Canvas-pixel distance from (cx, cy) to the nearest edge of a polygon annotation."""
+        """Canvas-pixel distance from (cx, cy) to the nearest edge of a polygon
+        annotation.
+        """
         points = ann.points
         n = len(points)
         canvas_pts = [self.image_to_canvas(*p) for p in points]
-        return min(point_to_segment_dist(cx, cy, *canvas_pts[i], *canvas_pts[(i + 1) % n])
-                   for i in range(n))
+        return min(
+            point_to_segment_dist(
+                cx, cy, *canvas_pts[i], *canvas_pts[(i + 1) % n]
+            )
+            for i in range(n)
+        )
 
     def _polygon_at_outline(self, cx, cy):
-        """The visible polygon whose outline is nearest (cx, cy) within BOX_EDGE_HIT_RADIUS, or None.
+        """The visible polygon whose outline is nearest (cx, cy) within
+        BOX_EDGE_HIT_RADIUS, or None.
 
         Like boxes, polygons are picked by their outline, never their interior,
         so a press inside one can start a new polygon there.
@@ -1359,17 +1605,23 @@ class AnnotateTab:
             bbox = a._poly_bboxes.get(ann.id)
             if bbox is not None:
                 bx1, by1, bx2, by2 = bbox
-                if (qix + img_thr < bx1 or qix - img_thr > bx2
-                        or qiy + img_thr < by1 or qiy - img_thr > by2):
+                if (
+                    qix + img_thr < bx1
+                    or qix - img_thr > bx2
+                    or qiy + img_thr < by1
+                    or qiy - img_thr > by2
+                ):
                     continue
             d = self._polygon_outline_distance(ann, cx, cy)
             if d <= best_d:
                 best, best_d = ann, d
         return best
 
-    # ── Navigation ────────────────────────────────────────────────────────────
+    # ── Navigation ───────────────────────────────────────────────────────────
     def next_index(self):
-        """The index a step forward lands on, honouring the active image filter."""
+        """The index a step forward lands on, honouring the active image
+        filter.
+        """
         a = self.app
         if a._active_filter != "all" and a._filtered_indices:
             for idx in a._filtered_indices:
@@ -1379,7 +1631,9 @@ class AnnotateTab:
         return a.index + 1
 
     def next_image(self, event=None):
-        """Step to the next image, asking first when this one is not marked complete."""
+        """Step to the next image, asking first when this one is not marked
+        complete.
+        """
         if self.app.confirm_leaving_incomplete():
             self.app.go_to_image(self.next_index())
 
@@ -1394,12 +1648,14 @@ class AnnotateTab:
             return
         a.go_to_image(a.index - 1)
 
-    # ── Undo / Redo ───────────────────────────────────────────────────────────
+    # ── Undo / Redo ──────────────────────────────────────────────────────────
     def _push_undo(self):
         self.engine.push_undo()
 
     def undo_last(self, event=None):
-        """Take back the last in-progress vertex, or else the last document change."""
+        """Take back the last in-progress vertex, or else the last document
+        change.
+        """
         a = self.app
         if a.current_polygon:
             a._vertex_redo_stack.append(a.current_polygon.pop())
@@ -1411,7 +1667,9 @@ class AnnotateTab:
             a.update_title()
 
     def redo_last(self, event=None):
-        """Put back the last undone in-progress vertex, or else the last undone document change."""
+        """Put back the last undone in-progress vertex, or else the last undone
+        document change.
+        """
         a = self.app
         if a._vertex_redo_stack:
             a.current_polygon.append(a._vertex_redo_stack.pop())
@@ -1422,37 +1680,46 @@ class AnnotateTab:
             self.display_image()
             a.update_title()
 
-    # ── Save annotations ──────────────────────────────────────────────────────
+    # ── Save annotations ─────────────────────────────────────────────────────
     def save_annotations(self):
-        """Save the current document. Returns None or the engine's error message."""
+        """Save the current document. Returns None or the engine's error
+        message.
+        """
         a = self.app
         if a.document is not None:
-            print(f"[YoloLabeler] Saving annotations for {a.images[a.index]} "
-                  f"({len(a.document.annotations)} annotations)")
+            print(
+                f"[YoloLabeler] Saving annotations for {a.images[a.index]} "
+                f"({len(a.document.annotations)} annotations)"
+            )
         return self.engine.save()
 
-    # ── Rendering (absorbed from AnnotateRenderer) ────────────────────────────
+    # ── Rendering (absorbed from AnnotateRenderer) ───────────────────────────
     def _symbology(self):
-        """Scale-dependent widths, radii and sizes shared by render and the streaming redraw.
+        """Scale-dependent widths, radii and sizes shared by render and the
+        streaming redraw.
 
-        Returns (line_w, poly_w, vert_r, sel_vert_r, label_size, dash_a, dash_b).
+        Returns (line_w, poly_w, vert_r, sel_vert_r, label_size, dash_a,
+        dash_b).
         """
         s = self.scale
         line_w = max(1, min(2 + s * 0.5, 6))
         poly_w = max(1, min(2.5 + s * 0.5, 7))
         vert_r = max(3, min(VERTEX_HANDLE_RADIUS * (1.6 - s * 0.2), 12))
-        sel_vert_r = max(vert_r + 2, 7,
-                         min(VERTEX_HANDLE_RADIUS * (2.2 - s * 0.2), 16))
+        sel_vert_r = max(
+            vert_r + 2, 7, min(VERTEX_HANDLE_RADIUS * (2.2 - s * 0.2), 16)
+        )
         label_size = max(7, min(int(9 * (0.6 + s * 0.4)), 18))
         dash_a = max(2, int(4 * (0.5 + s * 0.5)))
         dash_b = max(2, int(4 * (0.5 + s * 0.5)))
         return line_w, poly_w, vert_r, sel_vert_r, label_size, dash_a, dash_b
 
     def _draw_current_polygon_vertex(self, i):
-        """Draw vertex i of the polygon in progress and its edge from vertex i - 1.
+        """Draw vertex i of the polygon in progress and its edge from vertex i
+        - 1.
 
         Called by render for every vertex and by streaming for just the newest
-        one, so a streamed vertex costs two canvas items rather than a full redraw.
+        one, so a streamed vertex costs two canvas items rather than a full
+        redraw.
         """
         a = self.app
         line_w, _, vert_r, _, _, dash_a, dash_b = self._symbology()
@@ -1461,11 +1728,25 @@ class AnnotateTab:
         if i > 0:
             prev_cx, prev_cy = self.image_to_canvas(*a.current_polygon[i - 1])
             self.canvas.create_line(
-                prev_cx, prev_cy, cx, cy,
-                fill=color, width=line_w, dash=(dash_a, dash_b), tags="current_polygon")
+                prev_cx,
+                prev_cy,
+                cx,
+                cy,
+                fill=color,
+                width=line_w,
+                dash=(dash_a, dash_b),
+                tags="current_polygon",
+            )
         self.canvas.create_oval(
-            cx - vert_r, cy - vert_r, cx + vert_r, cy + vert_r,
-            fill=color, outline="white", width=1, tags="current_polygon")
+            cx - vert_r,
+            cy - vert_r,
+            cx + vert_r,
+            cy + vert_r,
+            fill=color,
+            outline="white",
+            width=1,
+            tags="current_polygon",
+        )
 
     def render(self):
         a = self.app
@@ -1490,13 +1771,16 @@ class AnnotateTab:
             crop_h = crop_y2 - crop_y1
             if crop_w > 0 and crop_h > 0:
                 cropped = a.original_image.crop(
-                    (crop_x1, crop_y1, crop_x2, crop_y2))
+                    (crop_x1, crop_y1, crop_x2, crop_y2)
+                )
                 out_w = max(int(crop_w * self.scale), 1)
                 out_h = max(int(crop_h * self.scale), 1)
                 resized = cropped.resize(
                     (out_w, out_h),
-                    Image.Resampling.BILINEAR if self._fast_resample
-                    else Image.Resampling.LANCZOS)
+                    Image.Resampling.BILINEAR
+                    if self._fast_resample
+                    else Image.Resampling.LANCZOS,
+                )
                 self._cached_tk_image = ImageTk.PhotoImage(resized)
             else:
                 self._cached_tk_image = None
@@ -1510,9 +1794,12 @@ class AnnotateTab:
             place_x = self.offset_x + crop_x1 * self.scale
             place_y = self.offset_y + crop_y1 * self.scale
             canvas.create_image(
-                place_x, place_y, anchor="nw", image=self._cached_tk_image)
+                place_x, place_y, anchor="nw", image=self._cached_tk_image
+            )
 
-        line_w, poly_w, vert_r, sel_vert_r, label_size, dash_a, dash_b = self._symbology()
+        line_w, poly_w, vert_r, sel_vert_r, label_size, dash_a, dash_b = (
+            self._symbology()
+        )
         placed_labels = []
 
         def _halo(x, y, text, fill, **kw):
@@ -1526,22 +1813,38 @@ class AnnotateTab:
                 if dvi < len(dpts):
                     drag_canvas_pt = self.image_to_canvas(*dpts[dvi])
 
-        focus_ann = a.queue[a.queue_index].annotation if (
-            a.queue and 0 <= a.queue_index < len(a.queue)) else None
-        gold_ann_id = (focus_ann.id if focus_ann is not None and a._annotation_visible
-                       else None)
+        focus_ann = (
+            a.queue[a.queue_index].annotation
+            if (a.queue and 0 <= a.queue_index < len(a.queue))
+            else None
+        )
+        gold_ann_id = (
+            focus_ann.id
+            if focus_ann is not None and a._annotation_visible
+            else None
+        )
 
-        # Predictions go down first so a solid annotation and its selection handles sit on top.
+        # Predictions go down first so a solid annotation and its selection
+        # handles sit on top.
         draw_prediction_layer(
-            self.canvas, self.image_to_canvas, a, a.class_names, a.font_family,
-            label_size, show_gt=a._annotation_visible, show_pred=a._review_show_pred,
-            class_color=a._get_class_color, placed_labels=placed_labels,
-            line_w=line_w, class_filter=a._review_filter_class)
+            self.canvas,
+            self.image_to_canvas,
+            a,
+            a.class_names,
+            a.font_family,
+            label_size,
+            show_gt=a._annotation_visible,
+            show_pred=a._review_show_pred,
+            class_color=a._get_class_color,
+            placed_labels=placed_labels,
+            line_w=line_w,
+            class_filter=a._review_filter_class,
+        )
         statuses = status_colors_active(a)
 
         for ann in self.visible_annotations():
             class_id = ann.class_id
-            is_selected = (ann.id == a._selected_annotation_id)
+            is_selected = ann.id == a._selected_annotation_id
             if ann.id == gold_ann_id and not is_selected:
                 continue
             label_fill = a._get_class_color(class_id)
@@ -1549,7 +1852,9 @@ class AnnotateTab:
                 color = status_color(statuses, ann.id)
             else:
                 color = label_fill
-            label = label_text(class_id, a.class_names, ann.id in a.flagged_shapes)
+            label = label_text(
+                class_id, a.class_names, ann.id in a.flagged_shapes
+            )
             if ann.kind == "box":
                 (x1, y1), (x2, y2) = ann.points
                 if x2 < vis_x1 or x1 > vis_x2 or y2 < vis_y1 or y1 > vis_y2:
@@ -1557,25 +1862,50 @@ class AnnotateTab:
                 cx1, cy1 = self.image_to_canvas(x1, y1)
                 cx2, cy2 = self.image_to_canvas(x2, y2)
                 canvas.create_rectangle(
-                    cx1, cy1, cx2, cy2, outline=SELECTION_COLOR if is_selected else color,
-                    width=line_w + 1 if is_selected else line_w)
+                    cx1,
+                    cy1,
+                    cx2,
+                    cy2,
+                    outline=SELECTION_COLOR if is_selected else color,
+                    width=line_w + 1 if is_selected else line_w,
+                )
                 if is_selected or ann.id == a._hovered_annotation_id:
                     r = sel_vert_r if is_selected else vert_r
-                    for hx, hy in ((cx1, cy1), (cx2, cy1), (cx2, cy2), (cx1, cy2)):
+                    for hx, hy in (
+                        (cx1, cy1),
+                        (cx2, cy1),
+                        (cx2, cy2),
+                        (cx1, cy2),
+                    ):
                         canvas.create_rectangle(
-                            hx - r, hy - r, hx + r, hy + r,
-                            fill="white", outline=SELECTION_COLOR if is_selected else color,
-                            width=2 if is_selected else 1)
-                _halo(cx1 + 2, cy1 - 2, anchor="sw", text=label, fill=label_fill,
-                      font=(a.font_family, label_size, "bold"))
+                            hx - r,
+                            hy - r,
+                            hx + r,
+                            hy + r,
+                            fill="white",
+                            outline=SELECTION_COLOR if is_selected else color,
+                            width=2 if is_selected else 1,
+                        )
+                _halo(
+                    cx1 + 2,
+                    cy1 - 2,
+                    anchor="sw",
+                    text=label,
+                    fill=label_fill,
+                    font=(a.font_family, label_size, "bold"),
+                )
                 continue
 
             points = ann.points
             if points and not is_selected:
                 pxs = [p[0] for p in points]
                 pys = [p[1] for p in points]
-                if (max(pxs) < vis_x1 or min(pxs) > vis_x2
-                        or max(pys) < vis_y1 or min(pys) > vis_y2):
+                if (
+                    max(pxs) < vis_x1
+                    or min(pxs) > vis_x2
+                    or max(pys) < vis_y1
+                    or min(pys) > vis_y2
+                ):
                     continue
             canvas_pts = []
             for px, py in points:
@@ -1583,13 +1913,18 @@ class AnnotateTab:
                 canvas_pts.extend([cx, cy])
             if len(canvas_pts) >= 6:
                 canvas.create_polygon(
-                    *canvas_pts, outline=SELECTION_COLOR if is_selected else color,
-                    fill="", width=poly_w + 1 if is_selected else poly_w)
+                    *canvas_pts,
+                    outline=SELECTION_COLOR if is_selected else color,
+                    fill="",
+                    width=poly_w + 1 if is_selected else poly_w,
+                )
             show_verts = (
                 is_selected
                 or ann.id == a._hovered_annotation_id
-                or (a._dragging_vertex is not None
-                    and a._dragging_vertex[0] == ann.id)
+                or (
+                    a._dragging_vertex is not None
+                    and a._dragging_vertex[0] == ann.id
+                )
             )
             if not show_verts and drag_canvas_pt is not None and points:
                 dcx, dcy = drag_canvas_pt
@@ -1604,24 +1939,40 @@ class AnnotateTab:
                 for px, py in points:
                     cx, cy = self.image_to_canvas(px, py)
                     canvas.create_oval(
-                        cx - r, cy - r, cx + r, cy + r,
-                        fill=fill, outline="white", width=2 if is_selected else 1)
+                        cx - r,
+                        cy - r,
+                        cx + r,
+                        cy + r,
+                        fill=fill,
+                        outline="white",
+                        width=2 if is_selected else 1,
+                    )
             if points:
-                lx, ly = self.image_to_canvas(min(p[0] for p in points),
-                                              min(p[1] for p in points))
-                _halo(lx + 2, ly - 2, anchor="sw", text=label, fill=label_fill,
-                      font=(a.font_family, label_size, "bold"))
+                lx, ly = self.image_to_canvas(
+                    min(p[0] for p in points), min(p[1] for p in points)
+                )
+                _halo(
+                    lx + 2,
+                    ly - 2,
+                    anchor="sw",
+                    text=label,
+                    fill=label_fill,
+                    font=(a.font_family, label_size, "bold"),
+                )
 
         if a.current_polygon:
             for i in range(len(a.current_polygon)):
                 self._draw_current_polygon_vertex(i)
-            last_cx, last_cy = self.image_to_canvas(
-                *a.current_polygon[-1])
+            last_cx, last_cy = self.image_to_canvas(*a.current_polygon[-1])
             self._poly_preview_line = canvas.create_line(
-                last_cx, last_cy,
-                self._mouse_canvas_x, self._mouse_canvas_y,
-                fill=a._get_class_color(a.active_class), width=max(1, line_w * 0.5),
-                dash=(dash_a // 2 or 1, dash_b))
+                last_cx,
+                last_cy,
+                self._mouse_canvas_x,
+                self._mouse_canvas_y,
+                fill=a._get_class_color(a.active_class),
+                width=max(1, line_w * 0.5),
+                dash=(dash_a // 2 or 1, dash_b),
+            )
 
         help_y0 = 10
         if a.banner_text:
@@ -1632,24 +1983,38 @@ class AnnotateTab:
         self._update_snap_indicator()
 
     def _legend_classes(self):
-        """Class ids drawn right now: the visible annotations and the predictions shown.
+        """Class ids drawn right now: the visible annotations and the
+        predictions shown.
 
-        Both follow the canvas's own rules, so the Labels and Predictions toggles,
-        the mode, the class filter and the focused item decide the rows.
+        Both follow the canvas's own rules, so the Labels and Predictions
+        toggles, the mode, the class filter and the focused item decide the
+        rows.
         """
         a = self.app
         ids = {ann.class_id for ann in self.visible_annotations()}
         if a._review_show_pred and not a.predictions_blind:
             focused = a._review_panel.current_item()
-            focused_pred_id = focused.prediction.id if focused and focused.prediction else None
-            ids |= {p.class_id for p in a.predictions
-                    if p.confidence >= a.conf_threshold and (
-                        a._review_filter_class == "all" or p.class_id == a._review_filter_class
-                        or p.id == focused_pred_id)}
+            focused_pred_id = (
+                focused.prediction.id
+                if focused and focused.prediction
+                else None
+            )
+            ids |= {
+                p.class_id
+                for p in a.predictions
+                if p.confidence >= a.conf_threshold
+                and (
+                    a._review_filter_class == "all"
+                    or p.class_id == a._review_filter_class
+                    or p.id == focused_pred_id
+                )
+            }
         return sorted(ids)
 
     def render_legend(self):
-        """Draw the symbology legend in the lower left: a chip, or the open panel above it."""
+        """Draw the symbology legend in the lower left: a chip, or the open
+        panel above it.
+        """
         a = self.app
         canvas = self.canvas
         ch = canvas.winfo_height() or 800
@@ -1661,10 +2026,26 @@ class AnnotateTab:
         chip_w = fnt.measure(chip) + pad * 2
         chip_y1 = ch - 10
         chip_y0 = chip_y1 - line_h
-        rounded_rect(canvas, x0, chip_y0, x0 + chip_w, chip_y1, fill=LEGEND_BG,
-                     outline=LEGEND_BORDER, width=1, tags="legend")
-        canvas.create_text(x0 + pad, (chip_y0 + chip_y1) / 2, anchor="w", text=chip,
-                           fill=FG_COLOR, font=font, tags="legend")
+        rounded_rect(
+            canvas,
+            x0,
+            chip_y0,
+            x0 + chip_w,
+            chip_y1,
+            fill=LEGEND_BG,
+            outline=LEGEND_BORDER,
+            width=1,
+            tags="legend",
+        )
+        canvas.create_text(
+            x0 + pad,
+            (chip_y0 + chip_y1) / 2,
+            anchor="w",
+            text=chip,
+            fill=FG_COLOR,
+            font=font,
+            tags="legend",
+        )
         if not self._legend_open:
             self._legend_bbox = (x0, chip_y0, x0 + chip_w, chip_y1)
             return
@@ -1674,77 +2055,177 @@ class AnnotateTab:
         reviewing = status_colors_active(a) is not None
         rows = []
         if reviewing:
-            rows += [(("heading",), "Review status: annotation | prediction"),
-                     (("status", STATUS_COLORS["accepted"]), "Accepted"),
-                     (("status", STATUS_COLORS["not_reviewed"]), "Not reviewed"),
-                     (("status", STATUS_COLORS["rejected"]), "Rejected")]
-        class_rows = [(("class", a._get_class_color(cid), cid),
-                       str(a.class_names.get(cid, cid)))
-                      for cid in self._legend_classes()]
+            rows += [
+                (("heading",), "Review status: annotation | prediction"),
+                (("status", STATUS_COLORS["accepted"]), "Accepted"),
+                (("status", STATUS_COLORS["not_reviewed"]), "Not reviewed"),
+                (("status", STATUS_COLORS["rejected"]), "Rejected"),
+            ]
+        class_rows = [
+            (
+                ("class", a._get_class_color(cid), cid),
+                str(a.class_names.get(cid, cid)),
+            )
+            for cid in self._legend_classes()
+        ]
         if class_rows:
             rows.append((("heading",), "Class label"))
             rows += class_rows
         rows.append((("heading",), "Marks"))
         if reviewing:
             rows.append((("halo",), "In focus"))
-        rows += [(("flag",), "Flagged"),
-                 (("selected",), "Editable")]
+        rows += [(("flag",), "Flagged"), (("selected",), "Editable")]
         if a.mode == "polygon" and a.snap_enabled:
             rows.append((("snap",), "Snap target"))
         text_w = max(fnt.measure(text) for _, text in rows)
         panel_w = pad * 3 + swatch_w + text_w
         panel_y1 = chip_y0 - 4
         panel_y0 = panel_y1 - pad * 2 - line_h * len(rows)
-        rounded_rect(canvas, x0, panel_y0, x0 + panel_w, panel_y1, fill=LEGEND_BG,
-                     outline=LEGEND_BORDER, width=1, tags="legend")
+        rounded_rect(
+            canvas,
+            x0,
+            panel_y0,
+            x0 + panel_w,
+            panel_y1,
+            fill=LEGEND_BG,
+            outline=LEGEND_BORDER,
+            width=1,
+            tags="legend",
+        )
         for i, (swatch, text) in enumerate(rows):
             cy = panel_y0 + pad + line_h * i + line_h / 2
             sx0, sx1 = x0 + pad, x0 + pad + swatch_w
             kind = swatch[0]
             if kind == "heading":
-                canvas.create_text(sx0, cy, anchor="w", text=text, fill=FG_COLOR,
-                                   font=(a.font_family, 12, "bold"), tags="legend")
+                canvas.create_text(
+                    sx0,
+                    cy,
+                    anchor="w",
+                    text=text,
+                    fill=FG_COLOR,
+                    font=(a.font_family, 12, "bold"),
+                    tags="legend",
+                )
                 continue
             if kind == "class":
-                canvas.create_text((sx0 + sx1) / 2, cy, text=str(swatch[2]), fill=swatch[1],
-                                   font=(a.font_family, 13, "bold"), tags="legend")
+                canvas.create_text(
+                    (sx0 + sx1) / 2,
+                    cy,
+                    text=str(swatch[2]),
+                    fill=swatch[1],
+                    font=(a.font_family, 13, "bold"),
+                    tags="legend",
+                )
             elif kind == "status":
                 bar = (sx0 + sx1) / 2
-                canvas.create_line(sx0, cy, bar - 4, cy, fill=swatch[1], width=3,
-                                   tags="legend")
-                canvas.create_line(bar, cy - 6, bar, cy + 6, fill=FG_COLOR, width=1,
-                                   tags="legend")
-                canvas.create_line(bar + 4, cy, sx1, cy, fill=swatch[1], width=3,
-                                   dash=LayerStyle().dash, tags="legend")
+                canvas.create_line(
+                    sx0,
+                    cy,
+                    bar - 4,
+                    cy,
+                    fill=swatch[1],
+                    width=3,
+                    tags="legend",
+                )
+                canvas.create_line(
+                    bar,
+                    cy - 6,
+                    bar,
+                    cy + 6,
+                    fill=FG_COLOR,
+                    width=1,
+                    tags="legend",
+                )
+                canvas.create_line(
+                    bar + 4,
+                    cy,
+                    sx1,
+                    cy,
+                    fill=swatch[1],
+                    width=3,
+                    dash=LayerStyle().dash,
+                    tags="legend",
+                )
             elif kind == "halo":
-                canvas.create_line(sx0, cy, sx1, cy, fill=SELECTION_COLOR, width=7,
-                                   tags="legend")
-                canvas.create_line(sx0, cy, sx1, cy, fill=FG_COLOR, width=2, tags="legend")
+                canvas.create_line(
+                    sx0,
+                    cy,
+                    sx1,
+                    cy,
+                    fill=SELECTION_COLOR,
+                    width=7,
+                    tags="legend",
+                )
+                canvas.create_line(
+                    sx0, cy, sx1, cy, fill=FG_COLOR, width=2, tags="legend"
+                )
             elif kind == "flag":
-                canvas.create_text((sx0 + sx1) / 2, cy, text=FLAG_MARK, fill=FLAG_COLOR,
-                                   font=(a.font_family, 14, "bold"), tags="legend")
+                canvas.create_text(
+                    (sx0 + sx1) / 2,
+                    cy,
+                    text=FLAG_MARK,
+                    fill=FLAG_COLOR,
+                    font=(a.font_family, 14, "bold"),
+                    tags="legend",
+                )
             elif kind == "selected":
-                canvas.create_line(sx0, cy, sx1, cy, fill=SELECTION_COLOR, width=3,
-                                   tags="legend")
+                canvas.create_line(
+                    sx0,
+                    cy,
+                    sx1,
+                    cy,
+                    fill=SELECTION_COLOR,
+                    width=3,
+                    tags="legend",
+                )
                 for hx in (sx0 + 3, sx1 - 3):
-                    canvas.create_oval(hx - 4, cy - 4, hx + 4, cy + 4, fill=SELECTION_COLOR,
-                                       outline="white", width=2, tags="legend")
+                    canvas.create_oval(
+                        hx - 4,
+                        cy - 4,
+                        hx + 4,
+                        cy + 4,
+                        fill=SELECTION_COLOR,
+                        outline="white",
+                        width=2,
+                        tags="legend",
+                    )
             else:
                 mid = (sx0 + sx1) / 2
-                canvas.create_oval(mid - SNAP_LEGEND_RADIUS, cy - SNAP_LEGEND_RADIUS,
-                                   mid + SNAP_LEGEND_RADIUS, cy + SNAP_LEGEND_RADIUS,
-                                   outline=SNAP_INDICATOR_COLOR, width=2, dash=(3, 3),
-                                   tags="legend")
-                canvas.create_oval(mid - SNAP_TARGET_DOT_RADIUS, cy - SNAP_TARGET_DOT_RADIUS,
-                                   mid + SNAP_TARGET_DOT_RADIUS, cy + SNAP_TARGET_DOT_RADIUS,
-                                   outline="black", fill=SNAP_INDICATOR_COLOR, width=1,
-                                   tags="legend")
-            canvas.create_text(sx1 + pad, cy, anchor="w", text=text, fill=FG_COLOR,
-                               font=font, tags="legend")
+                canvas.create_oval(
+                    mid - SNAP_LEGEND_RADIUS,
+                    cy - SNAP_LEGEND_RADIUS,
+                    mid + SNAP_LEGEND_RADIUS,
+                    cy + SNAP_LEGEND_RADIUS,
+                    outline=SNAP_INDICATOR_COLOR,
+                    width=2,
+                    dash=(3, 3),
+                    tags="legend",
+                )
+                canvas.create_oval(
+                    mid - SNAP_TARGET_DOT_RADIUS,
+                    cy - SNAP_TARGET_DOT_RADIUS,
+                    mid + SNAP_TARGET_DOT_RADIUS,
+                    cy + SNAP_TARGET_DOT_RADIUS,
+                    outline="black",
+                    fill=SNAP_INDICATOR_COLOR,
+                    width=1,
+                    tags="legend",
+                )
+            canvas.create_text(
+                sx1 + pad,
+                cy,
+                anchor="w",
+                text=text,
+                fill=FG_COLOR,
+                font=font,
+                tags="legend",
+            )
         self._legend_bbox = (x0, panel_y0, x0 + max(panel_w, chip_w), chip_y1)
 
     def _draw_block(self, lines, y0, font_size=14):
-        """Draw a padded text block at x 10, y0, shared by the banner and the help overlay; returns its height."""
+        """Draw a padded text block at x 10, y0, shared by the banner and the
+        help overlay; returns its height.
+        """
         canvas = self.canvas
         font_family = "Menlo" if sys.platform == "darwin" else "Consolas"
         pad = 14
@@ -1757,14 +2238,26 @@ class AnnotateTab:
         block_h = len(lines) * line_height + pad * 2
         x0 = 10
 
-        rounded_rect(canvas, x0, y0, x0 + block_w, y0 + block_h,
-                     fill="#1A1A1A", outline="#444444", width=1)
+        rounded_rect(
+            canvas,
+            x0,
+            y0,
+            x0 + block_w,
+            y0 + block_h,
+            fill="#1A1A1A",
+            outline="#444444",
+            width=1,
+        )
 
         for i, line in enumerate(lines):
             canvas.create_text(
-                x0 + pad, y0 + pad + i * line_height,
-                anchor="nw", text=line,
-                fill=FG_COLOR, font=(font_family, font_size))
+                x0 + pad,
+                y0 + pad + i * line_height,
+                anchor="nw",
+                text=line,
+                fill=FG_COLOR,
+                font=(font_family, font_size),
+            )
         return block_h
 
     def render_help(self, y0=10):
@@ -1774,5 +2267,8 @@ class AnnotateTab:
 
         item = a._review_panel.current_item()
         help_lines = keybindings.help_lines(
-            a.mode, has_queue=bool(a.queue), has_pair=bool(item and item.annotation))
+            a.mode,
+            has_queue=bool(a.queue),
+            has_pair=bool(item and item.annotation),
+        )
         self._draw_block(help_lines, y0, font_size=HELP_FONT_SIZE)

@@ -1,4 +1,4 @@
-"""Tests for yololabeler.annotation.tab, limited to what needs no Tk display."""
+"""Tests for yololabeler.annotation.tab, limited to what needs no display."""
 
 import pytest
 
@@ -11,7 +11,9 @@ from yololabeler.state import AppState
 
 @pytest.fixture
 def tab():
-    """An AnnotateTab over a bare AppState; visible_annotations needs no canvas."""
+    """An AnnotateTab over a bare AppState; visible_annotations needs no
+    canvas.
+    """
     state = AppState()
     state._engine = AnnotationEngine(state)
     state.document = Document("a.jpg", 640, 480)
@@ -19,15 +21,19 @@ def tab():
 
 
 def add(tab, kind, class_id):
-    """Append an annotation of the given kind and class to the fixture's document."""
-    points = (((0, 0), (10, 10)) if kind == "box"
-              else ((0, 0), (10, 0), (10, 10)))
+    """Append an annotation of the given kind and class to the fixture's
+    document.
+    """
+    points = (
+        ((0, 0), (10, 10)) if kind == "box" else ((0, 0), (10, 0), (10, 10))
+    )
     ann = new_annotation(kind, points, class_id, "tester")
     tab.app.document.add(ann)
     return ann
 
 
 # ── visible_annotations ─────────────────────────────────────────────────────
+
 
 class TestVisibleAnnotations:
     def test_matching_kind_and_class_is_visible(self, tab):
@@ -126,7 +132,9 @@ class TestVisibleAnnotations:
         tab.app._selected_annotation_id = selected.id
         assert tab.visible_annotations() == [first, selected, last]
 
-    def test_an_annotation_is_listed_once_when_selected_and_matching(self, tab):
+    def test_an_annotation_is_listed_once_when_selected_and_matching(
+        self, tab
+    ):
         tab.app.mode = "box"
         tab.app.active_class = 0
         ann = add(tab, "box", 0)
@@ -135,6 +143,7 @@ class TestVisibleAnnotations:
 
 
 # ── _alive ──────────────────────────────────────────────────────────────────
+
 
 class TestAlive:
     def test_known_id_is_alive(self, tab):

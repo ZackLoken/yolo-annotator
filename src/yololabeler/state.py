@@ -17,16 +17,17 @@ class AppState:
         # ── Image list & current image ──
         self.images = []
         self.index = 0
-        self.original_image = None   # PIL Image or None
+        self.original_image = None  # PIL Image or None
         self.img_width = 0
         self.img_height = 0
 
         # ── Annotation data ──
-        self.document = None         # Document for the current image, or None
-        self.load_errors = []        # rejected label-line messages for the current image
-        self.verdicts = {}           # live per-image verdict dict from ReviewEngine
-        self.current_polygon = []    # in-progress polygon vertices
-        self.mode = "polygon"        # "box" | "polygon"
+        self.document = None  # Document for the current image, or None
+        # rejected label-line messages for the current image
+        self.load_errors = []
+        self.verdicts = {}  # live per-image verdict dict from ReviewEngine
+        self.current_polygon = []  # in-progress polygon vertices
+        self.mode = "polygon"  # "box" | "polygon"
 
         # Box-drawing temporaries
         self.start_x = None
@@ -56,29 +57,44 @@ class AppState:
         self._poly_bboxes_dirty = True
 
         # ── Annotation interaction ──
-        self._dragging_vertex = None       # (annotation id, vertex index)
+        self._dragging_vertex = None  # (annotation id, vertex index)
         self._drag_orig_pos = None
         self._selected_annotation_id = None
         self._hovered_annotation_id = None
         self._stream_mode = False
         self._stream_active = False
         self._last_stream_pos = None
-        self._box_edit_mode = None     # None | "resize" | "move", while dragging a selected box
-        self._box_edit_anchor = None   # (x, y) fixed opposite corner, image px, during a resize
-        self._box_edit_origin = None   # (p1, p2, start_ix, start_iy), during a move
-        self._box_edit_dirty = False   # True once a drag has actually changed geometry
+        self._box_edit_mode = (
+            None  # None | "resize" | "move", while dragging a selected box
+        )
+        self._box_edit_anchor = (
+            None  # (x, y) fixed opposite corner, image px, during a resize
+        )
+        self._box_edit_origin = (
+            None  # (p1, p2, start_ix, start_iy), during a move
+        )
+        self._box_edit_dirty = (
+            False  # True once a drag has actually changed geometry
+        )
 
         # ── Review data ──
-        self.queue = []              # QueueItem list for the current image
+        self.queue = []  # QueueItem list for the current image
         self.queue_index = 0
-        self.predictions = []          # list[Prediction] for the current image
-        self.predictions_rejected = [] # "path: line n" messages from loading
-        self.predictions_blind = False # True when the image is blind and preds were not read
-        self.matches = {}              # compute_matches output for the current image
-        self.shape_statuses = None     # shape id -> review status, rebuilt with matches
-        self.flag_markers = {}         # open-flagged item key -> points its marker sits on
-        self.flagged_shapes = set()    # ids of the shapes whose label carries the flag mark
-        self.conf_threshold = 0.25     # mirrored from ReviewEngine.conf_threshold
+        self.predictions = []  # list[Prediction] for the current image
+        self.predictions_rejected = []  # "path: line n" messages from loading
+        self.predictions_blind = (
+            False  # True when the image is blind and preds were not read
+        )
+        self.matches = {}  # compute_matches output for the current image
+        self.shape_statuses = (
+            None  # shape id -> review status, rebuilt with matches
+        )
+        # open-flagged item key -> points its marker sits on
+        self.flag_markers = {}
+        self.flagged_shapes = (
+            set()
+        )  # ids of the shapes whose label carries the flag mark
+        self.conf_threshold = 0.25  # mirrored from ReviewEngine.conf_threshold
         self._review_filter_type = "all"
         self._review_filter_class = "all"
         self._review_status_filter = "all"
@@ -87,7 +103,12 @@ class AppState:
         self._annotation_visible = True
 
         # ── Stats & session tracking ──
-        self._stats = {"sessions": [], "image_status": {}, "blind": [], "completion": {}}
+        self._stats = {
+            "sessions": [],
+            "image_status": {},
+            "blind": [],
+            "completion": {},
+        }
         self._current_user = ""
         self._session_start = ""
         self._image_start_time = None

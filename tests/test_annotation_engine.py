@@ -30,6 +30,7 @@ def engine(tmp_path):
 
 # ── Spatial index ───────────────────────────────────────────────────────────
 
+
 class TestSpatialIndex:
     def test_bboxes_keyed_by_id(self, engine):
         a = new_annotation("polygon", TRI, 0, "z")
@@ -44,6 +45,7 @@ class TestSpatialIndex:
 
 
 # ── Creation ────────────────────────────────────────────────────────────────
+
 
 class TestCreation:
     def test_add_box_records_author(self, engine):
@@ -67,10 +69,14 @@ class TestCreation:
         engine.state.current_polygon = [(0, 0), (10, 10), (20, 20), (30, 30)]
         assert engine.close_current_polygon() is None
         assert engine.state.document.annotations == []
-        assert engine.state.current_polygon == [] and engine.state._undo_stack == []
+        assert (
+            engine.state.current_polygon == []
+            and engine.state._undo_stack == []
+        )
 
 
 # ── Undo / redo ─────────────────────────────────────────────────────────────
+
 
 class TestUndoRedo:
     def test_undo_restores_annotations_and_verdicts(self, engine):
@@ -80,7 +86,9 @@ class TestUndoRedo:
         a = engine.add_box(5, 5, 20, 20)
         s.verdicts["h:2"] = {"action": "accepted"}
         assert engine.undo_snapshot()
-        assert s.document.annotations == [] and s.verdicts == {"h:1": {"action": "rejected"}}
+        assert s.document.annotations == [] and s.verdicts == {
+            "h:1": {"action": "rejected"}
+        }
         assert engine.redo_snapshot()
         assert s.document.annotations == [a] and "h:2" in s.verdicts
 
@@ -103,23 +111,32 @@ class TestUndoRedo:
 
 # ── Delete and edit ─────────────────────────────────────────────────────────
 
+
 class TestEdit:
     def test_delete_and_set_points(self, engine):
         a = engine.add_box(5, 5, 20, 20)
         engine.set_points(a.id, ((6, 6), (21, 21)))
-        assert engine.state.document.get(a.id).points == ((6.0, 6.0), (21.0, 21.0))
+        assert engine.state.document.get(a.id).points == (
+            (6.0, 6.0),
+            (21.0, 21.0),
+        )
         assert engine.delete_annotation(a.id).id == a.id
         assert engine.state.document.annotations == []
 
 
 # ── Save ────────────────────────────────────────────────────────────────────
 
+
 class TestSave:
     def test_save_writes_labels_and_sidecar(self, engine):
         engine.add_box(0, 0, 50, 50)
         assert engine.save() is None
         detect, segment, sidecar = engine.label_paths()
-        assert os.path.exists(detect) and os.path.exists(sidecar) and not os.path.exists(segment)
+        assert (
+            os.path.exists(detect)
+            and os.path.exists(sidecar)
+            and not os.path.exists(segment)
+        )
 
     def test_save_reports_failure(self, engine):
         engine.add_box(0, 0, 50, 50)

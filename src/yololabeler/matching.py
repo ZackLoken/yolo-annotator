@@ -10,8 +10,8 @@ from collections import defaultdict
 from shapely.geometry import Polygon as ShapelyPolygon
 from shapely.validation import make_valid
 
-
 # ── Geometry primitives ─────────────────────────────────────────────────────
+
 
 def point_to_segment_dist(px, py, ax, ay, bx, by):
     """Return the distance from point *(px, py)* to segment *AB*."""
@@ -33,8 +33,9 @@ def point_in_polygon(px, py, points):
     for i in range(n):
         xi, yi = points[i]
         xj, yj = points[j]
-        if ((yi > py) != (yj > py)) and \
-           (px < (xj - xi) * (py - yi) / (yj - yi) + xi):
+        if ((yi > py) != (yj > py)) and (
+            px < (xj - xi) * (py - yi) / (yj - yi) + xi
+        ):
             inside = not inside
         j = i
     return inside
@@ -68,7 +69,9 @@ def polygon_iou(geom1, area1, geom2, area2):
 
 
 def polygon_area(points):
-    """The unsigned area of a simple polygon given as (x, y) vertices, by the shoelace formula."""
+    """The unsigned area of a simple polygon given as (x, y) vertices, by the
+    shoelace formula.
+    """
     n = len(points)
     if n < 3:
         return 0.0
@@ -88,8 +91,15 @@ def box_to_points(box):
 
 # ── Matching engine ─────────────────────────────────────────────────────────
 
-def compute_matches(gt_boxes, gt_polygons, pred_boxes, pred_polygons,
-                    iou_threshold=0.5, conf_threshold=0.25):
+
+def compute_matches(
+    gt_boxes,
+    gt_polygons,
+    pred_boxes,
+    pred_polygons,
+    iou_threshold=0.5,
+    conf_threshold=0.25,
+):
     """Match predictions to GT and classify as TP / FP / FN.
 
     Uses greedy matching: sort all same-class GT-Pred pairs by IoU
@@ -111,26 +121,27 @@ def compute_matches(gt_boxes, gt_polygons, pred_boxes, pred_polygons,
     Returns
     -------
     dict with keys:
-      ``'tp'``: ``[(gt_type, gt_idx, pred_type, pred_idx, iou, class_id, conf), ...]``
+      ``'tp'``: ``[(gt_type, gt_idx, pred_type, pred_idx, iou, class_id,
+      conf), ...]``
       ``'fp'``: ``[(pred_type, pred_idx, class_id, conf), ...]``
       ``'fn'``: ``[(gt_type, gt_idx, class_id), ...]``
     """
     # Build unified lists
     gt_items = []
     for i, (x1, y1, x2, y2, cid) in enumerate(gt_boxes):
-        gt_items.append(('box', i, cid, (x1, y1, x2, y2)))
+        gt_items.append(("box", i, cid, (x1, y1, x2, y2)))
     for i, (pts, cid) in enumerate(gt_polygons):
-        gt_items.append(('polygon', i, cid, pts))
+        gt_items.append(("polygon", i, cid, pts))
 
     pred_items = []
     for i, (x1, y1, x2, y2, cid, conf) in enumerate(pred_boxes):
         if conf < conf_threshold:
             continue
-        pred_items.append(('box', i, cid, conf, (x1, y1, x2, y2)))
+        pred_items.append(("box", i, cid, conf, (x1, y1, x2, y2)))
     for i, (pts, cid, conf) in enumerate(pred_polygons):
         if conf < conf_threshold:
             continue
-        pred_items.append(('polygon', i, cid, conf, pts))
+        pred_items.append(("polygon", i, cid, conf, pts))
 
     # Group by class
     gt_by_class = defaultdict(list)
@@ -147,7 +158,7 @@ def compute_matches(gt_boxes, gt_polygons, pred_boxes, pred_polygons,
     def _get_gt_geom(gi):
         if gi not in gt_geom_cache:
             gt_type, _, _, data = gt_items[gi]
-            pts = box_to_points(data) if gt_type == 'box' else data
+            pts = box_to_points(data) if gt_type == "box" else data
             g = ShapelyPolygon(pts)
             if not g.is_valid:
                 g = make_valid(g)
@@ -157,7 +168,7 @@ def compute_matches(gt_boxes, gt_polygons, pred_boxes, pred_polygons,
     def _get_pred_geom(pi):
         if pi not in pred_geom_cache:
             p_type, _, _, _, data = pred_items[pi]
-            pts = box_to_points(data) if p_type == 'box' else data
+            pts = box_to_points(data) if p_type == "box" else data
             g = ShapelyPolygon(pts)
             if not g.is_valid:
                 g = make_valid(g)
@@ -178,9 +189,10 @@ def compute_matches(gt_boxes, gt_polygons, pred_boxes, pred_polygons,
                 p_type = pred_items[pi][0]
                 p_data = pred_items[pi][4]
                 if gt_type != p_type:
-                    # A box never matches a polygon: a folder reviews one kind against the same kind.
+                    # A box never matches a polygon: a folder reviews one kind
+                    # against the same kind.
                     continue
-                if gt_type == 'box':
+                if gt_type == "box":
                     iou = box_iou(gt_data, p_data)
                 else:
                     g1, a1 = _get_gt_geom(gi)
@@ -216,4 +228,4 @@ def compute_matches(gt_boxes, gt_polygons, pred_boxes, pred_polygons,
         if gi not in matched_gt:
             fn_list.append((gt_type, gt_idx, gt_cid))
 
-    return {'tp': tp_list, 'fp': fp_list, 'fn': fn_list}
+    return {"tp": tp_list, "fp": fp_list, "fn": fn_list}

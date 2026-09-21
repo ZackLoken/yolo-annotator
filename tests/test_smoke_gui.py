@@ -1,4 +1,6 @@
-"""Headed smoke test: build the real window and drive the canvas; skipped without a display."""
+"""Headed smoke test: build the real window and drive the canvas; skipped
+without a display.
+"""
 
 import json
 import tkinter as tk
@@ -7,17 +9,22 @@ import pytest
 from PIL import Image
 
 pytest.importorskip("customtkinter")
-import customtkinter as ctk  # noqa: E402
+import customtkinter as ctk
 
-from yololabeler import gui as guimod  # noqa: E402
-from yololabeler.annotation.document import new_annotation  # noqa: E402
-from yololabeler.gui import YoloLabeler  # noqa: E402
-from yololabeler.review.engine import build_queue  # noqa: E402
-from yololabeler.review.layer import SELECTION_COLOR, STATUS_COLORS  # noqa: E402
+from yololabeler import gui as guimod
+from yololabeler.annotation.document import new_annotation
+from yololabeler.gui import YoloLabeler
+from yololabeler.review.engine import build_queue
+from yololabeler.review.layer import (
+    SELECTION_COLOR,
+    STATUS_COLORS,
+)
 
 
 def click_at(tab, ix, iy):
-    """A synthetic click event on the canvas point showing image pixel (ix, iy)."""
+    """A synthetic click event on the canvas point showing image pixel (ix,
+    iy).
+    """
     cx, cy = tab.image_to_canvas(ix, iy)
     return type("E", (), {"x": int(cx), "y": int(cy)})()
 
@@ -32,7 +39,7 @@ def disk_verdicts(folder, image="a.jpg"):
 
 
 def disk_img_status(folder, image="a.jpg"):
-    """The img_status review_stats.json actually holds on disk for one image."""
+    """The img_status review_stats.json holds on disk for one image."""
     path = folder / "state" / "review_stats.json"
     if not path.exists():
         return None
@@ -42,7 +49,9 @@ def disk_img_status(folder, image="a.jpg"):
 
 @pytest.fixture
 def folder(tmp_path):
-    """An image folder with one labelled image, one unlabelled, and predictions."""
+    """An image folder with one labelled image, one unlabelled, and
+    predictions.
+    """
     for name in ("a.jpg", "b.jpg"):
         Image.new("RGB", (640, 480), "gray").save(tmp_path / name)
     d = tmp_path / "labels" / "detect"
@@ -50,13 +59,16 @@ def folder(tmp_path):
     (d / "a.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
     p = tmp_path / "predictions" / "detect"
     p.mkdir(parents=True)
-    (p / "a.txt").write_text("0 0.9 0.5 0.5 0.2 0.2\n1 0.8 0.2 0.2 0.1 0.1\n", encoding="utf-8")
+    (p / "a.txt").write_text(
+        "0 0.9 0.5 0.5 0.2 0.2\n1 0.8 0.2 0.2 0.1 0.1\n", encoding="utf-8"
+    )
     return tmp_path
 
 
 @pytest.fixture
 def poly_folder(tmp_path):
-    """An image folder whose one polygon label is matched by one of two predictions.
+    """An image folder whose one polygon label is matched by one of two
+    predictions.
 
     The GT polygon is the pixel square (192,144)-(320,240) and the first
     prediction is identical to it, so the queue is one fp (the far class-1
@@ -66,12 +78,16 @@ def poly_folder(tmp_path):
         Image.new("RGB", (640, 480), "gray").save(tmp_path / name)
     s = tmp_path / "labels" / "segment"
     s.mkdir(parents=True)
-    (s / "a.txt").write_text("0 0.3 0.3 0.5 0.3 0.5 0.5 0.3 0.5\n", encoding="utf-8")
+    (s / "a.txt").write_text(
+        "0 0.3 0.3 0.5 0.3 0.5 0.5 0.3 0.5\n", encoding="utf-8"
+    )
     p = tmp_path / "predictions" / "segment"
     p.mkdir(parents=True)
     (p / "a.txt").write_text(
         "0 0.9 0.3 0.3 0.5 0.3 0.5 0.5 0.3 0.5\n"
-        "1 0.8 0.75 0.75 0.875 0.75 0.875 0.9 0.75 0.9\n", encoding="utf-8")
+        "1 0.8 0.75 0.75 0.875 0.75 0.875 0.9 0.75 0.9\n",
+        encoding="utf-8",
+    )
     return tmp_path
 
 
@@ -84,16 +100,20 @@ def new_root():
 
 
 def drop_deferred_callbacks(root):
-    """Cancel every pending root.after timer so none of them fires part-way through a test.
+    """Cancel every pending root.after timer so none of them fires part-way
+    through a test.
 
-    The app arms a 100ms welcome screen when it is built with no folder, and the
-    fixtures build it that way before opening one. Left pending, it fires after
-    the image has loaded and wipes the canvas. Idle callbacks are left alone
-    because the canvas redraw throttle only re-arms once its own idle callback
-    has run.
+    The app arms a 100ms welcome screen when it is built with no folder, and
+    the fixtures build it that way before opening one. Left pending, it fires
+    after the image has loaded and wipes the canvas. Idle callbacks are left
+    alone because the canvas redraw throttle only re-arms once its own idle
+    callback has run.
     """
     for after_id in root.tk.splitlist(root.tk.call("after", "info")):
-        if root.tk.splitlist(root.tk.call("after", "info", after_id))[-1] == "timer":
+        if (
+            root.tk.splitlist(root.tk.call("after", "info", after_id))[-1]
+            == "timer"
+        ):
             root.after_cancel(after_id)
 
 
@@ -115,7 +135,9 @@ def app(folder):
 
 @pytest.fixture
 def poly_app(poly_folder):
-    """A live YoloLabeler on the polygon folder; skipped when Tk has no display."""
+    """A live YoloLabeler on the polygon folder; skipped when Tk has no
+    display.
+    """
     root = new_root()
     root.geometry("900x600")
     app = YoloLabeler(root)
@@ -131,6 +153,7 @@ def poly_app(poly_folder):
 
 # ── annotate ────────────────────────────────────────────────────────────────
 
+
 class TestAnnotate:
     def test_load_image_renders_once(self, app):
         tab = app._annotate_tab
@@ -140,13 +163,20 @@ class TestAnnotate:
         app.root.update()
         assert len(renders) == 1
 
-    def test_renaming_the_class_redraws_its_labels_at_once(self, app, monkeypatch):
+    def test_renaming_the_class_redraws_its_labels_at_once(
+        self, app, monkeypatch
+    ):
         tab = app._annotate_tab
         app._select_class_for_filter_and_draw(0)
-        monkeypatch.setattr(app, "_class_name_dialog", lambda text, title: "hazelnut")
+        monkeypatch.setattr(
+            app, "_class_name_dialog", lambda text, title: "hazelnut"
+        )
         app._rename_class_dialog()
-        labels = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_all()
-                  if tab.canvas.type(i) == "text"]
+        labels = [
+            tab.canvas.itemcget(i, "text")
+            for i in tab.canvas.find_all()
+            if tab.canvas.type(i) == "text"
+        ]
         assert any(t.startswith("0: hazelnut") for t in labels)
 
     def test_loads_document(self, app):
@@ -194,11 +224,17 @@ class TestAnnotate:
 
     def test_the_all_class_filter_shows_every_class(self, app):
         app.class_names[1] = "other"
-        app.document.add(new_annotation("box", ((10, 10), (60, 60)), 1, "tester"))
+        app.document.add(
+            new_annotation("box", ((10, 10), (60, 60)), 1, "tester")
+        )
         app._select_class_for_filter_and_draw(0)
-        assert [a.class_id for a in app._annotate_tab.visible_annotations()] == [0]
+        assert [
+            a.class_id for a in app._annotate_tab.visible_annotations()
+        ] == [0]
         app._on_class_selected("All")
-        assert [a.class_id for a in app._annotate_tab.visible_annotations()] == [0, 1]
+        assert [
+            a.class_id for a in app._annotate_tab.visible_annotations()
+        ] == [0, 1]
 
     def test_picking_a_class_clears_the_draw_prompt_banner(self, app):
         app.show_banner("Select a class before drawing.")
@@ -207,6 +243,7 @@ class TestAnnotate:
 
 
 # ── window resize keeps the zoom ────────────────────────────────────────────
+
 
 def resize_event(width, height):
     """A synthetic canvas Configure event."""
@@ -226,7 +263,9 @@ class TestResizeKeepsZoom:
         tab._finalize_resize()
         assert tab.scale == scale
 
-    def test_a_fit_guessed_before_the_canvas_was_mapped_is_redone_once(self, app):
+    def test_a_fit_guessed_before_the_canvas_was_mapped_is_redone_once(
+        self, app
+    ):
         tab = app._annotate_tab
         tab._on_canvas_configure(resize_event(800, 500))
         tab._fit_pending = True
@@ -249,8 +288,11 @@ class TestResizeKeepsZoom:
 
 # ── box editing ─────────────────────────────────────────────────────────────
 
+
 def box_setup(app):
-    """The tab and the fixture's GT box, with its class chosen and the image in view."""
+    """The tab and the fixture's GT box, with its class chosen and the image in
+    view.
+    """
     app._select_class_for_filter_and_draw(0)
     tab = app._annotate_tab
     tab.fit_to_window()
@@ -258,7 +300,9 @@ def box_setup(app):
 
 
 def image_point(tab, ix, iy):
-    """The image point a synthetic click at (ix, iy) lands on after pixel rounding."""
+    """The image point a synthetic click at (ix, iy) lands on after pixel
+    rounding.
+    """
     event = click_at(tab, ix, iy)
     return tab.canvas_to_image(event.x, event.y)
 
@@ -283,7 +327,9 @@ class TestBoxEditing:
         assert moved == pytest.approx(image_point(tab, x1 + 40, y1 + 30))
         assert app._box_edit_mode is None and app._box_edit_dirty is False
 
-    def test_dragging_the_outline_shifts_both_points_by_the_same_delta(self, app):
+    def test_dragging_the_outline_shifts_both_points_by_the_same_delta(
+        self, app
+    ):
         tab, ann = box_setup(app)
         (x1, y1), (x2, y2) = ann.points
         cx, cy = top_edge_mid(ann)
@@ -296,9 +342,12 @@ class TestBoxEditing:
         tab.on_button_release(click_at(tab, cx + 60, cy - 20))
         dx, dy = tx - sx, ty - sy
         assert flat(app.document.get(ann.id).points) == pytest.approx(
-            [x1 + dx, y1 + dy, x2 + dx, y2 + dy])
+            [x1 + dx, y1 + dy, x2 + dx, y2 + dy]
+        )
 
-    def test_dragging_the_outline_past_an_edge_clamps_it_inside_the_image(self, app):
+    def test_dragging_the_outline_past_an_edge_clamps_it_inside_the_image(
+        self, app
+    ):
         tab, ann = box_setup(app)
         (x1, y1), (x2, y2) = ann.points
         cx, cy = top_edge_mid(ann)
@@ -307,8 +356,13 @@ class TestBoxEditing:
         tab.on_move_press(click_at(tab, x2 + 400, y2 + 400))
         tab.on_button_release(click_at(tab, x2 + 400, y2 + 400))
         assert flat(app.document.get(ann.id).points) == pytest.approx(
-            [app.img_width - (x2 - x1), app.img_height - (y2 - y1),
-             app.img_width, app.img_height])
+            [
+                app.img_width - (x2 - x1),
+                app.img_height - (y2 - y1),
+                app.img_width,
+                app.img_height,
+            ]
+        )
 
     def test_shift_press_in_box_mode_is_an_ordinary_press(self, app):
         tab = app._annotate_tab
@@ -329,7 +383,8 @@ class TestBoxEditing:
         tab.scale, tab.offset_x, tab.offset_y = 0.5, 100.0, 100.0
         drag_box_to(tab, ann, 345, 250)
         (x1, y1), (x2, y2) = app.document.get(ann.id).points
-        # A small drag moves both corners by the same few pixels; it used to pin x1 at 0.
+        # A small drag moves both corners by the same few pixels; it used to
+        # pin x1 at 0.
         assert 0 < x1 + 20 < 10 and x2 - 700 == pytest.approx(x1 + 20)
         assert 0 < y1 + 10 < 10 and y2 - 500 == pytest.approx(y1 + 10)
 
@@ -350,7 +405,9 @@ class TestBoxEditing:
         app.redo()
         assert app.document.get(ann.id).points == before
 
-    def test_a_click_with_no_drag_pushes_no_undo_and_keeps_the_redo_stack(self, app):
+    def test_a_click_with_no_drag_pushes_no_undo_and_keeps_the_redo_stack(
+        self, app
+    ):
         tab, ann = box_setup(app)
         tab.on_button_press(click_at(tab, 40, 40))
         tab.on_button_release(click_at(tab, 140, 140))
@@ -365,7 +422,9 @@ class TestBoxEditing:
         assert (len(app._undo_stack), len(app._redo_stack)) == (0, 1)
         assert app.document.get(ann.id).points == before
 
-    def test_clicking_another_box_selects_it_without_starting_a_draw(self, app):
+    def test_clicking_another_box_selects_it_without_starting_a_draw(
+        self, app
+    ):
         tab, ann = box_setup(app)
         tab.on_button_press(click_at(tab, 40, 40))
         tab.on_button_release(click_at(tab, 140, 140))
@@ -402,7 +461,9 @@ class TestBoxEditing:
         count = len(app.document.annotations)
         cx, cy = box_center(ann)
         tab.on_button_press(click_at(tab, cx - 20, cy - 20))
-        assert app._box_edit_mode is None and app._selected_annotation_id is None
+        assert (
+            app._box_edit_mode is None and app._selected_annotation_id is None
+        )
         tab.on_move_press(click_at(tab, cx + 20, cy + 20))
         tab.on_button_release(click_at(tab, cx + 20, cy + 20))
         assert len(app.document.annotations) == count + 1
@@ -419,12 +480,15 @@ class TestBoxEditing:
         dx, dy = tx - sx, ty - sy
         assert app._selected_annotation_id == ann.id
         assert flat(app.document.get(ann.id).points) == pytest.approx(
-            [x1 + dx, y1 + dy, x2 + dx, y2 + dy])
+            [x1 + dx, y1 + dy, x2 + dx, y2 + dy]
+        )
 
-    def test_hiding_labels_lets_you_draw_over_an_already_selected_box(self, app):
+    def test_hiding_labels_lets_you_draw_over_an_already_selected_box(
+        self, app
+    ):
         tab, ann = box_setup(app)
         tab.select_annotation(ann.id)
-        (x1, y1), (x2, y2) = ann.points
+        (x1, y1), _ = ann.points
         count = len(app.document.annotations)
         app._annotation_visible = False
         tab.on_button_press(click_at(tab, x1, y1))
@@ -464,19 +528,28 @@ class TestBoxEditing:
 
 # ── render ──────────────────────────────────────────────────────────────────
 
+
 def shapes_at(tab, points):
-    """(outline colour, width) for every canvas shape drawn at those image points."""
+    """(outline colour, width) for every canvas shape drawn at those image
+    points.
+    """
     canvas = tab.canvas
     want = [c for p in points for c in tab.image_to_canvas(*p)]
-    return [(canvas.itemcget(i, "outline"), float(canvas.itemcget(i, "width")))
-            for i in canvas.find_all()
-            if canvas.coords(i) == pytest.approx(want, abs=0.5)]
+    return [
+        (canvas.itemcget(i, "outline"), float(canvas.itemcget(i, "width")))
+        for i in canvas.find_all()
+        if canvas.coords(i) == pytest.approx(want, abs=0.5)
+    ]
 
 
 def add_polygon(app):
-    """Append a polygon annotation of the active class to the loaded document."""
-    ann = new_annotation("polygon", ((100, 100), (200, 100), (200, 200)),
-                         app.active_class, "tester")
+    """Append a polygon annotation of the active class to the document."""
+    ann = new_annotation(
+        "polygon",
+        ((100, 100), (200, 100), (200, 200)),
+        app.active_class,
+        "tester",
+    )
     app.document.add(ann)
     return ann
 
@@ -484,14 +557,17 @@ def add_polygon(app):
 class TestRenderSelection:
     def test_unselected_box_is_drawn_once_in_the_class_colour(self, app):
         tab = app._annotate_tab
-        # Undo load_image()'s auto-zoom onto the fp item so the GT box isn't culled off-screen.
+        # Undo load_image()'s auto-zoom onto the fp item so the GT box isn't
+        # culled off-screen.
         tab.fit_to_window()
         app.queue = []
-        # No review context at all, which is what puts an annotation in its class colour.
+        # No review context at all, which is what puts an annotation in its
+        # class colour.
         app.shape_statuses = None
         app._review_show_pred = False
         ann = app.document.annotations[0]
-        # Undo load_image()'s auto-selected fp class so the GT box passes the class-match check.
+        # Undo load_image()'s auto-selected fp class so the GT box passes the
+        # class-match check.
         app._select_class_by_id(ann.class_id)
         tab.render()
         drawn = shapes_at(tab, ann.points)
@@ -527,9 +603,13 @@ class TestRenderSelection:
                     continue
                 rx0, ry0, rx1, ry1 = canvas.coords(i)
                 if abs(rx1 - rx0) >= box_w or abs(ry1 - ry0) >= box_w:
-                    continue  # the full-box outline/halo rectangles, not a handle
+                    # the full-box outline/halo rectangles, not a handle
+                    continue
                 center = ((rx0 + rx1) / 2, (ry0 + ry1) / 2)
-                if any(center == pytest.approx(corner, abs=0.5) for corner in corners):
+                if any(
+                    center == pytest.approx(corner, abs=0.5)
+                    for corner in corners
+                ):
                     found.append(i)
             return found
 
@@ -551,15 +631,28 @@ class TestRenderSelection:
         assert app._hovered_annotation_id == ann.id
         tab.render()
         (x1, y1), (x2, y2) = ann.points
-        corners = [tab.image_to_canvas(x, y) for x, y in ((x1, y1), (x2, y1), (x2, y2), (x1, y2))]
+        corners = [
+            tab.image_to_canvas(x, y)
+            for x, y in ((x1, y1), (x2, y1), (x2, y2), (x1, y2))
+        ]
         canvas = tab.canvas
-        handles = [i for i in canvas.find_all() if canvas.type(i) == "rectangle"
-                   and canvas.itemcget(i, "fill") == "white"
-                   and any(((canvas.coords(i)[0] + canvas.coords(i)[2]) / 2,
-                            (canvas.coords(i)[1] + canvas.coords(i)[3]) / 2)
-                           == pytest.approx(c, abs=0.5) for c in corners)]
+        handles = [
+            i
+            for i in canvas.find_all()
+            if canvas.type(i) == "rectangle"
+            and canvas.itemcget(i, "fill") == "white"
+            and any(
+                (
+                    (canvas.coords(i)[0] + canvas.coords(i)[2]) / 2,
+                    (canvas.coords(i)[1] + canvas.coords(i)[3]) / 2,
+                )
+                == pytest.approx(c, abs=0.5)
+                for c in corners
+            )
+        ]
         assert len(handles) == 4
-        # Hover checks are throttled to ~60 fps; a fast machine lands the next motion inside it.
+        # Hover checks are throttled to ~60 fps; a fast machine lands the next
+        # motion inside it.
         tab._motion_last_time = 0.0
         tab._on_motion(motion_at(tab, 5, 5))
         assert app._hovered_annotation_id is None
@@ -571,13 +664,18 @@ class TestRenderSelection:
         app._select_class_for_filter_and_draw(0)
         app._set_mode("polygon")
         tab.scale, tab.offset_x, tab.offset_y = 1.0, 0.0, 0.0
-        ann = new_annotation("polygon", ((200, 200), (100, 100), (200, 100)), 0, "tester")
+        ann = new_annotation(
+            "polygon", ((200, 200), (100, 100), (200, 100)), 0, "tester"
+        )
         app.document.add(ann)
         tab.render()
         canvas = tab.canvas
         label = f"0: {app.class_names[0]}"
-        spots = {tuple(canvas.coords(i)) for i in canvas.find_all()
-                 if canvas.type(i) == "text" and canvas.itemcget(i, "text") == label}
+        spots = {
+            tuple(canvas.coords(i))
+            for i in canvas.find_all()
+            if canvas.type(i) == "text" and canvas.itemcget(i, "text") == label
+        }
         assert (102.0, 98.0) in spots
 
     def test_unselected_polygon_is_drawn_once_in_the_class_colour(self, app):
@@ -609,14 +707,20 @@ class TestRenderSelection:
         tab.select_annotation(ann.id)
         tab.render()
         canvas = tab.canvas
-        ovals = [i for i in canvas.find_all() if canvas.type(i) == "oval"
-                 and canvas.itemcget(i, "fill") == SELECTION_COLOR]
+        ovals = [
+            i
+            for i in canvas.find_all()
+            if canvas.type(i) == "oval"
+            and canvas.itemcget(i, "fill") == SELECTION_COLOR
+        ]
         assert len(ovals) == len(ann.points)
         assert all(canvas.itemcget(i, "outline") == "white" for i in ovals)
 
 
 def polygon_setup(app, scale=1.0):
-    """Polygon mode, class 0 active, an unshifted view at scale, and one polygon added."""
+    """Polygon mode, class 0 active, an unshifted view at scale, and one
+    polygon added.
+    """
     tab = app._annotate_tab
     app._select_class_for_filter_and_draw(0)
     app._set_mode("polygon")
@@ -643,7 +747,9 @@ class TestPolygonInteraction:
         tab.on_button_release(click_at(tab, *top_edge_mid(box)))
         assert len(app.document.get(box.id).points) == 2
 
-    def test_undoing_the_only_pending_vertex_keeps_the_last_closed_polygon(self, app):
+    def test_undoing_the_only_pending_vertex_keeps_the_last_closed_polygon(
+        self, app
+    ):
         tab, ann = polygon_setup(app)
         tab.on_button_press(click_at(tab, 300, 300))
         tab.on_button_press(click_at(tab, 400, 300))
@@ -671,7 +777,7 @@ class TestPolygonInteraction:
         assert app.current_polygon == [(50, 50)]
 
     def test_a_click_inside_a_polygon_starts_a_new_one(self, app):
-        tab, ann = polygon_setup(app)
+        tab, _ = polygon_setup(app)
         tab.on_button_press(click_at(tab, 170, 130))
         assert app._selected_annotation_id is None
         assert app.current_polygon == [(170, 130)]
@@ -682,7 +788,9 @@ class TestPolygonInteraction:
         assert app._selected_annotation_id == ann.id
         assert app.current_polygon == []
 
-    def test_a_right_click_on_a_polygon_outline_deletes_it_and_inside_does_not(self, app):
+    def test_a_right_click_on_a_polygon_outline_deletes_it_and_inside_does_not(
+        self, app
+    ):
         tab, ann = polygon_setup(app)
         tab.on_right_click(click_at(tab, 170, 130))
         assert any(a.id == ann.id for a in app.document.annotations)
@@ -716,7 +824,9 @@ class TestPolygonInteraction:
         assert moved == tuple((x + 10, y + 20) for x, y in ann.points)
         assert len(app._undo_stack) == 1
 
-    def test_dragging_the_selected_polygons_edge_moves_it_rather_than_inserting(self, app):
+    def test_dragging_the_selected_polygon_edge_moves_it_rather_than_inserting(
+        self, app
+    ):
         tab, ann = polygon_setup(app)
         tab.select_annotation(ann.id)
         tab.on_button_press(click_at(tab, 150, 100))
@@ -734,7 +844,9 @@ class TestPolygonInteraction:
         assert app.document.get(ann.id).points == ann.points
         assert app._undo_stack == []
 
-    def test_shift_click_on_the_selected_polygons_edge_inserts_a_vertex(self, app):
+    def test_shift_click_on_the_selected_polygons_edge_inserts_a_vertex(
+        self, app
+    ):
         tab, ann = polygon_setup(app)
         tab.select_annotation(ann.id)
         tab.on_shift_press(click_at(tab, 150, 100))
@@ -745,15 +857,19 @@ class TestPolygonInteraction:
         assert pts[1] == (150, 80)
         assert len(app._undo_stack) == 1
 
-    def test_shift_press_off_the_selected_polygon_is_an_ordinary_press(self, app):
+    def test_shift_press_off_the_selected_polygon_is_an_ordinary_press(
+        self, app
+    ):
         tab, ann = polygon_setup(app)
         tab.select_annotation(ann.id)
         tab.on_shift_press(click_at(tab, 400, 400))
         assert tab._shape_move is None
         assert app._selected_annotation_id is None
 
-    def test_a_click_on_an_unselected_polygons_vertex_starts_a_polygon_there(self, app):
-        tab, ann = polygon_setup(app)
+    def test_a_click_on_an_unselected_polygons_vertex_starts_a_polygon_there(
+        self, app
+    ):
+        tab, _ = polygon_setup(app)
         tab.on_button_press(click_at(tab, 203, 98))
         assert app._selected_annotation_id is None
         assert app.current_polygon == [(200, 100)]
@@ -769,15 +885,21 @@ class TestPolygonInteraction:
         app.show_help = True
         tab.render()
         canvas = tab.canvas
-        texts = [canvas.itemcget(i, "text") for i in canvas.find_all()
-                 if canvas.type(i) == "text"]
+        texts = [
+            canvas.itemcget(i, "text")
+            for i in canvas.find_all()
+            if canvas.type(i) == "text"
+        ]
         assert any(t.startswith("  Alt+click a vertex") for t in texts)
         assert any(t.startswith("  Shift+click an edge") for t in texts)
 
     def test_motion_with_alt_held_shows_the_select_cursor(self, app):
         tab, _ = polygon_setup(app)
         from yololabeler.annotation.tab import ALT_STATE_MASK
-        held = type("E", (), {"x": 300.0, "y": 300.0, "state": ALT_STATE_MASK})()
+
+        held = type(
+            "E", (), {"x": 300.0, "y": 300.0, "state": ALT_STATE_MASK}
+        )()
         tab._on_motion(held)
         assert tab.canvas.cget("cursor") == "arrow"
         tab._on_motion(motion_at(tab, 310, 300))
@@ -792,7 +914,7 @@ class TestPolygonInteraction:
         assert tab.canvas.cget("cursor") == "cross"
 
     def test_alt_leaves_a_drag_cursor_and_box_mode_alone(self, app):
-        tab, ann = polygon_setup(app)
+        tab, _ = polygon_setup(app)
         tab.canvas.config(cursor="fleur")
         tab._on_alt_down()
         assert tab.canvas.cget("cursor") == "fleur"
@@ -809,13 +931,22 @@ class TestPolygonInteraction:
         app.show_help = True
         tab.render()
         canvas = tab.canvas
-        assert all(canvas.type(i) == "polygon" for i in canvas.find_withtag("badge")
-                   if canvas.type(i) != "text")
-        legend_shapes = [canvas.type(i) for i in canvas.find_withtag("legend")
-                         if canvas.type(i) not in ("text", "line", "oval")]
+        assert all(
+            canvas.type(i) == "polygon"
+            for i in canvas.find_withtag("badge")
+            if canvas.type(i) != "text"
+        )
+        legend_shapes = [
+            canvas.type(i)
+            for i in canvas.find_withtag("legend")
+            if canvas.type(i) not in ("text", "line", "oval")
+        ]
         assert legend_shapes and set(legend_shapes) == {"polygon"}
-        assert not any(canvas.type(i) == "rectangle" and canvas.itemcget(i, "fill") == "#1A1A1A"
-                       for i in canvas.find_all())
+        assert not any(
+            canvas.type(i) == "rectangle"
+            and canvas.itemcget(i, "fill") == "#1A1A1A"
+            for i in canvas.find_all()
+        )
 
     def test_escape_does_not_deselect(self, app):
         tab, ann = polygon_setup(app)
@@ -833,7 +964,9 @@ class TestPolygonInteraction:
         app._on_escape()
         assert app.current_polygon == []
 
-    def test_clicking_a_selected_polygons_vertex_starts_a_polygon_there(self, app):
+    def test_clicking_a_selected_polygons_vertex_starts_a_polygon_there(
+        self, app
+    ):
         tab, ann = polygon_setup(app)
         tab.select_annotation(ann.id)
         tab.on_button_press(click_at(tab, 100, 100))
@@ -862,7 +995,8 @@ class TestPolygonInteraction:
         app._stream_mode = True
         app.current_polygon = [(10, 10)]
         app._stream_active = True
-        # 3 image px is 12 screen px at 4x, under the 15 px spacing; 4 image px is 16.
+        # 3 image px is 12 screen px at 4x, under the 15 px spacing; 4 image px
+        # is 16.
         tab._on_motion(motion_at(tab, 13, 10))
         assert len(app.current_polygon) == 1
         tab._on_motion(motion_at(tab, 14, 10))
@@ -876,7 +1010,7 @@ class TestPolygonInteraction:
         assert app.current_polygon == []
 
     def test_a_click_that_snaps_to_a_vertex_starts_a_polygon_there(self, app):
-        tab, ann = polygon_setup(app)
+        tab, _ = polygon_setup(app)
         app.snap_enabled = True
         tab.on_button_press(click_at(tab, 103, 102))
         assert app._selected_annotation_id is None
@@ -886,8 +1020,11 @@ class TestPolygonInteraction:
         tab, _ = polygon_setup(app)
         app.snap_enabled = True
         dense = new_annotation(
-            "polygon", tuple((x, 300) for x in range(300, 400, 5)) + ((350, 350),),
-            app.active_class, "tester")
+            "polygon",
+            (*((x, 300) for x in range(300, 400, 5)), (350, 350)),
+            app.active_class,
+            "tester",
+        )
         app.document.add(dense)
         tab.on_button_press(click_at(tab, 322, 300))
         assert app.current_polygon == [(320, 300)]
@@ -902,10 +1039,13 @@ class TestPolygonInteraction:
         assert app._selected_annotation_id is None
         assert app.current_polygon == [(400, 400)]
 
-    def test_a_click_clear_of_every_vertex_and_outline_starts_a_polygon(self, app):
-        tab, ann = polygon_setup(app)
+    def test_a_click_clear_of_every_vertex_and_outline_starts_a_polygon(
+        self, app
+    ):
+        tab, _ = polygon_setup(app)
         app.snap_enabled = True
-        # 28 px from the (100, 100) vertex, outside both the snap and the outline radius.
+        # 28 px from the (100, 100) vertex, outside both the snap and the
+        # outline radius.
         tab.on_button_press(click_at(tab, 80, 80))
         assert app._selected_annotation_id is None
         assert app.current_polygon == [(80, 80)]
@@ -953,7 +1093,9 @@ class TestPolygonInteraction:
         assert app.current_polygon[-1] == (100, 100)
         assert app._stream_active
 
-    def test_streaming_a_vertex_extends_the_drawing_without_a_full_render(self, app):
+    def test_streaming_a_vertex_extends_the_drawing_without_a_full_render(
+        self, app
+    ):
         tab, _ = polygon_setup(app)
         app._stream_mode = True
         tab.on_button_press(click_at(tab, 300, 300))
@@ -965,9 +1107,11 @@ class TestPolygonInteraction:
         assert renders == []
         assert len(tab.canvas.find_all()) > before
         cx, cy = tab.image_to_canvas(320, 300)
-        assert any(tab.canvas.coords(i)[-2:] == [cx, cy]
-                   for i in tab.canvas.find_withtag("current_polygon")
-                   if tab.canvas.type(i) == "line")
+        assert any(
+            tab.canvas.coords(i)[-2:] == [cx, cy]
+            for i in tab.canvas.find_withtag("current_polygon")
+            if tab.canvas.type(i) == "line"
+        )
 
     def test_snap_ring_encloses_the_pointer_not_just_the_vertex(self, app):
         tab, _ = polygon_setup(app)
@@ -988,7 +1132,7 @@ class TestLegend:
         app._select_class_for_filter_and_draw(0)
         tab.render()
         count = len(app.document.annotations)
-        x0, y0, x1, y1 = tab._legend_bbox
+        x0, _y0, x1, y1 = tab._legend_bbox
         chip = type("E", (), {"x": (x0 + x1) / 2, "y": y1 - 2})()
         tab.on_button_press(chip)
         tab.on_button_release(chip)
@@ -1001,8 +1145,11 @@ class TestLegend:
     def legend_texts(self, tab):
         """Every text string the open legend panel draws."""
         canvas = tab.canvas
-        return [canvas.itemcget(i, "text") for i in canvas.find_withtag("legend")
-                if canvas.type(i) == "text"]
+        return [
+            canvas.itemcget(i, "text")
+            for i in canvas.find_withtag("legend")
+            if canvas.type(i) == "text"
+        ]
 
     def test_reviewing_keys_status_then_classes_then_marks(self, app):
         tab = app._annotate_tab
@@ -1011,7 +1158,11 @@ class TestLegend:
         texts = self.legend_texts(tab)
         assert "Review status: annotation | prediction" in texts
         assert "Accepted" in texts
-        assert texts.index("Accepted") < texts.index("Class label") < texts.index("Marks")
+        assert (
+            texts.index("Accepted")
+            < texts.index("Class label")
+            < texts.index("Marks")
+        )
 
     def test_hiding_predictions_keeps_the_review_status_section(self, app):
         tab = app._annotate_tab
@@ -1027,8 +1178,11 @@ class TestLegend:
         tab._legend_open = True
         tab.render()
         canvas = tab.canvas
-        keyed = [i for i in canvas.find_withtag("legend")
-                 if canvas.type(i) == "text" and canvas.itemcget(i, "text") == "0"]
+        keyed = [
+            i
+            for i in canvas.find_withtag("legend")
+            if canvas.type(i) == "text" and canvas.itemcget(i, "text") == "0"
+        ]
         assert len(keyed) == 1
         assert canvas.itemcget(keyed[0], "fill") == app._get_class_color(0)
         assert "class_0" in self.legend_texts(tab)
@@ -1047,7 +1201,9 @@ class TestLegend:
         tab.render()
         assert "Class label" not in self.legend_texts(tab)
 
-    def test_the_in_focus_row_survives_a_class_filter_that_empties_the_queue(self, app):
+    def test_the_in_focus_row_survives_a_class_filter_that_empties_the_queue(
+        self, app
+    ):
         tab = app._annotate_tab
         tab._legend_open = True
         app.class_names[7] = "empty_class"
@@ -1055,7 +1211,9 @@ class TestLegend:
         tab.render()
         assert app.queue == [] and "In focus" in self.legend_texts(tab)
 
-    def test_an_image_with_no_predictions_drops_the_status_section_and_in_focus(self, app):
+    def test_an_image_with_no_predictions_drops_the_status_section_and_focus(
+        self, app
+    ):
         tab = app._annotate_tab
         tab._legend_open = True
         tab.render()
@@ -1097,8 +1255,14 @@ class TestBarLayout:
 
     def test_the_review_nav_group_sits_in_the_status_bar(self, app):
         panel = app._review_panel
-        for w in (panel.reviewed_cb, panel.status_dd, panel.prev_item_btn,
-                  panel.item_entry, panel.item_total_label, panel.next_item_btn):
+        for w in (
+            panel.reviewed_cb,
+            panel.status_dd,
+            panel.prev_item_btn,
+            panel.item_entry,
+            panel.item_total_label,
+            panel.next_item_btn,
+        ):
             assert in_widget(w, app.status_bar)
 
     def test_blind_pass_moves_down_beside_the_prediction_toggle(self, app):
@@ -1129,7 +1293,9 @@ class TestBarLayout:
         app.go_to_image(1)
         assert "4:37" not in app.root.title() and "0:00" in app.root.title()
 
-    def test_opening_a_smaller_folder_from_a_high_index_does_not_crash(self, app, folder):
+    def test_opening_a_smaller_folder_from_a_high_index_does_not_crash(
+        self, app, folder
+    ):
         one = folder / "one"
         one.mkdir()
         Image.new("RGB", (64, 48), "gray").save(one / "only.jpg")
@@ -1186,13 +1352,20 @@ class TestRenderFocus:
         pred = canvas.find_withtag("pred_focus")
         halo = canvas.find_withtag("focus_halo")
         assert len(gt) == 1 and len(pred) == 1 and len(halo) == 2
-        assert canvas.itemcget(gt[0], "outline") == STATUS_COLORS["not_reviewed"]
-        assert {canvas.itemcget(h, "outline") for h in halo} == {SELECTION_COLOR}
-        assert {tuple(canvas.coords(h)) for h in halo} == {tuple(canvas.coords(gt[0])),
-                                                           tuple(canvas.coords(pred[0]))}
+        assert (
+            canvas.itemcget(gt[0], "outline") == STATUS_COLORS["not_reviewed"]
+        )
+        assert {canvas.itemcget(h, "outline") for h in halo} == {
+            SELECTION_COLOR
+        }
+        assert {tuple(canvas.coords(h)) for h in halo} == {
+            tuple(canvas.coords(gt[0])),
+            tuple(canvas.coords(pred[0])),
+        }
 
-    def test_accepting_turns_the_pair_green_and_hiding_predictions_keeps_the_status_colour(
-            self, app):
+    def test_accepting_greens_the_pair_and_hiding_predictions_keeps_the_colour(
+        self, app
+    ):
         tab = app._annotate_tab
         panel = app._review_panel
         tp = next(q for q in app.queue if q.kind == "tp")
@@ -1230,11 +1403,14 @@ class TestRenderFocus:
         assert canvas.find_withtag("gt_focus") == ()
         halo = canvas.find_withtag("focus_halo")
         pred = canvas.find_withtag("pred_focus")
-        assert len(halo) == 1 and canvas.coords(halo[0]) == canvas.coords(pred[0])
+        assert len(halo) == 1 and canvas.coords(halo[0]) == canvas.coords(
+            pred[0]
+        )
         assert SELECTION_COLOR in [c for c, _ in shapes_at(tab, ann.points)]
 
 
 # ── review panel ────────────────────────────────────────────────────────────
+
 
 class TestReviewPanel:
     def test_queue_over_image_with_predictions(self, app):
@@ -1260,7 +1436,8 @@ class TestReviewPanel:
         assert app.queue == [] and app.predictions == []
 
     def test_load_image_zooms_to_first_unreviewed(self, app):
-        # No explicit focus_item/step call: load_image() alone must trigger the zoom.
+        # No explicit focus_item/step call: load_image() alone must trigger the
+        # zoom.
         tab = app._annotate_tab
         tab.load_image()
         item = app.queue[app.queue_index]
@@ -1269,14 +1446,19 @@ class TestReviewPanel:
         ys = [p[1] for p in shape.points]
         cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
         canvas_x, canvas_y = tab.image_to_canvas(cx, cy)
-        # Only zoom_to_bbox, not a plain fit_to_window, centers the focused item like this.
+        # Only zoom_to_bbox, not a plain fit_to_window, centers the focused
+        # item like this.
         assert canvas_x == pytest.approx(tab.canvas.winfo_width() / 2, abs=1.0)
-        assert canvas_y == pytest.approx(tab.canvas.winfo_height() / 2, abs=1.0)
+        assert canvas_y == pytest.approx(
+            tab.canvas.winfo_height() / 2, abs=1.0
+        )
 
     def test_load_image_keeps_the_active_class(self, app):
         tab, panel = app._annotate_tab, app._review_panel
         focused = app.queue[panel.first_unreviewed()]
-        other = next(q.class_id for q in app.queue if q.class_id != focused.class_id)
+        other = next(
+            q.class_id for q in app.queue if q.class_id != focused.class_id
+        )
         app._select_class_by_id(other)
         tab.load_image()
         assert app.active_class == other
@@ -1284,7 +1466,11 @@ class TestReviewPanel:
 
     def test_manual_step_still_switches_the_active_class(self, app):
         panel = app._review_panel
-        target = next(i for i, q in enumerate(app.queue) if q.class_id != app.active_class)
+        target = next(
+            i
+            for i, q in enumerate(app.queue)
+            if q.class_id != app.active_class
+        )
         panel.focus_item(target)
         assert app.active_class == app.queue[target].class_id
 
@@ -1334,7 +1520,8 @@ class TestClassFilterMerge:
 
     def test_specific_choice_sets_both_and_dropdown_shows_it(self, app):
         # Regression guard: _review_filter_class must be set before
-        # _select_class_by_id runs, or _refresh_class_dropdown snaps back to "All".
+        # _select_class_by_id runs, or _refresh_class_dropdown snaps back to
+        # "All".
         count = app._count_class_annotations().get(0, 0)
         choice = f"0: {app.class_names[0]} ({count})"
         app._on_class_selected(choice)
@@ -1344,7 +1531,11 @@ class TestClassFilterMerge:
 
     def test_all_filter_survives_focus_item_on_other_class(self, app):
         app._on_class_selected("All")
-        other = next(i for i, q in enumerate(app.queue) if q.class_id != app.active_class)
+        other = next(
+            i
+            for i, q in enumerate(app.queue)
+            if q.class_id != app.active_class
+        )
         app._review_panel.focus_item(other)
         assert app.active_class == app.queue[other].class_id
         assert app.class_dropdown.get() == "All"
@@ -1390,6 +1581,7 @@ class TestClassRequiredToDraw:
 
 # ── actions ─────────────────────────────────────────────────────────────────
 
+
 class TestActions:
     def test_accept_fp_promotes_and_records(self, app):
         app._review_panel.focus_item(0)
@@ -1407,7 +1599,10 @@ class TestActions:
         assert app.queue[app.queue_index].kind == "tp"
         key = app.queue[app.queue_index].key
         app.reject_item()
-        assert app.document.annotations == [] and app.verdicts[key]["action"] == "rejected"
+        assert (
+            app.document.annotations == []
+            and app.verdicts[key]["action"] == "rejected"
+        )
         assert disk_verdicts(folder)[key]["action"] == "rejected"
         app.undo()
         assert len(app.document.annotations) == 1 and key not in app.verdicts
@@ -1417,24 +1612,34 @@ class TestActions:
         panel = app._review_panel
         panel.focus_item(len(app.queue) - 1)
         app.edit_pair()
-        assert app._selected_annotation_id == app.queue[app.queue_index].annotation.id
+        assert (
+            app._selected_annotation_id
+            == app.queue[app.queue_index].annotation.id
+        )
 
     def test_accept_writes_the_label_file_at_once(self, app, folder):
         app._review_panel.focus_item(0)
         assert app.queue[0].kind == "fp"
         app.accept_item()
-        lines = (folder / "labels" / "detect" / "a.txt").read_text(encoding="utf-8").splitlines()
+        lines = (
+            (folder / "labels" / "detect" / "a.txt")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
         assert len(lines) == 2
 
-    def test_reject_removes_the_annotation_from_disk_at_once(self, app, folder):
+    def test_reject_removes_the_annotation_from_disk_at_once(
+        self, app, folder
+    ):
         panel = app._review_panel
         panel.focus_item(len(app.queue) - 1)
         assert app.queue[app.queue_index].kind == "tp"
         app.reject_item()
         assert not (folder / "labels" / "detect" / "a.txt").exists()
 
-    def test_dragging_the_focused_vertex_refreshes_the_display_and_keeps_the_verdict(
-            self, poly_app):
+    def test_dragging_the_focused_vertex_refreshes_display_and_keeps_verdict(
+        self, poly_app
+    ):
         app = poly_app
         panel, tab = app._review_panel, app._annotate_tab
         tp_index = next(i for i, q in enumerate(app.queue) if q.kind == "tp")
@@ -1442,24 +1647,38 @@ class TestActions:
         key = panel.current_item().key
         app.accept_item()
         before = dict(app.verdicts[key])
-        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.key == key))
+        panel.focus_item(
+            next(i for i, q in enumerate(app.queue) if q.key == key)
+        )
         app.edit_pair()
         vx, vy = panel.current_item().annotation.points[0]
         assert panel.current_item().kind == "tp"
-        assert panel.counts_label.cget("text") == "TP 1  FP 1  FN 0  (1 not reviewed)"
+        assert (
+            panel.counts_label.cget("text")
+            == "TP 1  FP 1  FN 0  (1 not reviewed)"
+        )
         tab.on_button_press(click_at(tab, vx, vy))
         tab.on_move_press(click_at(tab, 10, 10))
         tab.on_button_release(click_at(tab, 10, 10))
-        # The drag alone pulls the GT below the IoU threshold, and the strip says so.
-        # The verdict moves to the new FN, so both FPs are left, and focus follows the edit.
-        assert panel.counts_label.cget("text") == "TP 0  FP 2  FN 1  (2 not reviewed)"
+        # The drag alone pulls the GT below the IoU threshold, and the strip
+        # says so. The verdict moves to the new FN, so both FPs are left, and
+        # focus follows the edit.
+        assert (
+            panel.counts_label.cget("text")
+            == "TP 0  FP 2  FN 1  (2 not reviewed)"
+        )
         assert panel.current_item().kind == "fn"
         assert key not in app.verdicts
         ann_id = panel.current_item().annotation.id
-        assert {k: v for k, v in app.verdicts[ann_id].items() if k in ("action", "by", "at")} == {
-            k: v for k, v in before.items() if k in ("action", "by", "at")}
+        assert {
+            k: v
+            for k, v in app.verdicts[ann_id].items()
+            if k in ("action", "by", "at")
+        } == {k: v for k, v in before.items() if k in ("action", "by", "at")}
 
-    def test_drawing_an_unrelated_box_records_nothing_for_the_focused_item(self, app):
+    def test_drawing_an_unrelated_box_records_nothing_for_the_focused_item(
+        self, app
+    ):
         panel, tab = app._review_panel, app._annotate_tab
         app._select_class_for_filter_and_draw(0)
         panel.focus_item(len(app.queue) - 1)
@@ -1471,7 +1690,9 @@ class TestActions:
         assert item.key not in app.verdicts
         assert panel.current_item().key == item.key
 
-    def test_a_hand_drawn_box_is_accepted_without_a_review_action(self, app, folder):
+    def test_a_hand_drawn_box_is_accepted_without_a_review_action(
+        self, app, folder
+    ):
         tab = app._annotate_tab
         app._select_class_for_filter_and_draw(0)
         tab.on_button_press(click_at(tab, 420, 360))
@@ -1479,22 +1700,36 @@ class TestActions:
         drawn = app.document.annotations[-1]
         assert app.verdicts[drawn.id]["action"] == "accepted"
         assert disk_verdicts(folder)[drawn.id]["action"] == "accepted"
-        items = build_queue(app.document, app.predictions, app.matches, app.verdicts,
-                            filter_status="not_reviewed")
+        items = build_queue(
+            app.document,
+            app.predictions,
+            app.matches,
+            app.verdicts,
+            filter_status="not_reviewed",
+        )
         assert all(q.key != drawn.id for q in items)
 
-    def test_a_hand_drawn_box_is_on_disk_before_its_verdict_is(self, app, folder):
+    def test_a_hand_drawn_box_is_on_disk_before_its_verdict_is(
+        self, app, folder
+    ):
         tab = app._annotate_tab
         app._select_class_for_filter_and_draw(0)
         tab.on_button_press(click_at(tab, 420, 360))
         tab.on_button_release(click_at(tab, 520, 440))
         drawn = app.document.annotations[-1]
-        lines = (folder / "labels" / "detect" / "a.txt").read_text(encoding="utf-8").splitlines()
+        lines = (
+            (folder / "labels" / "detect" / "a.txt")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
         assert len(lines) == 2
         assert disk_verdicts(folder)[drawn.id]["action"] == "accepted"
 
-    def test_a_failed_save_records_no_verdict_and_rolls_the_accept_back(self, app, folder):
+    def test_a_failed_save_records_no_verdict_and_rolls_the_accept_back(
+        self, app, folder
+    ):
         import os
+
         broken = folder / "labels" / "detect" / "a.txt"
         os.remove(broken)
         os.makedirs(broken)
@@ -1541,14 +1776,18 @@ class TestActions:
         after = panel.current_item()
         assert after.key != key and after.key not in app.verdicts
 
-    def test_edit_on_an_fp_accepts_it_and_selects_the_new_annotation(self, app):
+    def test_edit_on_an_fp_accepts_it_and_selects_the_new_annotation(
+        self, app
+    ):
         panel = app._review_panel
         panel.focus_item(0)
         item = panel.current_item()
         assert item.kind == "fp"
         app.edit_pair()
         created = app.document.annotations[-1]
-        assert created.source == "accepted" and created.prediction_id == item.key
+        assert (
+            created.source == "accepted" and created.prediction_id == item.key
+        )
         assert app.verdicts[item.key]["action"] == "accepted"
         assert app._selected_annotation_id == created.id
         assert panel.current_item().key == item.key
@@ -1560,7 +1799,9 @@ class TestActions:
         app._on_visible_toggled()
         app.edit_pair()
         assert app._annotation_visible and app._visible_var.get()
-        assert app._selected_annotation_id == panel.current_item().annotation.id
+        assert (
+            app._selected_annotation_id == panel.current_item().annotation.id
+        )
 
     def test_accepted_fp_prediction_stays_drawn_after_moving_on(self, app):
         panel, tab = app._review_panel, app._annotate_tab
@@ -1572,12 +1813,21 @@ class TestActions:
         # assertion turns on canvas size rather than on what was drawn.
         tab.fit_to_window()
         tab.render()
-        assert any(tab.canvas.coords(i) == pytest.approx(
-                       [*tab.image_to_canvas(*pred.points[0]), *tab.image_to_canvas(*pred.points[1])])
-                   for i in tab.canvas.find_withtag("pred") + tab.canvas.find_withtag("pred_focus"))
+        assert any(
+            tab.canvas.coords(i)
+            == pytest.approx(
+                [
+                    *tab.image_to_canvas(*pred.points[0]),
+                    *tab.image_to_canvas(*pred.points[1]),
+                ]
+            )
+            for i in tab.canvas.find_withtag("pred")
+            + tab.canvas.find_withtag("pred_focus")
+        )
 
 
 # ── right-click delete while an item is focused ─────────────────────────────
+
 
 def box_center(ann):
     """The centre point of a box annotation."""
@@ -1586,29 +1836,41 @@ def box_center(ann):
 
 
 def top_edge_mid(ann):
-    """The midpoint of a box annotation's top edge, where a press picks the box."""
+    """The midpoint of a box annotation's top edge, where a press picks the
+    box.
+    """
     (x1, y1), (x2, _) = ann.points
     return (x1 + x2) / 2, y1
 
 
 class TestRightClickDelete:
-    def test_deleting_the_focused_annotation_leaves_the_queue_usable(self, app):
+    def test_deleting_the_focused_annotation_leaves_the_queue_usable(
+        self, app
+    ):
         panel, tab = app._review_panel, app._annotate_tab
-        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.kind == "tp"))
+        panel.focus_item(
+            next(i for i, q in enumerate(app.queue) if q.kind == "tp")
+        )
         ann = panel.current_item().annotation
         assert ann is not None
         tab.on_right_click(click_at(tab, *top_edge_mid(ann)))
         assert all(a.id != ann.id for a in app.document.annotations)
-        assert all(q.annotation is None or q.annotation.id != ann.id for q in app.queue)
+        assert all(
+            q.annotation is None or q.annotation.id != ann.id
+            for q in app.queue
+        )
         assert tab.canvas.find_withtag("gt_focus") == ()
-        # Both of these read the focused item's annotation and used to raise KeyError.
+        # Both of these read the focused item's annotation and used to raise
+        # KeyError.
         app.edit_pair()
         app.reject_item()
 
     def test_deleting_an_unrelated_annotation_keeps_the_focus(self, app):
         panel, tab = app._review_panel, app._annotate_tab
         app._select_class_for_filter_and_draw(0)
-        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.kind == "tp"))
+        panel.focus_item(
+            next(i for i, q in enumerate(app.queue) if q.kind == "tp")
+        )
         key = panel.current_item().key
         tab.fit_to_window()
         tab.on_button_press(click_at(tab, 420, 360))
@@ -1623,15 +1885,20 @@ class TestRightClickDelete:
 
 # ── verdict carry-forward across a geometry edit ────────────────────────────
 
+
 def focus_kind(app, kind):
     """Focus the first queue item of that kind and return it."""
     panel = app._review_panel
-    panel.focus_item(next(i for i, q in enumerate(app.queue) if q.kind == kind))
+    panel.focus_item(
+        next(i for i, q in enumerate(app.queue) if q.kind == kind)
+    )
     return panel.current_item()
 
 
 def drag_box_to(tab, ann, ix, iy):
-    """Move an existing box annotation by its outline so its centre lands near (ix, iy)."""
+    """Move an existing box annotation by its outline so its centre lands near
+    (ix, iy).
+    """
     tab.select_annotation(ann.id)
     ex, ey = top_edge_mid(ann)
     cx, cy = box_center(ann)
@@ -1642,12 +1909,20 @@ def drag_box_to(tab, ann, ix, iy):
 
 def unfiltered_item_for(app, ann_id):
     """The queue item holding that annotation, ignoring every active filter."""
-    items = build_queue(app.document, app.predictions, app.matches, app.verdicts)
-    return next(q for q in items if q.annotation is not None and q.annotation.id == ann_id)
+    items = build_queue(
+        app.document, app.predictions, app.matches, app.verdicts
+    )
+    return next(
+        q
+        for q in items
+        if q.annotation is not None and q.annotation.id == ann_id
+    )
 
 
 class TestVerdictCarriesForward:
-    def test_accepted_match_keeps_its_verdict_when_the_box_moves_away(self, app, folder):
+    def test_accepted_match_keeps_its_verdict_when_the_box_moves_away(
+        self, app, folder
+    ):
         tab = app._annotate_tab
         pred_key = focus_kind(app, "tp").key
         app.accept_item()
@@ -1662,7 +1937,8 @@ class TestVerdictCarriesForward:
         assert app.verdicts[ann.id]["kind"] == "fn"
         assert app.verdicts[ann.id]["by"] == before_pred["by"]
         assert app.verdicts[ann.id]["at"] == before_pred["at"]
-        # The prediction left behind is an unreviewed FP again, not a green one.
+        # The prediction left behind is an unreviewed FP again, not a green
+        # one.
         assert pred_key not in app.verdicts
         assert disk_verdicts(folder)[ann.id]["action"] == "accepted"
         assert pred_key not in disk_verdicts(folder)
@@ -1672,8 +1948,9 @@ class TestVerdictCarriesForward:
         tab = app._annotate_tab
         pred_key = focus_kind(app, "tp").key
         app.accept_item()
-        ann = unfiltered_item_for(app, next(
-            a.id for a in app.document.annotations)).annotation
+        ann = unfiltered_item_for(
+            app, next(a.id for a in app.document.annotations)
+        ).annotation
         focus_kind(app, "fp")
         assert app._review_panel.current_item().annotation is None
         tab.fit_to_window()
@@ -1686,8 +1963,11 @@ class TestVerdictCarriesForward:
         app = poly_app
         tab = app._annotate_tab
         ann = app.document.annotations[0]
-        # Shifted right so the match holds at IoU 0.52 and drops to 0.19 once a corner goes.
-        app._engine.set_points(ann.id, ((232, 144), (360, 144), (360, 240), (232, 240)))
+        # Shifted right so the match holds at IoU 0.52 and drops to 0.19 once a
+        # corner goes.
+        app._engine.set_points(
+            ann.id, ((232, 144), (360, 144), (360, 240), (232, 240))
+        )
         app._review_panel.refresh(keep_focus=False)
         pred_key = focus_kind(app, "tp").key
         app.accept_item()
@@ -1707,7 +1987,9 @@ class TestVerdictCarriesForward:
         app._select_class_for_filter_and_draw(0)
         tab.fit_to_window()
         tab.on_right_click(click_at(tab, *top_edge_mid(item.annotation)))
-        assert all(a.id != item.annotation.id for a in app.document.annotations)
+        assert all(
+            a.id != item.annotation.id for a in app.document.annotations
+        )
         assert item.key not in app.verdicts
 
     def test_rejecting_the_selected_annotation_clears_the_selection(self, app):
@@ -1742,12 +2024,16 @@ class TestVerdictCarriesForward:
 
 # ── overview zoom when a sweep completes ────────────────────────────────────
 
+
 def at_overview(app):
     tab = app._annotate_tab
     cw, ch = tab.canvas.winfo_width(), tab.canvas.winfo_height()
-    return (tab.scale == guimod.OVERVIEW_ZOOM
-            and tab.offset_x == pytest.approx((cw - app.img_width * tab.scale) / 2)
-            and tab.offset_y == pytest.approx((ch - app.img_height * tab.scale) / 2))
+    return (
+        tab.scale == guimod.OVERVIEW_ZOOM
+        and tab.offset_x == pytest.approx((cw - app.img_width * tab.scale) / 2)
+        and tab.offset_y
+        == pytest.approx((ch - app.img_height * tab.scale) / 2)
+    )
 
 
 class TestSweepCompleteOverview:
@@ -1758,7 +2044,8 @@ class TestSweepCompleteOverview:
         tp_key = next(q.key for q in app.queue if q.kind == "tp")
         app.accept_item()
         panel.on_status_changed("Reviewed")
-        # Every item in this view has a verdict by construction, but the tp does not.
+        # Every item in this view has a verdict by construction, but the tp
+        # does not.
         assert app.queue and all(q.key in app.verdicts for q in app.queue)
         assert tp_key not in app.verdicts
         panel.focus_item(0)
@@ -1811,6 +2098,7 @@ class TestSweepCompleteOverview:
 
 # ── undo/redo with no folder open ───────────────────────────────────────────
 
+
 class TestUndoRedoNoFolder:
     def test_no_exception_with_no_folder_open(self):
         root = new_root()
@@ -1823,6 +2111,7 @@ class TestUndoRedoNoFolder:
 
 # ── navigation and saving ───────────────────────────────────────────────────
 
+
 class TestNavigation:
     def test_go_to_image_saves_first(self, app, folder):
         tab = app._annotate_tab
@@ -1830,12 +2119,17 @@ class TestNavigation:
         tab.on_button_press(click_at(tab, 50, 50))
         tab.on_button_release(click_at(tab, 150, 150))
         assert app.go_to_image(1)
-        lines = (folder / "labels" / "detect" / "a.txt").read_text(encoding="utf-8").splitlines()
+        lines = (
+            (folder / "labels" / "detect" / "a.txt")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
         assert len(lines) == 2
         assert (folder / "state" / "annotations" / "a.json").exists()
 
     def test_failed_save_blocks_navigation_and_shows_banner(self, app, folder):
         import os
+
         broken_path = folder / "labels" / "detect" / "a.txt"
         os.remove(broken_path)
         os.makedirs(broken_path)
@@ -1844,10 +2138,13 @@ class TestNavigation:
         try:
             assert not app.go_to_image(1)
             assert app.index == 0
-            assert "Could not save" in app.banner_text and "Ctrl+S" in app.banner_text
+            assert (
+                "Could not save" in app.banner_text
+                and "Ctrl+S" in app.banner_text
+            )
         finally:
-            # Restore a normal path so the fixture's teardown quit can save cleanly
-            # instead of blocking on the quit-without-saving modal.
+            # Restore a normal path so the fixture's teardown quit can save
+            # cleanly instead of blocking on the quit-without-saving modal.
             os.rmdir(broken_path)
 
     def test_banner_clears_on_key_action(self, app):
@@ -1883,6 +2180,7 @@ class TestNavigation:
 
 # ── open folder ─────────────────────────────────────────────────────────────
 
+
 def second_folder(folder):
     """Create and return a sibling image folder for the Open Folder tests."""
     other = folder / "other"
@@ -1892,49 +2190,78 @@ def second_folder(folder):
 
 
 class TestOpenFolder:
-    def test_read_only_image_is_not_overwritten(self, app, folder, monkeypatch):
+    def test_read_only_image_is_not_overwritten(
+        self, app, folder, monkeypatch
+    ):
         labels = folder / "labels" / "detect" / "a.txt"
-        labels.write_text("0 0.500000 0.500000 0.200000 0.200000\nnope\n", encoding="utf-8")
+        labels.write_text(
+            "0 0.500000 0.500000 0.200000 0.200000\nnope\n", encoding="utf-8"
+        )
         app._annotate_tab.load_image()
         assert app.load_errors
         other = second_folder(folder)
-        monkeypatch.setattr(guimod.filedialog, "askdirectory", lambda **kw: str(other))
+        monkeypatch.setattr(
+            guimod.filedialog, "askdirectory", lambda **kw: str(other)
+        )
         app._open_folder()
         assert app.image_folder == str(other)
         assert labels.read_text(encoding="utf-8").splitlines() == [
-            "0 0.500000 0.500000 0.200000 0.200000", "nope"]
+            "0 0.500000 0.500000 0.200000 0.200000",
+            "nope",
+        ]
 
-    def test_failed_save_blocks_the_switch_and_shows_the_banner(self, app, folder, monkeypatch):
+    def test_failed_save_blocks_the_switch_and_shows_the_banner(
+        self, app, folder, monkeypatch
+    ):
         import os
+
         broken = folder / "labels" / "detect" / "a.txt"
         os.remove(broken)
         os.makedirs(broken)
         app._engine.add_box(1, 1, 30, 30)
         other = second_folder(folder)
-        monkeypatch.setattr(guimod.filedialog, "askdirectory", lambda **kw: str(other))
+        monkeypatch.setattr(
+            guimod.filedialog, "askdirectory", lambda **kw: str(other)
+        )
         try:
             app._open_folder()
             assert app.image_folder == str(folder)
-            assert "Could not save" in app.banner_text and "Ctrl+S" in app.banner_text
+            assert (
+                "Could not save" in app.banner_text
+                and "Ctrl+S" in app.banner_text
+            )
         finally:
             os.rmdir(broken)
 
-    def test_folder_without_images_reports_on_the_canvas(self, app, folder, monkeypatch):
+    def test_folder_without_images_reports_on_the_canvas(
+        self, app, folder, monkeypatch
+    ):
         empty = folder / "empty"
         empty.mkdir()
-        monkeypatch.setattr(guimod.filedialog, "askdirectory", lambda **kw: str(empty))
+        monkeypatch.setattr(
+            guimod.filedialog, "askdirectory", lambda **kw: str(empty)
+        )
         app._open_folder()
         assert app.images == [] and app.original_image is None
-        assert any("No images found" in app.canvas.itemcget(i, "text")
-                   for i in app.canvas.find_all() if app.canvas.type(i) == "text")
+        assert any(
+            "No images found" in app.canvas.itemcget(i, "text")
+            for i in app.canvas.find_all()
+            if app.canvas.type(i) == "text"
+        )
 
-    def test_an_empty_folder_leaves_no_stale_queue_behind(self, app, folder, monkeypatch):
+    def test_an_empty_folder_leaves_no_stale_queue_behind(
+        self, app, folder, monkeypatch
+    ):
         app._review_panel.focus_item(0)
         empty = folder / "empty"
         empty.mkdir()
-        monkeypatch.setattr(guimod.filedialog, "askdirectory", lambda **kw: str(empty))
+        monkeypatch.setattr(
+            guimod.filedialog, "askdirectory", lambda **kw: str(empty)
+        )
         app._open_folder()
-        assert app.document is None and app.queue == [] and app.predictions == []
+        assert (
+            app.document is None and app.queue == [] and app.predictions == []
+        )
         # Each of these used to index images[0] of an empty list.
         app._review_panel.on_type_changed("FP")
         app._review_panel.on_status_changed("Reviewed")
@@ -1943,7 +2270,9 @@ class TestOpenFolder:
         app.edit_pair()
         assert app._review_panel.accept_btn.cget("state") == "disabled"
 
-    def test_a_corrupt_sidecar_is_reported_and_the_image_stays_editable(self, app, folder):
+    def test_a_corrupt_sidecar_is_reported_and_the_image_stays_editable(
+        self, app, folder
+    ):
         side = folder / "state" / "annotations" / "a.json"
         side.parent.mkdir(parents=True, exist_ok=True)
         side.write_text("{not json", encoding="utf-8")
@@ -1955,8 +2284,10 @@ class TestOpenFolder:
 
 # ── rename class ────────────────────────────────────────────────────────────
 
+
 def typed_name(monkeypatch, value):
-    """Make the next class dialog return value instead of opening a real modal."""
+    """Make the next class dialog return value instead of a real modal."""
+
     class Dialog:
         def __init__(self, **kwargs):
             pass
@@ -1978,19 +2309,24 @@ def typed_name(monkeypatch, value):
 
 def saved_names(folder):
     """The class names classes.json holds on disk, keyed by class id."""
-    data = json.loads((folder / "state" / "classes.json").read_text(encoding="utf-8"))
+    data = json.loads(
+        (folder / "state" / "classes.json").read_text(encoding="utf-8")
+    )
     return {int(k): v["name"] for k, v in data.items() if "name" in v}
 
 
 class TestRenameClass:
     def test_rename_is_bound_to_a_key(self, app):
         from yololabeler.keybindings import KEY_BINDINGS
+
         actions = app.ACTIONS
         for b in KEY_BINDINGS:
             assert b.action in actions, b.action
         assert actions["rename_class"] == app._rename_class_dialog
 
-    def test_rename_updates_the_registry_and_the_file(self, app, folder, monkeypatch):
+    def test_rename_updates_the_registry_and_the_file(
+        self, app, folder, monkeypatch
+    ):
         app.class_names[0] = "burr"
         app._select_class_by_id(0)
         typed_name(monkeypatch, "catkin")
@@ -2030,8 +2366,11 @@ class TestRenameClass:
 
 # ── state files ─────────────────────────────────────────────────────────────
 
+
 class TestStateFiles:
-    def test_corrupt_classes_json_is_quarantined_not_overwritten(self, app, folder):
+    def test_corrupt_classes_json_is_quarantined_not_overwritten(
+        self, app, folder
+    ):
         path = folder / "state" / "classes.json"
         path.write_text("{not json", encoding="utf-8")
         app._init_folder(str(folder))
@@ -2041,7 +2380,9 @@ class TestStateFiles:
         assert "classes.json could not be read" in app.banner_text
 
     def test_delete_backs_up_the_original_labels(self, app, folder):
-        original = (folder / "labels" / "detect" / "a.txt").read_text(encoding="utf-8")
+        original = (folder / "labels" / "detect" / "a.txt").read_text(
+            encoding="utf-8"
+        )
         app._engine.push_undo()
         app._engine.delete_annotation(app.document.annotations[0].id)
         assert app.save_current() is None
@@ -2051,10 +2392,13 @@ class TestStateFiles:
 
     def test_opening_a_folder_repaints_the_colour_swatch(self, app, folder):
         path = folder / "state" / "classes.json"
-        path.write_text(json.dumps({"0": {"name": "burr", "color": "#123456"}}),
-                        encoding="utf-8")
+        path.write_text(
+            json.dumps({"0": {"name": "burr", "color": "#123456"}}),
+            encoding="utf-8",
+        )
         app._init_folder(str(folder))
-        # Undo load_image()'s auto-selected fp class so the swatch reflects class 0's color.
+        # Undo load_image()'s auto-selected fp class so the swatch reflects
+        # class 0's color.
         app._select_class_by_id(0)
         assert app.color_btn.cget("bg") == "#123456"
 
@@ -2066,7 +2410,9 @@ class TestStateFiles:
         assert app.class_colors[0] == "#123456"
         assert 0 not in app.class_names
 
-    def test_construction_writes_no_classes_json_to_the_cwd(self, folder, monkeypatch):
+    def test_construction_writes_no_classes_json_to_the_cwd(
+        self, folder, monkeypatch
+    ):
         cwd = folder / "cwd"
         cwd.mkdir()
         monkeypatch.chdir(cwd)
@@ -2079,6 +2425,7 @@ class TestStateFiles:
 
 
 # ── completion and blind ────────────────────────────────────────────────────
+
 
 class TestCompletion:
     def test_complete_records_and_gates(self, app, folder):
@@ -2103,7 +2450,9 @@ class TestCompletion:
     def test_blind_hides_predictions_until_complete(self, app):
         app._blind_var.set(True)
         app._on_blind_toggled()
-        assert app.predictions == [] and app.predictions_blind and app.queue == []
+        assert (
+            app.predictions == [] and app.predictions_blind and app.queue == []
+        )
         app._complete_var.set(True)
         app._on_complete_toggled()
         assert app._stats_store.completion("a.jpg")["blind"] is True
@@ -2135,7 +2484,8 @@ class TestCompletion:
         assert canvas.find_withtag("pred") or canvas.find_withtag("pred_focus")
         app._blind_var.set(True)
         app._on_blind_toggled()
-        # No further redraw: hiding the model's output is the whole point of the toggle.
+        # No further redraw: hiding the model's output is the whole point of
+        # the toggle.
         assert not canvas.find_withtag("pred")
         assert not canvas.find_withtag("pred_focus")
 
@@ -2155,6 +2505,7 @@ class TestCompletion:
 
     def test_model_name_from_manifest(self, app, folder):
         from yololabeler.predictions.store import write_manifest
+
         write_manifest(folder / "predictions", {"model": "nathan_v15"})
         app._complete_var.set(True)
         app._on_complete_toggled()
@@ -2162,6 +2513,7 @@ class TestCompletion:
 
 
 # ── load failures ───────────────────────────────────────────────────────────
+
 
 class TestLoadFailures:
     def test_bad_label_line_makes_image_read_only(self, app, folder):
@@ -2172,7 +2524,10 @@ class TestLoadFailures:
         assert "will not be saved" in app.banner_text
         app._engine.add_box(1, 1, 20, 20)
         assert app.save_current() is None
-        assert p.read_text(encoding="utf-8").splitlines() == ["0 0.5 0.5 0.2 0.2", "nope"]
+        assert p.read_text(encoding="utf-8").splitlines() == [
+            "0 0.5 0.5 0.2 0.2",
+            "nope",
+        ]
 
     def test_a_read_only_image_refuses_a_drawn_box(self, app, folder):
         p = folder / "labels" / "detect" / "a.txt"
@@ -2197,7 +2552,9 @@ class TestLoadFailures:
         assert app.banner_text.startswith("Read-only")
 
     def test_a_corrupt_manifest_is_quarantined_and_reported(self, app, folder):
-        (folder / "predictions" / "manifest.json").write_text("{not json", encoding="utf-8")
+        (folder / "predictions" / "manifest.json").write_text(
+            "{not json", encoding="utf-8"
+        )
         app._init_folder(str(folder))
         assert not (folder / "predictions" / "manifest.json").exists()
         assert list((folder / "predictions").glob("manifest.json.corrupt-*"))
@@ -2222,16 +2579,22 @@ class TestLoadFailures:
         labels_path = folder / "labels" / "detect" / "a.txt"
         preds_path = folder / "predictions" / "detect" / "a.txt"
         labels_path.write_text("0 0.5 0.5 0.2 0.2\nnope\n", encoding="utf-8")
-        preds_path.write_text("0 0.9 0.5 0.5 0.2 0.2\nbroken\n", encoding="utf-8")
+        preds_path.write_text(
+            "0 0.9 0.5 0.5 0.2 0.2\nbroken\n", encoding="utf-8"
+        )
         app._annotate_tab.load_image()
         assert len(app.load_errors) == 1 and "labels" in app.load_errors[0]
-        assert len(app.predictions_rejected) == 1 and "predictions" in app.predictions_rejected[0]
+        assert (
+            len(app.predictions_rejected) == 1
+            and "predictions" in app.predictions_rejected[0]
+        )
         assert app.load_errors[0] in app.banner_text
         assert app.predictions_rejected[0] in app.banner_text
         assert app.save_current() is None
 
 
 # ── acceptance scenarios ────────────────────────────────────────────────────
+
 
 class TestAcceptance:
     def test_delete_quit_reopen_stays_deleted(self, folder):
@@ -2265,10 +2628,14 @@ class TestAcceptance:
         app.root.geometry("700x500")
         app.root.update()
         app._annotate_tab._finalize_resize()
-        assert app._annotate_tab.scale != before or app._annotate_tab.offset_x != 0
+        assert (
+            app._annotate_tab.scale != before
+            or app._annotate_tab.offset_x != 0
+        )
 
     def test_folder_without_predictions_lists_every_image(self, folder):
         import shutil
+
         shutil.rmtree(folder / "predictions")
         root = new_root()
         app = YoloLabeler(root)
@@ -2280,15 +2647,20 @@ class TestAcceptance:
 
     def test_help_matches_binding_table(self, app):
         from yololabeler.keybindings import KEY_BINDINGS
+
         app._annotate_tab.toggle_help()
-        texts = " ".join(app.canvas.itemcget(i, "text") for i in app.canvas.find_all()
-                         if app.canvas.type(i) == "text")
+        texts = " ".join(
+            app.canvas.itemcget(i, "text")
+            for i in app.canvas.find_all()
+            if app.canvas.type(i) == "text"
+        )
         for b in KEY_BINDINGS:
             if b.when == "always":
                 assert b.label in texts
 
 
 # ── confirm before stepping past an incomplete image ────────────────────────
+
 
 class TestIncompleteStep:
     def test_mark_complete_and_continue(self, app):
@@ -2329,18 +2701,24 @@ class TestIncompleteStep:
         assert app.images[app.index] == "a.jpg"
 
     def press_in_dialog(self, app, sequence):
-        """Arm a key press on the not-complete dialog once it is open, then open it.
+        """Arm a key press on the not-complete dialog once it is open, then
+        open it.
 
-        The press waits out the title-bar callbacks CTkToplevel arms in its first
-        200 ms, which call update() on the window; destroying it under one of
-        those is an access violation, not a Python error.
+        The press waits out the title-bar callbacks CTkToplevel arms in its
+        first 200 ms, which call update() on the window; destroying it under
+        one of those is an access violation, not a Python error.
         """
+
         def send():
             for w in app.root.winfo_children():
-                if isinstance(w, tk.Toplevel) and w.title() == "Image not marked completed":
+                if (
+                    isinstance(w, tk.Toplevel)
+                    and w.title() == "Image not marked completed"
+                ):
                     w.event_generate(sequence)
                     return
             app.root.after(50, send)
+
         app.root.after(400, send)
         return app._ask_incomplete_step()
 
@@ -2356,22 +2734,35 @@ class TestIncompleteStep:
 
 # ── dialogs across a monitor DPI change ─────────────────────────────────────
 
+
 def dialog_with_wide_text(cls, root):
     dialog = cls(root)
     dialog.resizable(False, False)
-    ctk.CTkLabel(dialog, text="Mark this image complete and move to the next image?",
-                 font=("Arial", 12)).pack(padx=16, pady=(16, 12))
-    for text in ("Mark completed and continue (Enter)", "Continue without marking",
-                 "Stay (Esc)"):
+    ctk.CTkLabel(
+        dialog,
+        text="Mark this image complete and move to the next image?",
+        font=("Arial", 12),
+    ).pack(padx=16, pady=(16, 12))
+    for text in (
+        "Mark completed and continue (Enter)",
+        "Continue without marking",
+        "Stay (Esc)",
+    ):
         ctk.CTkButton(dialog, text=text, width=260, font=("Arial", 12)).pack(
-            padx=16, pady=(0, 8))
+            padx=16, pady=(0, 8)
+        )
     dialog.update()
     return dialog
 
 
 def rescale(dialog, factor):
-    """Apply CustomTkinter's per-window DPI rescale, then its delayed min/max release."""
-    from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
+    """Apply CustomTkinter's per-window DPI rescale, then its delayed min/max
+    release.
+    """
+    from customtkinter.windows.widgets.scaling.scaling_tracker import (
+        ScalingTracker,
+    )
+
     ScalingTracker.window_dpi_scaling_dict[dialog] *= factor
     ScalingTracker.update_scaling_callbacks_for_window(dialog)
     dialog._set_scaled_min_max()
@@ -2391,6 +2782,7 @@ class TestFitToContentDialog:
 
 
 # ── moving on along the path ────────────────────────────────────────────────
+
 
 class TestNextUnreviewedAfter:
     def test_continues_forward_from_the_judged_item(self, app):
@@ -2412,16 +2804,24 @@ class TestNextUnreviewedAfter:
 
 # ── comment and flag ────────────────────────────────────────────────────────
 
+
 class TestCommentFlag:
     def test_saving_a_comment_flags_the_focused_item(self, app, folder):
         panel = app._review_panel
         panel.focus_item(0)
         key = panel.current_item().key
-        app.ask_flag_comment = lambda heading, existing: ("save", "leaf or bur?")
+        app.ask_flag_comment = lambda heading, existing: (
+            "save",
+            "leaf or bur?",
+        )
         app.comment_on_item()
         assert set(app.flag_markers) == {key}
         assert "1 flagged" in panel.counts_label.cget("text")
-        data = json.loads((folder / "state" / "review_stats.json").read_text(encoding="utf-8"))
+        data = json.loads(
+            (folder / "state" / "review_stats.json").read_text(
+                encoding="utf-8"
+            )
+        )
         (entry,) = data["image"]["a.jpg"]["flags"][key]
         assert entry["comment"] == "leaf or bur?" and not entry["resolved"]
         assert key not in app.verdicts
@@ -2433,33 +2833,50 @@ class TestCommentFlag:
         app.ask_flag_comment = lambda heading, existing: ("save", "")
         app.comment_on_item()
         tab.render()
-        labels = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_all()
-                  if tab.canvas.type(i) == "text"]
-        # The focused FP's own label ends with the mark; nothing floats beside it.
+        labels = [
+            tab.canvas.itemcget(i, "text")
+            for i in tab.canvas.find_all()
+            if tab.canvas.type(i) == "text"
+        ]
+        # The focused FP's own label ends with the mark; nothing floats beside
+        # it.
         assert any(t.endswith(" ?") and "(0.80)" in t for t in labels)
         assert not tab.canvas.find_withtag("flag")
-        badge = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_withtag("badge")
-                 if tab.canvas.type(i) == "text"]
+        badge = [
+            tab.canvas.itemcget(i, "text")
+            for i in tab.canvas.find_withtag("badge")
+            if tab.canvas.type(i) == "text"
+        ]
         assert badge[0].endswith("flagged")
         # Once focus moves on, the FP keeps a label of its own, mark included.
         panel.step(1)
         tab.render()
-        fp_labels = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_withtag("pred_label")]
+        fp_labels = [
+            tab.canvas.itemcget(i, "text")
+            for i in tab.canvas.find_withtag("pred_label")
+        ]
         assert fp_labels and all(t == "1: class_1 (0.80) ?" for t in fp_labels)
 
     def test_a_flagged_annotation_label_ends_with_the_mark(self, app):
         panel, tab = app._review_panel, app._annotate_tab
-        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.kind == "tp"))
+        panel.focus_item(
+            next(i for i, q in enumerate(app.queue) if q.kind == "tp")
+        )
         app.ask_flag_comment = lambda heading, existing: ("save", "")
         app.comment_on_item()
         app._select_class_for_filter_and_draw(0)
         app.queue = []
         tab.render()
-        labels = [tab.canvas.itemcget(i, "text") for i in tab.canvas.find_all()
-                  if tab.canvas.type(i) == "text"]
+        labels = [
+            tab.canvas.itemcget(i, "text")
+            for i in tab.canvas.find_all()
+            if tab.canvas.type(i) == "text"
+        ]
         assert f"0: {app.class_names[0]} ?" in labels
 
-    def test_c_comments_on_the_selected_annotation_over_the_focused_item(self, app):
+    def test_c_comments_on_the_selected_annotation_over_the_focused_item(
+        self, app
+    ):
         panel, tab = app._review_panel, app._annotate_tab
         app._select_class_for_filter_and_draw(1)
         panel.focus_item(0)
@@ -2469,10 +2886,14 @@ class TestCommentFlag:
         tab.on_button_press(click_at(tab, 420, 360))
         tab.on_button_release(click_at(tab, 520, 440))
         drawn = app.document.annotations[-1]
-        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.key == focused_key))
+        panel.focus_item(
+            next(i for i, q in enumerate(app.queue) if q.key == focused_key)
+        )
         tab.select_annotation(drawn.id)
         headings = []
-        app.ask_flag_comment = lambda heading, existing: headings.append(heading) or ("save", "?")
+        app.ask_flag_comment = lambda heading, existing: (
+            headings.append(heading) or ("save", "?")
+        )
         app.comment_on_item()
         assert headings[0].startswith("FN")
         assert app._review.open_flag("a.jpg", drawn.id)["kind"] == "fn"
@@ -2484,7 +2905,9 @@ class TestCommentFlag:
         app.ask_flag_comment = lambda heading, existing: ("save", "first")
         app.comment_on_item()
         seen = []
-        app.ask_flag_comment = lambda heading, existing: seen.append(existing) or ("resolve", None)
+        app.ask_flag_comment = lambda heading, existing: (
+            seen.append(existing) or ("resolve", None)
+        )
         app.comment_on_item()
         assert seen[0]["comment"] == "first"
         assert app.flag_markers == {}
@@ -2505,11 +2928,16 @@ class TestCommentFlag:
         panel.on_status_changed("Flagged")
         assert [q.key for q in app.queue] == [key]
 
-    def test_completion_counts_a_flag_on_a_prediction_hidden_by_the_threshold(self, app):
+    def test_completion_counts_a_flag_on_a_prediction_hidden_by_the_threshold(
+        self, app
+    ):
         panel = app._review_panel
         panel.focus_item(0)
         item = panel.current_item()
-        assert item.kind == "fp" and item.prediction.confidence == pytest.approx(0.8)
+        assert (
+            item.kind == "fp"
+            and item.prediction.confidence == pytest.approx(0.8)
+        )
         app.ask_flag_comment = lambda heading, existing: ("save", "")
         app.comment_on_item()
         panel.set_threshold(0.85)
@@ -2518,7 +2946,9 @@ class TestCommentFlag:
         app._on_complete_toggled()
         assert app._stats_store.completion("a.jpg")["open_flags"] == 1
 
-    def test_completion_records_open_flags_and_image_filter_finds_the_image(self, app):
+    def test_completion_records_open_flags_and_image_filter_finds_the_image(
+        self, app
+    ):
         app._review_panel.focus_item(0)
         app.ask_flag_comment = lambda heading, existing: ("save", "")
         app.comment_on_item()
@@ -2527,7 +2957,6 @@ class TestCommentFlag:
         assert app._stats_store.completion("a.jpg")["open_flags"] == 1
         app._on_filter_changed("Flagged")
         assert app._filtered_indices == [0]
-
 
 
 class TestFlagResolvedByRemoval:
@@ -2544,10 +2973,14 @@ class TestFlagResolvedByRemoval:
 
     def flag_focused(self, app, key):
         panel = app._review_panel
-        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.key == key))
+        panel.focus_item(
+            next(i for i, q in enumerate(app.queue) if q.key == key)
+        )
         app.ask_flag_comment = lambda heading, existing: ("save", "unsure")
         app.comment_on_item()
-        panel.focus_item(next(i for i, q in enumerate(app.queue) if q.key == key))
+        panel.focus_item(
+            next(i for i, q in enumerate(app.queue) if q.key == key)
+        )
 
     def test_rejecting_a_flagged_fn_resolves_its_flag(self, app):
         drawn = self.draw_unflagged_fn(app)
@@ -2558,7 +2991,9 @@ class TestFlagResolvedByRemoval:
         assert not app._review.has_open_flags("a.jpg")
         assert app.flag_markers == {}
 
-    def test_rejecting_a_flagged_tp_keeps_the_flag_open_on_its_prediction(self, app):
+    def test_rejecting_a_flagged_tp_keeps_the_flag_open_on_its_prediction(
+        self, app
+    ):
         key = next(q.key for q in app.queue if q.kind == "tp")
         self.flag_focused(app, key)
         app.reject_item()
@@ -2573,7 +3008,9 @@ class TestFlagResolvedByRemoval:
         (entry,) = app._review.flags("a.jpg")[drawn.id]
         assert entry["resolved"] and entry["resolved_note"] == "deleted"
 
-    def test_resolving_the_last_flag_drops_the_image_from_the_flagged_list(self, app):
+    def test_resolving_the_last_flag_drops_the_image_from_the_flagged_list(
+        self, app
+    ):
         drawn = self.draw_unflagged_fn(app)
         self.flag_focused(app, drawn.id)
         app._on_filter_changed("Flagged")
@@ -2591,7 +3028,9 @@ class TestFlagWithoutQueue:
         ann = app.document.annotations[0]
         app._annotate_tab.select_annotation(ann.id)
         headings = []
-        app.ask_flag_comment = lambda heading, existing: headings.append(heading) or ("save", "")
+        app.ask_flag_comment = lambda heading, existing: (
+            headings.append(heading) or ("save", "")
+        )
         app.comment_on_item()
         assert headings[0].startswith("Annotation")
         assert app._review.open_flag("a.jpg", ann.id)["kind"] is None
@@ -2610,7 +3049,9 @@ class TestFlagWithoutQueue:
         assert tp.annotation.id == ann.id and ann.id in app.flag_markers
         app._review_panel.focus_item(app.queue.index(tp))
         seen = []
-        app.ask_flag_comment = lambda heading, existing: seen.append(existing) or ("resolve", None)
+        app.ask_flag_comment = lambda heading, existing: (
+            seen.append(existing) or ("resolve", None)
+        )
         app.comment_on_item()
         assert seen[0] is not None and app.flag_markers == {}
 
@@ -2619,4 +3060,7 @@ class TestFlagWithoutQueue:
         app._annotate_tab.next_image()
         assert app.queue == []
         app.comment_on_item()
-        assert app.banner_text == "Select an annotation or focus a review item to comment on it."
+        assert (
+            app.banner_text
+            == "Select an annotation or focus a review item to comment on it."
+        )

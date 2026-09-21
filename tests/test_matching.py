@@ -1,15 +1,20 @@
 """Tests for yololabeler.matching — geometry helpers and matching engine."""
 
 import pytest
-
-from yololabeler.matching import (
-    point_to_segment_dist, point_in_polygon,
-    box_iou, polygon_iou, polygon_area, box_to_points, compute_matches,
-)
 from shapely.geometry import Polygon as ShapelyPolygon
 
+from yololabeler.matching import (
+    box_iou,
+    box_to_points,
+    compute_matches,
+    point_in_polygon,
+    point_to_segment_dist,
+    polygon_area,
+    polygon_iou,
+)
 
 # ── point_to_segment_dist ───────────────────────────────────────────────────
+
 
 class TestPointToSegmentDist:
     def test_perpendicular(self):
@@ -37,6 +42,7 @@ class TestPointToSegmentDist:
 
 # ── point_in_polygon ────────────────────────────────────────────────────────
 
+
 class TestPointInPolygon:
     def test_inside_square(self):
         sq = [(0, 0), (10, 0), (10, 10), (0, 10)]
@@ -57,6 +63,7 @@ class TestPointInPolygon:
 
 # ── box_iou ─────────────────────────────────────────────────────────────────
 
+
 class TestBoxIou:
     def test_perfect_overlap(self):
         b = (0, 0, 10, 10, 0)
@@ -70,7 +77,7 @@ class TestBoxIou:
     def test_partial_overlap(self):
         b1 = (0, 0, 10, 10, 0)
         b2 = (5, 5, 15, 15, 0)
-        # intersection 5×5=25, union 100+100-25=175
+        # intersection 5x5=25, union 100+100-25=175
         assert pytest.approx(box_iou(b1, b2)) == 25.0 / 175.0
 
     def test_zero_area(self):
@@ -80,6 +87,7 @@ class TestBoxIou:
 
 
 # ── polygon_iou ─────────────────────────────────────────────────────────────
+
 
 class TestPolygonIou:
     def test_identical(self):
@@ -94,9 +102,12 @@ class TestPolygonIou:
 
 # ── polygon_area ────────────────────────────────────────────────────────────
 
+
 class TestPolygonArea:
     def test_square(self):
-        assert polygon_area([(0, 0), (10, 0), (10, 10), (0, 10)]) == pytest.approx(100)
+        assert polygon_area(
+            [(0, 0), (10, 0), (10, 10), (0, 10)]
+        ) == pytest.approx(100)
 
     def test_triangle_in_either_winding(self):
         assert polygon_area([(0, 0), (10, 0), (0, 10)]) == pytest.approx(50)
@@ -109,6 +120,7 @@ class TestPolygonArea:
 
 # ── box_to_points ───────────────────────────────────────────────────────────
 
+
 class TestBoxToPoints:
     def test_basic(self):
         pts = box_to_points((10, 20, 30, 40, 0))
@@ -117,68 +129,81 @@ class TestBoxToPoints:
 
 # ── compute_matches ─────────────────────────────────────────────────────────
 
+
 class TestComputeMatches:
     def test_perfect_match_boxes(self):
         gt = [(0, 0, 10, 10, 0)]
         pred = [(0, 0, 10, 10, 0, 0.9)]
         result = compute_matches(gt, [], pred, [], iou_threshold=0.5)
-        assert len(result['tp']) == 1
-        assert len(result['fp']) == 0
-        assert len(result['fn']) == 0
+        assert len(result["tp"]) == 1
+        assert len(result["fp"]) == 0
+        assert len(result["fn"]) == 0
 
     def test_no_match_different_class(self):
         gt = [(0, 0, 10, 10, 0)]
         pred = [(0, 0, 10, 10, 1, 0.9)]  # class 1 ≠ class 0
         result = compute_matches(gt, [], pred, [], iou_threshold=0.5)
-        assert len(result['tp']) == 0
-        assert len(result['fp']) == 1
-        assert len(result['fn']) == 1
+        assert len(result["tp"]) == 0
+        assert len(result["fp"]) == 1
+        assert len(result["fn"]) == 1
 
     def test_below_conf_threshold(self):
         gt = [(0, 0, 10, 10, 0)]
         pred = [(0, 0, 10, 10, 0, 0.1)]
         result = compute_matches(gt, [], pred, [], conf_threshold=0.25)
-        assert len(result['tp']) == 0
-        assert len(result['fp']) == 0  # filtered out
-        assert len(result['fn']) == 1
+        assert len(result["tp"]) == 0
+        assert len(result["fp"]) == 0  # filtered out
+        assert len(result["fn"]) == 1
 
     def test_below_iou_threshold(self):
         gt = [(0, 0, 10, 10, 0)]
         pred = [(8, 8, 18, 18, 0, 0.9)]  # IoU ≈ 0.02
         result = compute_matches(gt, [], pred, [], iou_threshold=0.5)
-        assert len(result['tp']) == 0
-        assert len(result['fp']) == 1
-        assert len(result['fn']) == 1
+        assert len(result["tp"]) == 0
+        assert len(result["fp"]) == 1
+        assert len(result["fn"]) == 1
 
     def test_empty(self):
         result = compute_matches([], [], [], [])
-        assert result == {'tp': [], 'fp': [], 'fn': []}
+        assert result == {"tp": [], "fp": [], "fn": []}
 
     def test_polygon_match(self):
         pts = [(0, 0), (10, 0), (10, 10), (0, 10)]
         gt_poly = [(pts, 0)]
         pred_poly = [(pts, 0, 0.9)]
         result = compute_matches([], gt_poly, [], pred_poly, iou_threshold=0.5)
-        assert len(result['tp']) == 1
-        assert len(result['fp']) == 0
-        assert len(result['fn']) == 0
+        assert len(result["tp"]) == 1
+        assert len(result["fp"]) == 0
+        assert len(result["fn"]) == 0
 
     def test_a_box_never_matches_a_polygon(self):
         pts = [(0, 0), (10, 0), (10, 10), (0, 10)]
-        result = compute_matches([], [(pts, 0)], [(0, 0, 10, 10, 0, 0.9)], [], iou_threshold=0.5)
-        assert result['tp'] == [] and len(result['fp']) == 1 and len(result['fn']) == 1
-        result = compute_matches([(0, 0, 10, 10, 0)], [], [], [(pts, 0, 0.9)], iou_threshold=0.5)
-        assert result['tp'] == [] and len(result['fp']) == 1 and len(result['fn']) == 1
+        result = compute_matches(
+            [], [(pts, 0)], [(0, 0, 10, 10, 0, 0.9)], [], iou_threshold=0.5
+        )
+        assert (
+            result["tp"] == []
+            and len(result["fp"]) == 1
+            and len(result["fn"]) == 1
+        )
+        result = compute_matches(
+            [(0, 0, 10, 10, 0)], [], [], [(pts, 0, 0.9)], iou_threshold=0.5
+        )
+        assert (
+            result["tp"] == []
+            and len(result["fp"]) == 1
+            and len(result["fn"]) == 1
+        )
 
     def test_greedy_best_iou_wins(self):
         """When two predictions match the same GT, the higher-IoU pair wins."""
         gt = [(0, 0, 10, 10, 0)]
         pred = [
-            (0, 0, 10, 10, 0, 0.9),   # perfect IoU=1.0
-            (1, 1, 11, 11, 0, 0.95),   # good IoU but lower
+            (0, 0, 10, 10, 0, 0.9),  # perfect IoU=1.0
+            (1, 1, 11, 11, 0, 0.95),  # good IoU but lower
         ]
         result = compute_matches(gt, [], pred, [], iou_threshold=0.3)
-        assert len(result['tp']) == 1
-        assert len(result['fp']) == 1
+        assert len(result["tp"]) == 1
+        assert len(result["fp"]) == 1
         # TP should be the perfect match (pred index 0)
-        assert result['tp'][0][3] == 0  # pred_idx
+        assert result["tp"][0][3] == 0  # pred_idx

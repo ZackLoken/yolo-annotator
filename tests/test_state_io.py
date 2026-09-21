@@ -1,11 +1,12 @@
-"""Tests for yololabeler.state_io, annotation_stats.json access and quarantine."""
+"""Tests for yololabeler.state_io: annotation_stats.json and quarantine."""
 
 import json
+from pathlib import Path
 
 from yololabeler.state_io import AnnotationStats, read_json_or_quarantine
 
-
 # ── read_json_or_quarantine ─────────────────────────────────────────────────
+
 
 class TestReadJsonOrQuarantine:
     def test_missing(self, tmp_path):
@@ -23,10 +24,11 @@ class TestReadJsonOrQuarantine:
         assert data is None
         assert not p.exists()
         assert moved.startswith(str(tmp_path / "x.json.corrupt-"))
-        assert open(moved, encoding="utf-8").read() == '{"a": '
+        assert Path(moved).read_text(encoding="utf-8") == '{"a": '
 
 
 # ── AnnotationStats ─────────────────────────────────────────────────────────
+
 
 class TestAnnotationStats:
     def test_defaults(self, tmp_path):
@@ -42,14 +44,24 @@ class TestAnnotationStats:
         stats, _ = AnnotationStats.load(p)
         stats.set_image_status("a.jpg", "complete")
         stats.set_blind("a.jpg", True)
-        stats.set_completion("a.jpg", by="ren", blind=True, annotation_count=4, model=None,
-                             open_flags=2)
+        stats.set_completion(
+            "a.jpg",
+            by="ren",
+            blind=True,
+            annotation_count=4,
+            model=None,
+            open_flags=2,
+        )
         stats.save(p)
         again, _ = AnnotationStats.load(p)
         assert again.image_status("a.jpg") == "complete"
         assert again.is_blind("a.jpg")
         rec = again.completion("a.jpg")
-        assert rec["by"] == "ren" and rec["blind"] and rec["annotation_count"] == 4
+        assert (
+            rec["by"] == "ren"
+            and rec["blind"]
+            and rec["annotation_count"] == 4
+        )
         assert rec["model"] is None and rec["at"] and rec["open_flags"] == 2
 
     def test_set_blind_off(self, tmp_path):
@@ -66,18 +78,32 @@ class TestAnnotationStats:
 
     def test_pop_legacy_authors(self, tmp_path):
         p = tmp_path / "s.json"
-        p.write_text(json.dumps({"sessions": [], "image_status": {},
-                                 "annotation_authors": {"a.jpg": {"boxes": ["n"], "polygons": []}}}),
-                     encoding="utf-8")
+        p.write_text(
+            json.dumps(
+                {
+                    "sessions": [],
+                    "image_status": {},
+                    "annotation_authors": {
+                        "a.jpg": {"boxes": ["n"], "polygons": []}
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
         stats, _ = AnnotationStats.load(p)
         assert stats.pop_legacy_authors("a.jpg") == (["n"], [])
         assert stats.pop_legacy_authors("a.jpg") is None
         stats.save(p)
-        assert "annotation_authors" not in json.loads(p.read_text(encoding="utf-8"))
+        assert "annotation_authors" not in json.loads(
+            p.read_text(encoding="utf-8")
+        )
 
     def test_old_images_block_migrates_complete(self, tmp_path):
         p = tmp_path / "s.json"
-        p.write_text(json.dumps({"images": {"a.jpg": {"status": "complete"}}}), encoding="utf-8")
+        p.write_text(
+            json.dumps({"images": {"a.jpg": {"status": "complete"}}}),
+            encoding="utf-8",
+        )
         stats, _ = AnnotationStats.load(p)
         assert stats.image_status("a.jpg") == "complete"
         assert "images" not in stats.data

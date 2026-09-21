@@ -1,4 +1,6 @@
-"""AnnotationEngine: headless CRUD, undo/redo and save over the current Document."""
+"""AnnotationEngine: headless CRUD, undo/redo and save over the current
+Document.
+"""
 
 import os
 
@@ -6,19 +8,23 @@ from yololabeler.annotation.document import new_annotation, save_document
 from yololabeler.matching import polygon_area
 from yololabeler.state import AppState
 
-# Snapshot count kept for undo; value carried over from the original implementation.
+# Snapshot count kept for undo; value carried over from the original
+# implementation.
 UNDO_DEPTH = 30
-# Image px squared; the square of the annotate tab's MIN_BOX_SIDE (3), provisional.
+# Image px squared; the square of the annotate tab's MIN_BOX_SIDE (3),
+# provisional.
 MIN_POLYGON_AREA = 9
 
 
 def polygon_is_degenerate(points):
-    """Whether a polygon has under three vertices or less than MIN_POLYGON_AREA of area."""
+    """Whether a polygon has under three vertices or less than MIN_POLYGON_AREA
+    of area.
+    """
     return len(points) < 3 or polygon_area(points) < MIN_POLYGON_AREA
 
 
 class AnnotationEngine:
-    """Annotation logic that operates on AppState without any GUI dependency."""
+    """Annotation logic over AppState, with no GUI dependency."""
 
     def __init__(self, state: AppState):
         self.state = state
@@ -30,7 +36,9 @@ class AnnotationEngine:
         self.state._poly_bboxes_dirty = True
 
     def ensure_poly_bboxes(self):
-        """Rebuild the polygon bounding-box cache, keyed by annotation id, if stale."""
+        """Rebuild the polygon bounding-box cache, keyed by annotation id, if
+        stale.
+        """
         s = self.state
         if not s._poly_bboxes_dirty:
             return
@@ -46,7 +54,11 @@ class AnnotationEngine:
 
     def _snapshot(self):
         s = self.state
-        return (s.document.snapshot(), s._selected_annotation_id, dict(s.verdicts))
+        return (
+            s.document.snapshot(),
+            s._selected_annotation_id,
+            dict(s.verdicts),
+        )
 
     def _restore(self, snap):
         s = self.state
@@ -76,7 +88,7 @@ class AnnotationEngine:
         return True
 
     def redo_snapshot(self):
-        """Re-apply the last undone snapshot; returns False when there is none."""
+        """Re-apply the last undone snapshot; False when there is none."""
         s = self.state
         if not s._redo_stack:
             return False
@@ -98,17 +110,23 @@ class AnnotationEngine:
     # ── CRUD ───────────────────────────────────────────────────────────────
 
     def add_box(self, x1, y1, x2, y2):
-        """Append a drawn box for the active class; caller pushes undo first."""
+        """Append a box for the active class; caller pushes undo first."""
         s = self.state
-        a = new_annotation("box", ((x1, y1), (x2, y2)), s.active_class, s._current_user)
+        a = new_annotation(
+            "box", ((x1, y1), (x2, y2)), s.active_class, s._current_user
+        )
         s.document.add(a)
         return a
 
     def close_current_polygon(self):
-        """Finalize the in-progress polygon, clamped to image bounds; None and discarded if degenerate."""
+        """Finalize the in-progress polygon, clamped to image bounds; None and
+        discarded if degenerate.
+        """
         s = self.state
-        clamped = [(max(0, min(s.img_width, x)), max(0, min(s.img_height, y)))
-                   for x, y in s.current_polygon]
+        clamped = [
+            (max(0, min(s.img_width, x)), max(0, min(s.img_height, y)))
+            for x, y in s.current_polygon
+        ]
         if polygon_is_degenerate(clamped):
             s.current_polygon = []
             return None
@@ -135,15 +153,21 @@ class AnnotationEngine:
     # ── I/O ────────────────────────────────────────────────────────────────
 
     def label_paths(self):
-        """Return the (detect, segment, sidecar) file paths for the current image."""
+        """Return the (detect, segment, sidecar) file paths for the current
+        image.
+        """
         s = self.state
         stem = os.path.splitext(s.images[s.index])[0]
-        return (os.path.join(s.detect_dir, f"{stem}.txt"),
-                os.path.join(s.segment_dir, f"{stem}.txt"),
-                os.path.join(s.state_dir, "annotations", f"{stem}.json"))
+        return (
+            os.path.join(s.detect_dir, f"{stem}.txt"),
+            os.path.join(s.segment_dir, f"{stem}.txt"),
+            os.path.join(s.state_dir, "annotations", f"{stem}.json"),
+        )
 
     def save(self):
-        """Write labels and sidecar for the current image; returns None or an error message."""
+        """Write labels and sidecar for the current image; returns None or an
+        error message.
+        """
         s = self.state
         if s.document is None or not s.images:
             return "No image loaded"

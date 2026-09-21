@@ -1,4 +1,5 @@
-"""Key bindings declared once, used for Tk binding, the help overlay and the README.
+"""Key bindings declared once, used for Tk binding, the help overlay and the
+README.
 
 Spec 5.3. Adding a key here is the only way to add one; the tests assert the
 help text and README stay in step.
@@ -7,16 +8,18 @@ help text and README stay in step.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
 
 README_MARKERS = ("<!-- controls:start -->", "<!-- controls:end -->")
 
 
 @dataclass(frozen=True)
 class Binding:
-    """One keyboard action: Tk sequences, the label shown to users, and when it applies."""
+    """One keyboard action: Tk sequences, the label shown to users, and when it
+    applies.
+    """
+
     action: str
-    sequences: Tuple[str, ...]
+    sequences: tuple[str, ...]
     label: str
     description: str
     when: str
@@ -32,21 +35,59 @@ KEY_BINDINGS = (
     _b("next_image", ("<Right>",), "Right", "Next image"),
     _b("prev_item", ("<Down>",), "Down", "Previous item", "queue"),
     _b("next_item", ("<Up>",), "Up", "Next item", "queue"),
-    _b("accept", ("a",), "a", "Accept the focused item; an FP becomes an annotation", "queue"),
-    _b("reject", ("r",), "r", "Reject the focused item and delete its annotation", "queue"),
-    _b("edit_pair", ("e",), "e", "Edit the focused item; an FP is accepted first", "queue"),
-    _b("comment", ("c",), "c", "Comment on the focused item and flag it", "queue"),
+    _b(
+        "accept",
+        ("a",),
+        "a",
+        "Accept the focused item; an FP becomes an annotation",
+        "queue",
+    ),
+    _b(
+        "reject",
+        ("r",),
+        "r",
+        "Reject the focused item and delete its annotation",
+        "queue",
+    ),
+    _b(
+        "edit_pair",
+        ("e",),
+        "e",
+        "Edit the focused item; an FP is accepted first",
+        "queue",
+    ),
+    _b(
+        "comment",
+        ("c",),
+        "c",
+        "Comment on the focused item and flag it",
+        "queue",
+    ),
     _b("fit", ("f",), "f", "Fit the image to the window"),
     _b("zoom_item", ("z",), "z", "Zoom to the focused item", "queue"),
     _b("toggle_mode", ("m",), "m", "Switch between box and polygon mode"),
     _b("toggle_snap", ("s",), "s", "Vertex snapping on or off", "polygon"),
     _b("toggle_stream", ("t",), "t", "Vertex tracing on or off", "polygon"),
-    *[_b(f"class_{n}", (str(n),), str(n), f"Pick class {n}") for n in range(10)],
-    _b("rename_class", ("<Control-r>", "<Command-r>"), "Ctrl+R", "Rename the active class"),
+    *[
+        _b(f"class_{n}", (str(n),), str(n), f"Pick class {n}")
+        for n in range(10)
+    ],
+    _b(
+        "rename_class",
+        ("<Control-r>", "<Command-r>"),
+        "Ctrl+R",
+        "Rename the active class",
+    ),
     _b("undo", ("<Control-z>", "<Command-z>"), "Ctrl+Z", "Undo"),
     _b("redo", ("<Control-y>", "<Command-y>"), "Ctrl+Y", "Redo"),
     _b("save", ("<Control-s>", "<Command-s>"), "Ctrl+S", "Save now"),
-    _b("escape", ("<Escape>",), "Escape", "Discard the polygon in progress", "polygon"),
+    _b(
+        "escape",
+        ("<Escape>",),
+        "Escape",
+        "Discard the polygon in progress",
+        "polygon",
+    ),
     _b("help", ("h",), "h", "Show or hide this help"),
 )
 
@@ -59,7 +100,11 @@ MOUSE_HELP = (
     ("Drag an outline", "Move the shape", "always"),
     ("Right-click an outline", "Delete the shape", "always"),
     ("Left-click drag", "Draw a box, even inside another", "box"),
-    ("Drag a corner", "Resize the selected box from the opposite corner", "box"),
+    (
+        "Drag a corner",
+        "Resize the selected box from the opposite corner",
+        "box",
+    ),
     ("Left-click", "Place a vertex, even inside another polygon", "polygon"),
     ("Left-click (Trace on)", "Start or pause tracing vertices", "polygon"),
     ("Double-click", "Close the polygon", "polygon"),
@@ -67,7 +112,11 @@ MOUSE_HELP = (
     ("Click a vertex", "Start a new polygon on that vertex", "polygon"),
     ("Alt+click a vertex", "Select its polygon instead", "polygon"),
     ("Drag a vertex", "Move a vertex of the selected polygon", "polygon"),
-    ("Shift+click an edge", "Insert a vertex in the selected polygon", "polygon"),
+    (
+        "Shift+click an edge",
+        "Insert a vertex in the selected polygon",
+        "polygon",
+    ),
     ("Right-click a vertex", "Delete a vertex", "polygon"),
     ("Click Legend", "Open or close the legend", "always"),
 )

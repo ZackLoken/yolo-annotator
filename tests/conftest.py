@@ -1,4 +1,6 @@
-"""Make the test suite import yololabeler from src/, not a stale installed copy."""
+"""Make the test suite import yololabeler from src/, not a stale installed
+copy.
+"""
 
 import sys
 from pathlib import Path

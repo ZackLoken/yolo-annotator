@@ -6,7 +6,6 @@ from PIL import Image
 
 from yololabeler.utils import auto_orient_image, is_image_file, oriented_size
 
-
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 WHITE = (255, 255, 255)
@@ -36,6 +35,7 @@ def corner(img, x, y):
 
 
 # ── auto_orient_image: images without usable EXIF ───────────────────────────
+
 
 class TestAutoOrientNoExif:
     def test_plain_image_returned_unchanged(self):
@@ -67,6 +67,7 @@ class TestAutoOrientNoExif:
 
 # ── auto_orient_image: orientations that keep the aspect ratio ──────────────
 
+
 class TestAutoOrientUpright:
     def test_orientation_1_is_a_no_op(self):
         result = auto_orient_image(make_image(1))
@@ -95,9 +96,12 @@ class TestAutoOrientUpright:
 
 # ── auto_orient_image: orientations that swap width and height ──────────────
 
+
 class TestAutoOrientTransposed:
     def test_orientation_5_transposes(self):
-        """Mirror horizontal + rotate 270 CW is a main-diagonal flip (x, y) -> (y, x)."""
+        """Mirror horizontal + rotate 270 CW is a main-diagonal flip (x, y) ->
+        (y, x).
+        """
         result = auto_orient_image(make_image(5))
         assert result.size == (2, 4)
         assert corner(result, 0, 0) == RED
@@ -130,6 +134,7 @@ class TestAutoOrientTransposed:
 
 # ── oriented_size ───────────────────────────────────────────────────────────
 
+
 class TestOrientedSize:
     def test_no_exif(self, tmp_path):
         p = tmp_path / "a.jpg"
@@ -145,6 +150,7 @@ class TestOrientedSize:
 
 
 # ── is_image_file ────────────────────────────────────────────────────────────
+
 
 class TestIsImageFile:
     def test_accepts_known_extensions(self):

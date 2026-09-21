@@ -1,16 +1,20 @@
 """Tests for yololabeler.keybindings, the single source of key help."""
 
-import re
 from pathlib import Path
 
 from yololabeler.keybindings import (
-    KEY_BINDINGS, MOUSE_HELP, README_MARKERS, help_lines, readme_tables,
+    KEY_BINDINGS,
+    MOUSE_HELP,
+    README_MARKERS,
+    help_lines,
+    readme_tables,
 )
 
 README = Path(__file__).resolve().parents[1] / "README.md"
 
 
 # ── table shape ─────────────────────────────────────────────────────────────
+
 
 class TestTable:
     def test_actions_unique(self):
@@ -23,13 +27,30 @@ class TestTable:
 
     def test_required_actions_present(self):
         actions = {b.action for b in KEY_BINDINGS}
-        assert {"prev_image", "next_image", "prev_item", "next_item", "accept", "reject",
-                "edit_pair", "fit", "zoom_item", "toggle_mode", "toggle_snap",
-                "toggle_stream", "undo", "redo", "save", "escape", "help"} <= actions
+        assert {
+            "prev_image",
+            "next_image",
+            "prev_item",
+            "next_item",
+            "accept",
+            "reject",
+            "edit_pair",
+            "fit",
+            "zoom_item",
+            "toggle_mode",
+            "toggle_snap",
+            "toggle_stream",
+            "undo",
+            "redo",
+            "save",
+            "escape",
+            "help",
+        } <= actions
         assert all(f"class_{n}" in actions for n in range(10))
 
 
 # ── help_lines ──────────────────────────────────────────────────────────────
+
 
 class TestHelpLines:
     def test_every_binding_label_appears_when_applicable(self):
@@ -50,6 +71,7 @@ class TestHelpLines:
 
 
 # ── README ──────────────────────────────────────────────────────────────────
+
 
 class TestReadme:
     def test_readme_controls_are_generated(self):

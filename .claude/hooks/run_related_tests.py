@@ -1,4 +1,6 @@
-"""PostToolUse hook: run the pytest module matching an edited source or test file."""
+"""PostToolUse hook: run the pytest module matching an edited source or
+test file.
+"""
 
 import json
 import subprocess
@@ -58,7 +60,11 @@ def main():
     tail = result.stdout.strip().splitlines()
     summary = tail[-1] if tail else ""
     status = "passed" if result.returncode == 0 else "FAILED"
-    print(json.dumps({"systemMessage": f"{test_file.name}: {status} ({summary})"}))
+    print(
+        json.dumps(
+            {"systemMessage": f"{test_file.name}: {status} ({summary})"}
+        )
+    )
     return 0
 
 

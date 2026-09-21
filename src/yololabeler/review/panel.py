@@ -1,4 +1,6 @@
-"""ReviewPanel: the status-bar strip, queue stepping, filters and threshold (spec 5.1)."""
+"""ReviewPanel: the status-bar strip, queue stepping, filters and threshold
+(spec 5.1).
+"""
 
 from __future__ import annotations
 
@@ -9,7 +11,11 @@ import customtkinter as ctk
 
 from yololabeler.predictions.store import load_predictions
 from yololabeler.review.engine import (
-    build_queue, flag_markers, flagged_shapes, match_document, shape_statuses,
+    build_queue,
+    flag_markers,
+    flagged_shapes,
+    match_document,
+    shape_statuses,
 )
 
 # Palette constants duplicated from gui.py to avoid a circular import
@@ -20,7 +26,9 @@ ACCENT_HOVER = "#608864"
 ENTRY_BG = "#2A2A2A"
 BORDER_COLOR = "#3A3A3A"
 SI_GREEN = "#507754"
-REVIEW_IOU_THRESHOLD = 0.5  # matches compute_matches's own default (matching.py:79)
+REVIEW_IOU_THRESHOLD = (
+    0.5  # matches compute_matches's own default (matching.py:79)
+)
 
 
 class ReviewPanel:
@@ -36,25 +44,47 @@ class ReviewPanel:
         """Build a read-only dropdown in the shared dark styling."""
         a = self.app
         return ctk.CTkComboBox(
-            parent, variable=var, values=values, width=width, command=command,
-            font=(a.font_family, 11), dropdown_font=(a.font_family, 11),
-            fg_color=ENTRY_BG, border_color=BORDER_COLOR, button_color=ACCENT,
-            button_hover_color=ACCENT_HOVER, text_color=FG_COLOR,
-            dropdown_fg_color=BG_COLOR, dropdown_text_color=FG_COLOR,
-            dropdown_hover_color=ACCENT, state="readonly")
+            parent,
+            variable=var,
+            values=values,
+            width=width,
+            command=command,
+            font=(a.font_family, 11),
+            dropdown_font=(a.font_family, 11),
+            fg_color=ENTRY_BG,
+            border_color=BORDER_COLOR,
+            button_color=ACCENT,
+            button_hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR,
+            dropdown_fg_color=BG_COLOR,
+            dropdown_text_color=FG_COLOR,
+            dropdown_hover_color=ACCENT,
+            state="readonly",
+        )
 
     def _label(self, parent, text, **kw):
         """Build a strip label in the shared dark styling."""
-        return ctk.CTkLabel(parent, text=text, font=(self.app.font_family, 11),
-                            text_color=FG_COLOR, **kw)
+        return ctk.CTkLabel(
+            parent,
+            text=text,
+            font=(self.app.font_family, 11),
+            text_color=FG_COLOR,
+            **kw,
+        )
 
     def _button(self, parent, text, width, command, bold=True, size=11):
         """Build a strip button in the shared dark styling."""
         a = self.app
         return ctk.CTkButton(
-            parent, text=text, width=width, command=command, fg_color=SI_GREEN,
-            hover_color=ACCENT_HOVER, text_color=FG_COLOR,
-            font=(a.font_family, size, "bold" if bold else "normal"))
+            parent,
+            text=text,
+            width=width,
+            command=command,
+            fg_color=SI_GREEN,
+            hover_color=ACCENT_HOVER,
+            text_color=FG_COLOR,
+            font=(a.font_family, size, "bold" if bold else "normal"),
+        )
 
     def build(self, left, centre, right):
         """Create the strip in the status bar's left, centre and right columns.
@@ -62,29 +92,48 @@ class ReviewPanel:
         Left holds the prediction toggle, threshold, the Type filter and the
         TP/FP/FN counts, after whatever the caller has already packed there;
         centre holds Accept, Edit and Reject; right holds the Reviewed box, the
-        Review status filter and the item stepper, built to the same spec as the
-        toolbar's image stepper: Prev, a typable position entry, the total, Next.
+        Review status filter and the item stepper, built to the same spec as
+        the toolbar's image stepper: Prev, a typable position entry, the total,
+        Next.
         """
         a = self.app
         a._pred_var = tk.BooleanVar(value=a._review_show_pred)
         a._pred_cb = ctk.CTkCheckBox(
-            left, text="Predictions", variable=a._pred_var, width=1,
-            font=(a.font_family, 11), text_color=FG_COLOR,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
-            command=a._on_pred_toggled)
+            left,
+            text="Predictions",
+            variable=a._pred_var,
+            width=1,
+            font=(a.font_family, 11),
+            text_color=FG_COLOR,
+            fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            border_color=BORDER_COLOR,
+            command=a._on_pred_toggled,
+        )
         a._pred_cb.pack(side="left", padx=(0, 10))
 
         self._label(left, "Conf").pack(side="left", padx=(0, 2))
-        self.conf_entry = ctk.CTkEntry(left, width=44, font=(a.font_family, 11),
-                                       fg_color=ENTRY_BG, border_color=BORDER_COLOR,
-                                       text_color=FG_COLOR, justify="center")
+        self.conf_entry = ctk.CTkEntry(
+            left,
+            width=44,
+            font=(a.font_family, 11),
+            fg_color=ENTRY_BG,
+            border_color=BORDER_COLOR,
+            text_color=FG_COLOR,
+            justify="center",
+        )
         self.conf_entry.pack(side="left", padx=(0, 8))
         self.conf_entry.bind("<Return>", self._on_conf_enter)
         self.conf_entry.bind("<FocusOut>", lambda e: self._show_threshold())
         self._label(left, "Type").pack(side="left", padx=(0, 2))
         self.type_var = tk.StringVar(value="All")
-        self.type_dd = self._combo(left, self.type_var, ["All", "FP", "FN", "TP"], 64,
-                                   self.on_type_changed)
+        self.type_dd = self._combo(
+            left,
+            self.type_var,
+            ["All", "FP", "FN", "TP"],
+            64,
+            self.on_type_changed,
+        )
         self.type_dd.pack(side="left", padx=(0, 8))
         self.counts_label = self._label(left, "TP 0  FP 0  FN 0")
         self.counts_label.pack(side="left", padx=(0, 6))
@@ -96,59 +145,96 @@ class ReviewPanel:
         self.reject_btn = self._button(centre, "Reject (R)", 96, a.reject_item)
         self.reject_btn.pack(side="left")
 
-        # Packed right to left so the group mirrors the toolbar's image stepper.
+        # Packed right to left so the group mirrors the toolbar's image
+        # stepper.
         self.right = right
-        self.next_item_btn = self._button(right, "Next ▶", 70, lambda: self.step(1), size=12)
+        self.next_item_btn = self._button(
+            right, "Next ▶", 70, lambda: self.step(1), size=12
+        )
         self.next_item_btn.pack(side="right", padx=(2, 0))
-        self.item_total_label = ctk.CTkLabel(right, text="/ 0", font=(a.font_family, 12),
-                                             text_color=FG_COLOR)
+        self.item_total_label = ctk.CTkLabel(
+            right, text="/ 0", font=(a.font_family, 12), text_color=FG_COLOR
+        )
         self.item_total_label.pack(side="right", padx=(4, 2))
-        self.item_entry = ctk.CTkEntry(right, width=55, font=(a.font_family, 12),
-                                       fg_color=ENTRY_BG, border_color=BORDER_COLOR,
-                                       text_color=FG_COLOR, justify="center")
+        self.item_entry = ctk.CTkEntry(
+            right,
+            width=55,
+            font=(a.font_family, 12),
+            fg_color=ENTRY_BG,
+            border_color=BORDER_COLOR,
+            text_color=FG_COLOR,
+            justify="center",
+        )
         self.item_entry.pack(side="right", padx=(2, 0))
         self.item_entry.bind("<Return>", self._on_item_enter)
-        self.item_entry.bind("<FocusOut>", lambda e: self._show_item_position())
-        self.prev_item_btn = self._button(right, "◀ Prev", 70, lambda: self.step(-1), size=12)
+        self.item_entry.bind(
+            "<FocusOut>", lambda e: self._show_item_position()
+        )
+        self.prev_item_btn = self._button(
+            right, "◀ Prev", 70, lambda: self.step(-1), size=12
+        )
         self.prev_item_btn.pack(side="right", padx=(0, 2))
         self.status_var = tk.StringVar(value="All")
-        self.status_dd = self._combo(right, self.status_var,
-                                     ["All", "Not reviewed", "Reviewed", "Flagged"], 100,
-                                     self.on_status_changed)
+        self.status_dd = self._combo(
+            right,
+            self.status_var,
+            ["All", "Not reviewed", "Reviewed", "Flagged"],
+            100,
+            self.on_status_changed,
+        )
         self.status_dd.pack(side="right", padx=(0, 8))
         self._label(right, "Review status").pack(side="right", padx=(0, 2))
         self.reviewed_var = tk.BooleanVar(value=False)
         self.reviewed_cb = ctk.CTkCheckBox(
-            right, text="Reviewed", variable=self.reviewed_var, width=1,
-            font=(a.font_family, 11), text_color=FG_COLOR,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER, border_color=BORDER_COLOR,
-            command=self.on_reviewed_toggled)
+            right,
+            text="Reviewed",
+            variable=self.reviewed_var,
+            width=1,
+            font=(a.font_family, 11),
+            text_color=FG_COLOR,
+            fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            border_color=BORDER_COLOR,
+            command=self.on_reviewed_toggled,
+        )
         self.reviewed_cb.pack(side="right", padx=(0, 12))
         self._show_threshold()
 
     # ── loading and refresh ────────────────────────────────────────────────
 
     def load_predictions_for_current_image(self):
-        """Read the prediction files for the current image unless it is blind."""
+        """Read the prediction files for the current image unless blind."""
         a = self.app
         img_name = a.images[a.index]
         a.predictions, a.predictions_rejected = [], []
         store = a._stats_store
-        a.predictions_blind = store.is_blind(img_name) and store.completion(img_name) is None
+        a.predictions_blind = (
+            store.is_blind(img_name) and store.completion(img_name) is None
+        )
         if a.predictions_blind:
             return
         stem = os.path.splitext(img_name)[0]
         a.predictions, a.predictions_rejected = load_predictions(
-            a.pred_detect_dir, a.pred_segment_dir, stem, a.img_width, a.img_height)
+            a.pred_detect_dir,
+            a.pred_segment_dir,
+            stem,
+            a.img_width,
+            a.img_height,
+        )
         a._register_class_ids({p.class_id for p in a.predictions})
         dropped = self.engine.migrate_centre_entries(
-            img_name, a.predictions, a.img_width, a.img_height)
+            img_name, a.predictions, a.img_width, a.img_height
+        )
         if dropped:
             a.show_banner(
-                f"{dropped} old review entries matched no current prediction and were dropped.")
+                f"{dropped} old review entries matched no current prediction "
+                f"and were dropped."
+            )
 
     def refresh(self, keep_focus=True):
-        """Rerun matching and rebuild the queue; called after every document change."""
+        """Rerun matching and rebuild the queue; called after every document
+        change.
+        """
         a = self.app
         if a.document is None or a.predictions_blind or not a.predictions:
             a.queue, a.matches, a.shape_statuses = [], {}, None
@@ -156,23 +242,39 @@ class ReviewPanel:
             if a.images and a.document is not None:
                 open_keys = self.engine.open_flag_keys(a.images[a.index])
                 a.flag_markers = flag_markers(a.document, [], {}, open_keys)
-                a.flagged_shapes = flagged_shapes(a.document, [], {}, open_keys)
-            # No queue here, so there is nothing to recompute the image's review
-            # status from; a status earned before is left as it was.
+                a.flagged_shapes = flagged_shapes(
+                    a.document, [], {}, open_keys
+                )
+            # No queue here, so there is nothing to recompute the image's
+            # review status from; a status earned before is left as it was.
             self.update_labels()
             a._annotate_tab.display_image()
             return
         focused = self.current_item() if keep_focus else None
         previous = focused.key if focused else None
-        a.matches = match_document(a.document, a.predictions, REVIEW_IOU_THRESHOLD,
-                                   a.conf_threshold)
+        a.matches = match_document(
+            a.document, a.predictions, REVIEW_IOU_THRESHOLD, a.conf_threshold
+        )
         open_keys = self.engine.open_flag_keys(a.images[a.index])
-        a.queue = build_queue(a.document, a.predictions, a.matches, a.verdicts,
-                              a._review_filter_type, a._review_filter_class,
-                              a._review_status_filter, open_keys)
-        a.shape_statuses = shape_statuses(a.document, a.predictions, a.matches, a.verdicts)
-        a.flag_markers = flag_markers(a.document, a.predictions, a.matches, open_keys)
-        a.flagged_shapes = flagged_shapes(a.document, a.predictions, a.matches, open_keys)
+        a.queue = build_queue(
+            a.document,
+            a.predictions,
+            a.matches,
+            a.verdicts,
+            a._review_filter_type,
+            a._review_filter_class,
+            a._review_status_filter,
+            open_keys,
+        )
+        a.shape_statuses = shape_statuses(
+            a.document, a.predictions, a.matches, a.verdicts
+        )
+        a.flag_markers = flag_markers(
+            a.document, a.predictions, a.matches, open_keys
+        )
+        a.flagged_shapes = flagged_shapes(
+            a.document, a.predictions, a.matches, open_keys
+        )
         a.queue_index = 0
         if previous is not None:
             for i, item in enumerate(a.queue):
@@ -185,7 +287,9 @@ class ReviewPanel:
         a._annotate_tab.display_image()
 
     def first_unreviewed(self):
-        """Index of the first queue item with no verdict, 0 when every item has one."""
+        """Index of the first queue item with no verdict, 0 when every item has
+        one.
+        """
         a = self.app
         for i, item in enumerate(a.queue):
             if item.key not in a.verdicts:
@@ -193,7 +297,8 @@ class ReviewPanel:
         return 0
 
     def next_unreviewed_after(self, path, key):
-        """Queue index of the first unreviewed item after key along path, wrapping.
+        """Queue index of the first unreviewed item after key along path,
+        wrapping.
 
         path is the list of item keys in path order taken before the last
         verdict; a key no longer in the queue is skipped. Falls back to
@@ -210,7 +315,9 @@ class ReviewPanel:
     # ── stepping ───────────────────────────────────────────────────────────
 
     def focus_item(self, index, zoom=True, switch_class=True):
-        """Focus a queue item, set mode (and optionally class) to match it, zoom to it (spec 4.4)."""
+        """Focus a queue item, set mode (and optionally class) to match it,
+        zoom to it (spec 4.4).
+        """
         a = self.app
         if not a.queue:
             return
@@ -218,7 +325,9 @@ class ReviewPanel:
         item = a.queue[a.queue_index]
         if switch_class:
             a._select_class_by_id(item.class_id)
-        kind = item.prediction.kind if item.prediction else item.annotation.kind
+        kind = (
+            item.prediction.kind if item.prediction else item.annotation.kind
+        )
         if a.mode != kind:
             a._set_mode(kind)
         if zoom:
@@ -230,12 +339,13 @@ class ReviewPanel:
         a._annotate_tab.display_image()
 
     def step(self, delta):
-        """Move the focus delta items along the queue, wrapping at both ends."""
+        """Move the focus delta items along the queue, wrapping at the ends."""
         if self.app.queue:
             self.focus_item(self.app.queue_index + delta)
 
     def _show_item_position(self):
-        """Write the focused item's position and the queue length into the stepper.
+        """Write the focused item's position and the queue length into the
+        stepper.
 
         Forces the entry back to "normal" first, as _show_threshold does: a
         disabled Tk entry silently ignores delete/insert, and update_labels
@@ -265,11 +375,13 @@ class ReviewPanel:
         self.app.canvas.focus_set()
 
     def on_reviewed_toggled(self):
-        """Clear the focused item's verdict when the box is unticked; ticking does nothing.
+        """Clear the focused item's verdict when the box is unticked; ticking
+        does nothing.
 
         A verdict is accepted or rejected, which a two-state box cannot say, so
-        the box only reports that one exists and takes it back. It does not undo
-        what accept or reject did to the annotation, only the judgement itself.
+        the box only reports that one exists and takes it back. It does not
+        undo what accept or reject did to the annotation, only the judgement
+        itself.
         """
         a = self.app
         item = self.current_item()
@@ -300,7 +412,9 @@ class ReviewPanel:
         self.conf_entry.insert(0, f"{self.app.conf_threshold:.2f}")
 
     def _on_conf_enter(self, event=None):
-        """Apply the typed confidence threshold, reverting anything out of range."""
+        """Apply the typed confidence threshold, reverting anything out of
+        range.
+        """
         try:
             value = float(self.conf_entry.get())
         except ValueError:
@@ -313,7 +427,9 @@ class ReviewPanel:
         self.app.canvas.focus_set()
 
     def set_threshold(self, value):
-        """Store the confidence threshold on the state and the engine, then rematch."""
+        """Store the confidence threshold on the state and the engine, then
+        rematch.
+        """
         self.app.conf_threshold = value
         self.engine.conf_threshold = value
         self._show_threshold()
@@ -327,8 +443,12 @@ class ReviewPanel:
 
     def on_status_changed(self, choice):
         """Filter the queue by verdict presence."""
-        mapping = {"All": "all", "Reviewed": "reviewed", "Not reviewed": "not_reviewed",
-                   "Flagged": "flagged"}
+        mapping = {
+            "All": "all",
+            "Reviewed": "reviewed",
+            "Not reviewed": "not_reviewed",
+            "Flagged": "flagged",
+        }
         self.app._review_status_filter = mapping.get(choice, "all")
         self.refresh(keep_focus=False)
         self.app.canvas.focus_set()
@@ -336,7 +456,9 @@ class ReviewPanel:
     # ── labels ─────────────────────────────────────────────────────────────
 
     def update_labels(self):
-        """Refresh the item counter, the counts and the accept/reject button state."""
+        """Refresh the item counter, the counts and the accept/reject button
+        state.
+        """
         a = self.app
         item = self.current_item()
         self._show_item_position()
@@ -365,6 +487,7 @@ class ReviewPanel:
             suffix = f"  ({', '.join(notes)})" if notes else ""
             self.counts_label.configure(
                 text=f"TP {len(m.get('tp', []))}  FP {len(m.get('fp', []))}  "
-                     f"FN {len(m.get('fn', []))}{suffix}")
+                f"FN {len(m.get('fn', []))}{suffix}"
+            )
         a.complete_cb.configure(text="Completed")
         a._update_status()
