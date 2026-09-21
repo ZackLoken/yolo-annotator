@@ -10,8 +10,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run all tests: `pytest -q`
 - Run one test file: `pytest tests/test_matching.py -q`
 - Run one test: `pytest tests/test_matching.py::TestBoxIou::test_perfect_overlap -q`
-- No linter or formatter is configured in this repo (no ruff/black/flake8 section in pyproject.toml, no config files for any of them).
-- CI (`.github/workflows/tests.yml`) runs `pytest -q` on Python 3.14 on push/PR to main.
+- Install the linter: `pip install -e .[lint]`
+- Lint: `ruff check .`, or `ruff check --fix .` to apply the fixable findings.
+- Format: `ruff format .`, or `ruff format --check .` to verify without writing.
+- Ruff is configured in `[tool.ruff]` in pyproject.toml: line length 79, rule sets `E,W,F,I,UP,B,C4,SIM,RUF`. It is the only linter and the only formatter; no black/flake8/isort config exists.
+- CI (`.github/workflows/tests.yml`) runs two jobs on Python 3.14 on push/PR to main: `ruff` (`ruff check .` then `ruff format --check .`) and `pytest` (`pytest -q` under xvfb).
 
 ## Architecture
 
