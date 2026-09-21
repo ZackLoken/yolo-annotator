@@ -1,0 +1,12 @@
+name: yolo
+channels:
+  - conda-forge
+dependencies:
+  - python=3.14
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu130
+      - torch
+      - torchvision
+      - ultralytics
+      - -e .[packaging,test,lint]

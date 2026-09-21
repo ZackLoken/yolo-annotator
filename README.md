@@ -25,6 +25,14 @@ cd yolo-annotator
 pip install -e .
 ```
 
+Or as a conda environment named `yolo`, with every extra plus CUDA PyTorch and
+Ultralytics for producing predictions to import:
+
+```bash
+conda env create -f environment.yml
+conda activate yolo
+```
+
 To run the test suite:
 
 ```bash
