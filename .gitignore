@@ -39,3 +39,4 @@ CSV_text_file_converter.ipynb
 # Claude Code config and plugin output, kept local
 /.claude/
 /.superpowers/
+classes.json
