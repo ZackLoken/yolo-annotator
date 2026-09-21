@@ -35,3 +35,7 @@ CSV_text_file_converter.ipynb
 # PyInstaller build output
 /packaging/build
 /packaging/dist
+
+# Claude Code config and plugin output, kept local
+/.claude/
+/.superpowers/
