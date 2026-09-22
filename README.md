@@ -1,6 +1,6 @@
 # YoloLabeler
 
-> Published as **YOLO Annotator**.
+> Published as YOLO Annotator.
 
 Desktop tool for drawing and reviewing YOLO bounding-box and instance-segmentation
 annotations, and for visualizing model predictions against ground truth.
@@ -53,7 +53,7 @@ pytest -q
 
 ## Usage
 
-**Launch the GUI:**
+Launch the GUI:
 
 ```bash
 yololabeler
@@ -61,13 +61,13 @@ yololabeler
 
 A folder dialog will open; select a folder of images.
 
-**Or pass a folder directly:**
+Or pass a folder directly:
 
 ```bash
 yololabeler /path/to/images
 ```
 
-**Or run as a module:**
+Or run as a module:
 
 ```bash
 python -m yololabeler /path/to/images
@@ -214,19 +214,19 @@ neither exists until then.
 Annotations are saved to two subdirectories so each is directly compatible with
 Ultralytics `yolo detect train` and `yolo segment train`.
 
-**Detection** (`labels/detect/`):
+Detection (`labels/detect/`):
 
 ```
 <class_id> <x_center> <y_center> <width> <height>
 ```
 
-**Segmentation** (`labels/segment/`):
+Segmentation (`labels/segment/`):
 
 ```
 <class_id> <x1> <y1> <x2> <y2> ... <xN> <yN>
 ```
 
-All values are **normalized to 0–1** relative to image dimensions.
+All values are normalized to 0–1 relative to image dimensions.
 
 ### Predictions
 
