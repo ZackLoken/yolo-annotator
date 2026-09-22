@@ -9,6 +9,8 @@ Built with Python + CustomTkinter.
 ![Python 3.14+](https://img.shields.io/badge/python-3.14%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
+![YoloLabeler reviewing predicted bounding boxes](.github/images/yolo-annotator-gui.png)
+
 ---
 
 ## Install
