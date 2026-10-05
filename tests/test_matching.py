@@ -207,3 +207,90 @@ class TestComputeMatches:
         assert len(result["fp"]) == 1
         # TP should be the perfect match (pred index 0)
         assert result["tp"][0][3] == 0  # pred_idx
+
+
+# --- compute_matches links ---
+
+
+class TestComputeMatchesLinks:
+    def test_link_pairs_across_classes(self):
+        gt = [(0, 0, 10, 10, 1)]
+        pred = [(0, 0, 10, 10, 0, 0.9)]
+        links = [(("box", 0), ("box", 0))]
+        result = compute_matches(gt, [], pred, [], links=links)
+        assert len(result["tp"]) == 1
+        assert result["fp"] == [] and result["fn"] == []
+        assert result["tp"][0][5] == 1  # the annotation's class
+
+    def test_link_pairs_below_the_iou_threshold(self):
+        gt = [(0, 0, 10, 10, 0)]
+        pred = [(8, 8, 18, 18, 0, 0.9)]
+        links = [(("box", 0), ("box", 0))]
+        result = compute_matches(
+            gt, [], pred, [], iou_threshold=0.5, links=links
+        )
+        assert len(result["tp"]) == 1
+        assert result["tp"][0][4] == pytest.approx(4 / 196)
+
+    def test_a_better_overlapping_annotation_keeps_the_prediction(self):
+        gt = [(0, 0, 10, 10, 0), (5, 5, 15, 15, 0)]
+        pred = [(0, 0, 10, 10, 0, 0.9)]
+        links = [(("box", 1), ("box", 0))]
+        result = compute_matches(gt, [], pred, [], links=links)
+        assert [t[:4] for t in result["tp"]] == [("box", 0, "box", 0)]
+        assert result["fn"] == [("box", 1, 0)]
+
+    def test_the_better_of_two_annotations_linked_to_one_prediction_wins(
+        self,
+    ):
+        gt = [(4, 4, 14, 14, 0), (0, 0, 10, 10, 0)]
+        pred = [(0, 0, 10, 10, 0, 0.9)]
+        links = [(("box", 0), ("box", 0)), (("box", 1), ("box", 0))]
+        result = compute_matches(gt, [], pred, [], links=links)
+        assert [t[:4] for t in result["tp"]] == [("box", 1, "box", 0)]
+        assert result["fn"] == [("box", 0, 0)]
+
+    def test_a_linked_pair_loses_to_a_better_unlinked_match_elsewhere(self):
+        gt = [(0, 0, 10, 10, 0)]
+        pred = [(4, 0, 14, 10, 0, 0.9), (1, 0, 11, 10, 0, 0.9)]
+        links = [(("box", 0), ("box", 0))]
+        result = compute_matches(gt, [], pred, [], links=links)
+        assert [t[:4] for t in result["tp"]] == [("box", 0, "box", 1)]
+        assert result["fp"] == [("box", 0, 0, 0.9)]
+
+    def test_link_to_a_prediction_under_the_conf_threshold_is_ignored(self):
+        gt = [(0, 0, 10, 10, 0)]
+        pred = [(0, 0, 10, 10, 0, 0.1)]
+        links = [(("box", 0), ("box", 0))]
+        result = compute_matches(
+            gt, [], pred, [], conf_threshold=0.25, links=links
+        )
+        assert result["tp"] == [] and result["fp"] == []
+        assert len(result["fn"]) == 1
+
+    def test_link_between_shapes_that_do_not_overlap_is_ignored(self):
+        gt = [(100, 100, 110, 110, 0)]
+        pred = [(0, 0, 10, 10, 0, 0.9)]
+        links = [(("box", 0), ("box", 0))]
+        result = compute_matches(gt, [], pred, [], links=links)
+        assert result["tp"] == []
+        assert len(result["fp"]) == 1 and len(result["fn"]) == 1
+
+    def test_link_between_a_box_and_a_polygon_is_ignored(self):
+        pts = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        result = compute_matches(
+            [(0, 0, 10, 10, 0)],
+            [],
+            [],
+            [(pts, 0, 0.9)],
+            links=[(("box", 0), ("polygon", 0))],
+        )
+        assert result["tp"] == []
+
+    def test_a_tie_between_linked_annotations_goes_to_the_first(self):
+        gt = [(0, 0, 10, 10, 0), (0, 0, 10, 10, 0)]
+        pred = [(0, 0, 10, 10, 0, 0.9)]
+        links = [(("box", 0), ("box", 0)), (("box", 1), ("box", 0))]
+        result = compute_matches(gt, [], pred, [], links=links)
+        assert [t[:4] for t in result["tp"]] == [("box", 0, "box", 0)]
+        assert result["fn"] == [("box", 1, 0)]

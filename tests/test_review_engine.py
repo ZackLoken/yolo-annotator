@@ -753,3 +753,141 @@ class TestFlags:
         assert flag_markers(doc, preds, {}, {ann.id, "h:1"}) == {
             ann.id: ann.points
         }
+
+
+# ── adopting orphaned verdicts ──────────────────────────────────────────────
+
+
+class TestAdoptOrphanVerdicts:
+    def tp_item(self, engine):
+        """A match whose annotation is linked to its prediction, as an accept
+        leaves it, plus the document it lives in.
+        """
+        doc = Document("img_001.jpg", 640, 480)
+        p = pred("h:0", 10, 10, 110, 110)
+        ann = new_annotation(
+            "box", p.points, 0, "z", source="accepted", prediction_id=p.id
+        )
+        doc.add(ann)
+        (item,) = build_queue(doc, [p], match_document(doc, [p], 0.5, 0.5), {})
+        return item
+
+    def verdict(self, by="karen"):
+        return {
+            "action": "accepted",
+            "kind": "fn",
+            "class_id": 0,
+            "conf": None,
+            "iou": None,
+            "by": by,
+            "at": "2026-10-01T10:40:41",
+        }
+
+    def test_moves_the_verdict_to_the_prediction_key(self, engine):
+        item = self.tp_item(engine)
+        verdicts = engine.verdicts("img_001.jpg")
+        verdicts[item.annotation.id] = self.verdict()
+        assert engine.adopt_orphan_verdicts("img_001.jpg", [item]) == 1
+        assert item.annotation.id not in verdicts
+        moved = verdicts["h:0"]
+        assert moved["action"] == "accepted" and moved["by"] == "karen"
+        assert moved["at"] == "2026-10-01T10:40:41"
+        assert moved["kind"] == "tp" and moved["iou"] == 1.0
+
+    def test_never_overwrites_a_verdict_on_the_prediction_key(self, engine):
+        item = self.tp_item(engine)
+        verdicts = engine.verdicts("img_001.jpg")
+        verdicts[item.annotation.id] = self.verdict("a")
+        verdicts["h:0"] = self.verdict("b")
+        assert engine.adopt_orphan_verdicts("img_001.jpg", [item]) == 0
+        assert verdicts[item.annotation.id]["by"] == "a"
+        assert verdicts["h:0"]["by"] == "b"
+
+    def test_leaves_a_miss_and_an_unreviewed_match_alone(self, engine):
+        doc = Document("img_001.jpg", 640, 480)
+        doc.add(new_annotation("box", ((300, 300), (400, 400)), 0, "z"))
+        p = pred("h:0", 10, 10, 110, 110)
+        items = build_queue(doc, [p], match_document(doc, [p], 0.5, 0.5), {})
+        verdicts = engine.verdicts("img_001.jpg")
+        verdicts[doc.annotations[0].id] = self.verdict()
+        before = dict(verdicts)
+        assert engine.adopt_orphan_verdicts("img_001.jpg", items) == 0
+        assert verdicts == before
+        match = self.tp_item(engine)
+        assert engine.adopt_orphan_verdicts("img_001.jpg", [match]) == 0
+        assert verdicts == before
+
+    def test_leaves_a_hand_drawn_match_alone(self, engine):
+        doc = Document("img_001.jpg", 640, 480)
+        doc.add(new_annotation("box", ((10, 10), (110, 110)), 0, "z"))
+        p = pred("h:0", 10, 10, 110, 110)
+        (item,) = build_queue(doc, [p], match_document(doc, [p], 0.5, 0.5), {})
+        assert item.kind == "tp"
+        verdicts = engine.verdicts("img_001.jpg")
+        verdicts[item.annotation.id] = self.verdict()
+        before = dict(verdicts)
+        assert engine.adopt_orphan_verdicts("img_001.jpg", [item]) == 0
+        assert verdicts == before
+
+
+# ── linked pairing ──────────────────────────────────────────────────────────
+
+
+class TestLinkedPairing:
+    def accepted(self, doc, p, points=None, class_id=None):
+        """An annotation made by accepting prediction p, as apply_accept
+        does.
+        """
+        ann = new_annotation(
+            "box",
+            points or p.points,
+            p.class_id if class_id is None else class_id,
+            "z",
+            source="accepted",
+            prediction_id=p.id,
+        )
+        doc.add(ann)
+        return ann
+
+    def test_edit_that_drops_iou_keeps_the_pair(self):
+        doc = Document("img_001.jpg", 640, 480)
+        p = pred("h:0", 10, 10, 110, 110)
+        ann = self.accepted(doc, p, ((10, 10), (60, 60)))
+        (item,) = build_queue(doc, [p], match_document(doc, [p], 0.5, 0.5), {})
+        assert item.kind == "tp" and item.key == "h:0"
+        assert item.annotation.id == ann.id
+
+    def test_relabeled_annotation_keeps_the_pair(self):
+        doc = Document("img_001.jpg", 640, 480)
+        p = pred("h:0", 10, 10, 110, 110)
+        self.accepted(doc, p, class_id=1)
+        (item,) = build_queue(doc, [p], match_document(doc, [p], 0.5, 0.5), {})
+        assert item.kind == "tp" and item.key == "h:0"
+        assert item.prediction.class_id == 0
+        assert item.class_id == 0
+
+    def test_a_second_accept_after_a_split_keeps_the_exact_copy_paired(self):
+        doc = Document("img_001.jpg", 640, 480)
+        p = pred("h:0", 10, 10, 110, 110)
+        stale = self.accepted(doc, p, ((60, 60), (160, 160)))
+        exact = self.accepted(doc, p)
+        queue = build_queue(doc, [p], match_document(doc, [p], 0.5, 0.5), {})
+        tp = of_kind(queue, "tp")
+        assert tp.annotation.id == exact.id and tp.key == "h:0"
+        assert of_kind(queue, "fn").annotation.id == stale.id
+
+    def test_link_to_an_absent_prediction_falls_back_to_iou(self):
+        doc = Document("img_001.jpg", 640, 480)
+        self.accepted(doc, pred("gone:0", 10, 10, 110, 110))
+        now = pred("h:0", 12, 12, 112, 112)
+        (item,) = build_queue(
+            doc, [now], match_document(doc, [now], 0.5, 0.5), {}
+        )
+        assert item.kind == "tp" and item.key == "h:0"
+
+    def test_unlinked_annotation_still_matches_by_iou(self, scene):
+        doc, preds = scene
+        queue = build_queue(
+            doc, preds, match_document(doc, preds, 0.6, 0.5), {}
+        )
+        assert of_kind(queue, "tp").key == "h:0"

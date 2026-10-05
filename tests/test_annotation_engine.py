@@ -123,6 +123,21 @@ class TestEdit:
         assert engine.delete_annotation(a.id).id == a.id
         assert engine.state.document.annotations == []
 
+    def test_set_class_changes_only_the_class(self, engine):
+        a = engine.add_box(5, 5, 20, 20)
+        engine.set_class(a.id, 3)
+        changed = engine.state.document.get(a.id)
+        assert changed.class_id == 3
+        assert changed.points == a.points and changed.id == a.id
+        assert changed.prediction_id == a.prediction_id
+
+    def test_link_prediction_links_an_unlinked_annotation_only(self, engine):
+        a = engine.add_box(5, 5, 20, 20)
+        engine.link_prediction(a.id, "h:0")
+        assert engine.state.document.get(a.id).prediction_id == "h:0"
+        engine.link_prediction(a.id, "h:9")
+        assert engine.state.document.get(a.id).prediction_id == "h:0"
+
 
 # ── Save ────────────────────────────────────────────────────────────────────
 

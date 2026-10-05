@@ -99,11 +99,12 @@ def compute_matches(
     pred_polygons,
     iou_threshold=0.5,
     conf_threshold=0.25,
+    links=(),
 ):
     """Match predictions to GT and classify as TP / FP / FN.
 
-    Uses greedy matching: sort all same-class GT-Pred pairs by IoU
-    descending, then assign greedily.
+    Uses greedy matching: sort all same-class GT-Pred pairs, plus any linked
+    pair, by IoU descending, then assign greedily.
 
     Parameters
     ----------
@@ -117,6 +118,14 @@ def compute_matches(
         ``(points, class_id, conf)``
     iou_threshold : float
     conf_threshold : float
+    links : iterable[tuple]
+        ``((gt_type, gt_idx), (pred_type, pred_idx))`` pairs that may match
+        whatever their class or IoU, in the index space of the lists above.
+        A linked pair still competes by IoU, so a better-overlapping shape
+        keeps the prediction. A link is ignored when its prediction is under
+        ``conf_threshold`` or when its two shapes are of different kinds or do
+        not overlap at all: a shape moved clear off its prediction is a
+        different object.
 
     Returns
     -------
@@ -175,34 +184,45 @@ def compute_matches(
             pred_geom_cache[pi] = (g, g.area)
         return pred_geom_cache[pi]
 
+    def _iou(gi, pi):
+        if gt_items[gi][0] == "box":
+            return box_iou(gt_items[gi][3], pred_items[pi][4])
+        g1, a1 = _get_gt_geom(gi)
+        g2, a2 = _get_pred_geom(pi)
+        return polygon_iou(g1, a1, g2, a2)
+
     # Compute IoU pairs, grouped by class
     pairs = []
     for cid in gt_by_class:
         if cid not in pred_by_class:
             continue
-        gt_indices = gt_by_class[cid]
-        pred_indices = pred_by_class[cid]
-        for gi in gt_indices:
-            gt_type = gt_items[gi][0]
-            gt_data = gt_items[gi][3]
-            for pi in pred_indices:
-                p_type = pred_items[pi][0]
-                p_data = pred_items[pi][4]
-                if gt_type != p_type:
+        for gi in gt_by_class[cid]:
+            for pi in pred_by_class[cid]:
+                if gt_items[gi][0] != pred_items[pi][0]:
                     # A box never matches a polygon: a folder reviews one kind
                     # against the same kind.
                     continue
-                if gt_type == "box":
-                    iou = box_iou(gt_data, p_data)
-                else:
-                    g1, a1 = _get_gt_geom(gi)
-                    g2, a2 = _get_pred_geom(pi)
-                    iou = polygon_iou(g1, a1, g2, a2)
+                iou = _iou(gi, pi)
                 if iou >= iou_threshold:
                     pairs.append((iou, gi, pi))
 
-    # Greedy matching (descending IoU)
-    pairs.sort(key=lambda x: x[0], reverse=True)
+    # A linked pair is a candidate whatever its class or IoU
+    gt_at = {(item[0], item[1]): gi for gi, item in enumerate(gt_items)}
+    pred_at = {(item[0], item[1]): pi for pi, item in enumerate(pred_items)}
+    linked = set()
+    for gt_key, pred_key in links:
+        gi, pi = gt_at.get(gt_key), pred_at.get(pred_key)
+        if gi is None or pi is None or gt_key[0] != pred_key[0]:
+            continue
+        iou = _iou(gi, pi)
+        if iou <= 0:
+            continue
+        linked.add((gi, pi))
+        if not any(p[1:] == (gi, pi) for p in pairs):
+            pairs.append((iou, gi, pi))
+
+    # Greedy matching (descending IoU, a linked pair first on a tie)
+    pairs.sort(key=lambda x: (x[0], (x[1], x[2]) in linked), reverse=True)
     matched_gt = set()
     matched_pred = set()
     tp_list = []

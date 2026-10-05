@@ -150,6 +150,19 @@ class AnnotationEngine:
         self.state.document.replace(ann_id, points=points)
         self.invalidate_poly_bboxes()
 
+    def set_class(self, ann_id, class_id):
+        """Set the class of the given annotation; caller pushes undo first."""
+        self.state.document.replace(ann_id, class_id=int(class_id))
+
+    def link_prediction(self, ann_id, prediction_id):
+        """Store prediction_id on an annotation that has none, so it stays
+        paired with that prediction through later class and geometry edits;
+        caller pushes undo first. An existing prediction_id is never replaced.
+        """
+        document = self.state.document
+        if document.get(ann_id).prediction_id is None:
+            document.replace(ann_id, prediction_id=prediction_id)
+
     # ── I/O ────────────────────────────────────────────────────────────────
 
     def label_paths(self):

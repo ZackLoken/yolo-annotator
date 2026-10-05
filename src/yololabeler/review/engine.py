@@ -61,8 +61,33 @@ def _split_predictions(predictions):
     return boxes, polys
 
 
+def _links(document, pboxes, ppolys):
+    """The (annotation, prediction) index pairs an annotation's
+    prediction_id names, in compute_matches's index space.
+    """
+    pred_at = {
+        p.id: (kind, i)
+        for kind, group in (("box", pboxes), ("polygon", ppolys))
+        for i, p in enumerate(group)
+    }
+    links = []
+    for kind, group in (
+        ("box", document.boxes()),
+        ("polygon", document.polygons()),
+    ):
+        for i, a in enumerate(group):
+            if a.prediction_id in pred_at:
+                links.append(((kind, i), pred_at[a.prediction_id]))
+    return links
+
+
 def match_document(document, predictions, iou_threshold, conf_threshold):
-    """Run compute_matches over a Document and a Prediction list."""
+    """Run compute_matches over a Document and a Prediction list.
+
+    An annotation made from a prediction (its prediction_id) stays paired with
+    that prediction through any later class or geometry edit; the rest match
+    by class and IoU.
+    """
     pboxes, ppolys = _split_predictions(predictions)
     gt_boxes = [
         (*a.points[0], *a.points[1], a.class_id) for a in document.boxes()
@@ -79,6 +104,7 @@ def match_document(document, predictions, iou_threshold, conf_threshold):
         pred_polys,
         iou_threshold,
         conf_threshold,
+        links=_links(document, pboxes, ppolys),
     )
 
 
@@ -411,6 +437,32 @@ class ReviewEngine:
             "iou": round(item.iou, 4) if item.iou is not None else None,
         }
         self.save_review_state()
+
+    def adopt_orphan_verdicts(self, img_name, items):
+        """Move a verdict kept under a matched annotation's id onto its match's
+        key, and return how many moved.
+
+        An edit under the old IoU-only pairing could split a match into a miss
+        and an unmatched prediction, which filed the verdict under the
+        annotation's id. Once linked pairing restores the match, that verdict
+        belongs on the prediction's key. Nothing is overwritten: a match whose
+        own key already has a verdict is left as it is, and so is its old
+        entry. Only a box made from that very prediction qualifies, so a hand
+        drawn box that later matched a newly imported prediction is untouched.
+        items is the unfiltered queue.
+        """
+        verdicts = self.verdicts(img_name)
+        moved = 0
+        for item in items:
+            if item.kind != "tp" or item.key in verdicts:
+                continue
+            if item.annotation.prediction_id != item.key:
+                continue
+            old = verdicts.pop(item.annotation.id, None)
+            if old is not None:
+                self.carry_verdict(img_name, item, old)
+                moved += 1
+        return moved
 
     # ── Flags for a second look ────────────────────────────────────────────
 
