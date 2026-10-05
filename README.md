@@ -106,8 +106,8 @@ for the same list, filtered to the current mode.
 | Switch between box and polygon mode | `m` |
 | Vertex snapping on or off | `s` |
 | Vertex tracing on or off | `t` |
-| Pick a class by id | `0`-`9` |
-| Rename the active class | `Ctrl+R` |
+| Set the class of the selected or focused annotation | `0`-`9` |
+| Rename the class shown in the class box | `Ctrl+R` |
 | Undo | `Ctrl+Z` |
 | Redo | `Ctrl+Y` |
 | Save now | `Ctrl+S` |
@@ -401,20 +401,30 @@ corner and always steps to the nearest item not yet visited, so a cluster is
 reviewed in a row whatever the types in it. The Type and Class filters lay the
 path over the items they keep; the Review status filter only hides items, so
 judging one never reorders the rest. After an accept or reject the focus moves
-to the next unreviewed item along the path. Class selection lives in the top toolbar
-alongside the drawing controls, with an "All" option; Type sits in the status
-bar's left group and Review status in its right group, by the item stepper. Choosing a class filters the queue and limits the
-canvas to that class; "All" lifts the class limit so every class is drawn, but
-not the mode limit, so Box mode still draws only boxes. Drawing needs a class,
-so it is blocked while "All" is selected. Review status filters on verdict presence, so "Not
+to the next unreviewed item along the path. Type and Filter class sit in the
+status bar's left group and Review status in its right group, by the item
+stepper. Type is the match type (FP, FN or TP) and only changes which items you
+step through. Choosing a class in the Filter class box filters the queue and limits the canvas to
+that class; "All" lifts the class limit so every class is drawn, but not the
+mode limit, so Box mode still draws only boxes. A filter change keeps the
+focused item when it is still in the filtered queue, and returns to the first
+item when it is not. The class box in the top toolbar is separate from the
+filter: it never touches the queue. It shows the class of the selected
+annotation, else of the focused item's annotation, else the class new shapes are
+drawn in, and picking a class there, or pressing `0`-`9`, relabels that
+annotation as one undo step and makes the class the one new shapes are drawn in.
+An unmatched prediction has no annotation yet, so a pick on it only sets the
+class for new shapes; accept or edit it first to relabel the annotation that
+creates. Review status filters on verdict presence, so "Not
 reviewed" means no verdict yet, whatever the type. (Image status, in the top
 toolbar, is the separate per-image Completed / Partial / Unannotated filter.) An
 annotation you draw yourself is recorded as `accepted` the moment it is added,
 so it never waits in the queue for a review action. True-positive,
 false-positive and false-negative counts for the current image sit in the
-status bar's left group, after the filters they describe. The window title
-carries the rest: the image name, the zoom, the time spent on this image and
-the current user, e.g. "YoloLabeler - img001.jpg - 400% - 0:16 - zack".
+window title, with the image name, the zoom, the time spent on this image and
+the current user, e.g. "YoloLabeler - img001.jpg - 400% - TP 1  FP 1  FN 0  (2
+not reviewed) - 0:16 - zack". The status bar has no room for them beside the
+filters.
 
 ### Stepping
 
@@ -443,7 +453,7 @@ are outlined by review status: green accepted, orange not reviewed, red
 rejected. A match's prediction and annotation share one status. Unticking
 Predictions hides the model's boxes but leaves the annotations in their status
 colours; only a blind image or an image with no predictions puts annotations
-back in their class colour. The class dropdown narrows predictions to the
+back in their class colour. The Class filter narrows predictions to the
 chosen class the same way it narrows annotations, with the focused item drawn
 whatever its class. A shape's label text is
 always drawn in its class colour, whichever colour the outline carries, so class
@@ -475,10 +485,15 @@ item's annotation for editing, moving or deleting its vertices without leaving
 the queue. An unmatched prediction has no annotation yet, so Edit accepts it
 first and selects the annotation that creates, keeping the focus on it. Every accept, reject and edit is
 one undo step, covered the same way as drawing (`Ctrl+Z` / `Ctrl+Y`).
-Dragging the focused item's GT box updates its displayed classification, IoU and
-reviewed status immediately, with no separate action and no new verdict; how far
-an edited box has moved from the prediction it came from is read by comparing its
-geometry to that prediction (`prediction_id` in the sidecar), not from a verdict.
+Dragging the focused item's GT box updates its displayed IoU and reviewed status
+immediately, with no separate action and no new verdict; how far an edited box
+has moved from the prediction it came from is read by comparing its geometry to
+that prediction (`prediction_id` in the sidecar), not from a verdict. An
+annotation with a `prediction_id` stays paired with that prediction however far
+it is moved or whatever class it is relabeled to, so an edit never turns a match
+into a model miss plus an unmatched prediction. An annotation without one, drawn
+by hand, is paired by class and IoU, and relabeling a match like that links it
+to its prediction by setting `prediction_id`.
 
 ### Threshold
 
@@ -511,7 +526,7 @@ in the sidecar.
 Enter saves it and flags the item, with or without a comment; a flag is
 independent of the verdict, so an item can be flagged before it is judged or
 after. A flagged item's label ends with `?` (on its annotation when it has one,
-else on the prediction), the badge adds "flagged", and the status bar counts
+else on the prediction), the badge adds "flagged", and the window title counts
 flags next to the TP/FP/FN counts. With an annotation selected, `c` comments on that annotation rather
 than the focused item, so a box drawn around a questionable miss can be flagged
 while the prediction beside it stays in focus. Pressing `c` on a flagged item shows who
@@ -535,8 +550,8 @@ the flag open, since its prediction stays as an FP.
 
 Completed is the one dataset gate: ticking it writes a completion record and
 saves; unticking it removes the record. If queue items are still missing a
-verdict, the pending count shows alongside the TP/FP/FN counts in the status
-bar (e.g. "TP 1  FP 1  FN 0  (2 not reviewed)"), but the tick is never
+verdict, the pending count shows alongside the TP/FP/FN counts in the window
+title (e.g. "TP 1  FP 1  FN 0  (2 not reviewed)"), but the tick is never
 blocked on it.
 
 Stepping to the next image (`Right` or Next) from an image not marked Completed

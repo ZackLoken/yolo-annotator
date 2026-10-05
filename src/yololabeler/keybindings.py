@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 README_MARKERS = ("<!-- controls:start -->", "<!-- controls:end -->")
+CLASS_PICK_DESCRIPTION = "Set the class of the selected or focused annotation"
 
 
 @dataclass(frozen=True)
@@ -69,14 +70,14 @@ KEY_BINDINGS = (
     _b("toggle_snap", ("s",), "s", "Vertex snapping on or off", "polygon"),
     _b("toggle_stream", ("t",), "t", "Vertex tracing on or off", "polygon"),
     *[
-        _b(f"class_{n}", (str(n),), str(n), f"Pick class {n}")
+        _b(f"class_{n}", (str(n),), str(n), CLASS_PICK_DESCRIPTION)
         for n in range(10)
     ],
     _b(
         "rename_class",
         ("<Control-r>", "<Command-r>"),
         "Ctrl+R",
-        "Rename the active class",
+        "Rename the class shown in the class box",
     ),
     _b("undo", ("<Control-z>", "<Command-z>"), "Ctrl+Z", "Undo"),
     _b("redo", ("<Control-y>", "<Command-y>"), "Ctrl+Y", "Redo"),
@@ -145,7 +146,7 @@ def help_lines(mode, has_queue, has_pair):
                 continue
             class_rows_done = True
             digits = "".join(str(n) for n in range(10))
-            lines.append(f"  {digits:<16}Pick a class by id")
+            lines.append(f"  {digits:<16}{CLASS_PICK_DESCRIPTION}")
             continue
         lines.append(f"  {b.label:<16}{b.description}")
     lines.append("")
@@ -163,7 +164,7 @@ def readme_tables():
     for b in KEY_BINDINGS:
         if b.action.startswith("class_"):
             if not class_done:
-                out.append("| Pick a class by id | `0`-`9` |")
+                out.append(f"| {CLASS_PICK_DESCRIPTION} | `0`-`9` |")
                 class_done = True
             continue
         out.append(f"| {b.description} | `{b.label}` |")

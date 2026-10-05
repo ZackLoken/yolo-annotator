@@ -248,6 +248,7 @@ class YoloLabeler:
 
         # GUI-only handles (not part of AppState)
         self._timer_after_id = None
+        self._class_view = None  # what the class widgets last showed
         self._image_elapsed = "0:00"
         # Replaceable so tests can answer these dialogs without opening a
         # modal.
@@ -626,9 +627,7 @@ class YoloLabeler:
             "rename_class": self._rename_class_dialog,
         }
         for n in range(10):
-            actions[f"class_{n}"] = lambda n=n: (
-                self._select_class_for_filter_and_draw(n)
-            )
+            actions[f"class_{n}"] = lambda n=n: self._set_target_class(n)
         return actions
 
     def _bind_keys(self):
@@ -1785,54 +1784,84 @@ class YoloLabeler:
             counts[ann.class_id] = counts.get(ann.class_id, 0) + 1
         return counts
 
-    def _refresh_class_dropdown(self):
+    def _target_annotation(self):
+        """The annotation a class pick acts on: the selected one, else the
+        focused review item's, else None.
+        """
+        if self.document is None:
+            return None
+        if self._selected_annotation_id is not None:
+            try:
+                return self.document.get(self._selected_annotation_id)
+            except KeyError:
+                pass
+        panel = self.__dict__.get("_review_panel")
+        item = panel.current_item() if panel is not None else None
+        if item is None or not self._annotation_visible:
+            return None
+        return item.annotation
+
+    def _target_class_id(self):
+        """The class the class controls show: the target annotation's, else
+        the class new shapes are drawn in.
+        """
+        annotation = self._target_annotation()
+        return annotation.class_id if annotation else self.active_class
+
+    def _refresh_class_dropdown(self, force=False):
+        """Bring the class dropdown and the review class filter up to date with
+        the class names, counts, target and filter, touching a widget only
+        when what it shows has changed, or always when force is set.
+        """
         counts = self._count_class_annotations()
-        items = ["All"]
-        for cid, name in sorted(self.class_names.items()):
-            c = counts.get(cid, 0)
-            items.append(f"{cid}: {name} ({c})")
-        items.append("<New Class>")
-        self.class_dropdown.configure(values=items)
-        if self._review_filter_class == "all":
-            self.class_dropdown.set("All")
+        labels = {
+            cid: f"{cid}: {name} ({counts.get(cid, 0)})"
+            for cid, name in sorted(self.class_names.items())
+        }
+        target = self._target_class_id()
+        shown = labels.get(target, next(iter(labels.values()), ""))
+        view = (tuple(labels.items()), shown, self._review_filter_class)
+        if view == self._class_view and not force:
             return
-        active_count = counts.get(self.active_class, 0)
-        active_label = (
-            f"{self.active_class}: "
-            f"{self.class_names.get(self.active_class, '?')}"
-            f" ({active_count})"
-        )
-        if active_label in items:
-            self.class_dropdown.set(active_label)
-        elif items:
-            self.class_dropdown.set(items[0])
+        self._class_view = view
+        self.class_dropdown.configure(values=[*labels.values(), "<New Class>"])
+        self.class_dropdown.set(shown)
+        self._update_color_btn()
+        panel = self.__dict__.get("_review_panel")
+        if panel is not None:
+            panel.show_class_filter(labels, self._review_filter_class)
 
     def _on_class_selected(self, choice):
         """Act on a class dropdown pick, clearing any banner it answers."""
         self.clear_banner()
+        # The widget already shows the pick, so the refresh is forced to show
+        # the truth again when the pick is refused or cancelled.
         if choice == "<New Class>":
             self._add_class_dialog()
-            return
-        if choice == "All":
-            self._review_filter_class = "all"
-            self._refresh_class_dropdown()
-            self._review_panel.refresh(keep_focus=False)
-            return
-        try:
-            class_id = int(choice.split(":")[0].strip())
-        except ValueError:
-            return
-        self._select_class_for_filter_and_draw(class_id)
+        else:
+            try:
+                class_id = int(choice.split(":")[0].strip())
+            except ValueError:
+                return
+            self._set_target_class(class_id)
+        self._refresh_class_dropdown(force=True)
 
-    def _select_class_for_filter_and_draw(self, class_id):
-        """Set class_id as both the active drawing class and the review class
-        filter.
+    def _set_target_class(self, class_id):
+        """Set the class of the target annotation, if there is one, and make
+        class_id the class new shapes are drawn in.
+
+        Never touches the review queue or its class filter. A read-only image
+        refuses the relabel and leaves both unchanged.
         """
         if class_id not in self.class_names:
             return
-        self._review_filter_class = class_id
+        annotation = self._target_annotation()
+        relabel = annotation is not None and annotation.class_id != class_id
+        if relabel and not self._annotate_tab.relabel_annotation(
+            annotation.id, class_id
+        ):
+            return
         self._select_class_by_id(class_id)
-        self._review_panel.refresh(keep_focus=False)
 
     def _class_name_dialog(self, text, title):
         """Build a class-name input dialog with the main window's icon; return
@@ -1880,46 +1909,38 @@ class YoloLabeler:
         # Check if class already exists
         for cid, cname in self.class_names.items():
             if cname.lower() == name.lower():
-                self.active_class = cid
-                self._refresh_class_dropdown()
-                self._update_color_btn()
-                self.update_title()
+                self._set_target_class(cid)
                 return
         next_id = max(self.class_names.keys()) + 1 if self.class_names else 0
         self.class_names[next_id] = name
-        self.active_class = next_id
         print(f"[YoloLabeler] New class added: {next_id}: {name}")
-        self._refresh_class_dropdown()
-        self._update_color_btn()
         self._save_classes_file()
-        self.update_title()
+        self._set_target_class(next_id)
 
     def _rename_class_dialog(self):
-        """Open a small dialog to rename the active class; a name another class
-        holds is refused.
+        """Open a small dialog to rename the class the class controls show; a
+        name another class holds is refused.
         """
-        if self.active_class not in self.class_names:
+        target = self._target_class_id()
+        if target not in self.class_names:
             return
-        current = self.class_names[self.active_class]
+        current = self.class_names[target]
         name = self._class_name_dialog(
-            f'Rename class {self.active_class} (currently "{current}"):',
+            f'Rename class {target} (currently "{current}"):',
             "Rename Class",
         )
         if not name or not name.strip():
             return
         name = name.strip()
         for cid, cname in self.class_names.items():
-            if cid != self.active_class and cname.lower() == name.lower():
+            if cid != target and cname.lower() == name.lower():
                 self.show_banner(
                     f'Class {cid} is already named "{cname}". '
-                    f"Class {self.active_class} was not renamed."
+                    f"Class {target} was not renamed."
                 )
                 return
-        self.class_names[self.active_class] = name
-        print(
-            f"[YoloLabeler] Class renamed: {self.active_class}: "
-            f"{current} -> {name}"
-        )
+        self.class_names[target] = name
+        print(f"[YoloLabeler] Class renamed: {target}: {current} -> {name}")
         self._refresh_class_dropdown()
         self._save_classes_file()
         self.update_title()
@@ -1958,19 +1979,21 @@ class YoloLabeler:
 
     # ── Class colors ─────────────────────────────────────────────────────────
     def _update_color_btn(self):
-        color = self._get_class_color(self.active_class)
+        color = self._get_class_color(self._target_class_id())
         self.color_btn.config(bg=color, activebackground=color)
 
     def _pick_class_color(self):
-        current = self._get_class_color(self.active_class)
+        target = self._target_class_id()
+        current = self._get_class_color(target)
         title = (
-            f"Color for class {self.active_class} "
-            f"({self.class_names.get(self.active_class, '?')})"
+            f"Color for class {target} ({self.class_names.get(target, '?')})"
         )
-        self._show_dark_color_picker(current, title)
+        self._show_dark_color_picker(target, current, title)
 
-    def _show_dark_color_picker(self, initial_color, title):
-        """Custom dark-themed color picker with SI palette as custom colors."""
+    def _show_dark_color_picker(self, class_id, initial_color, title):
+        """Custom dark-themed color picker with SI palette as custom colors,
+        setting the color of class_id.
+        """
         picker = FitToContentToplevel(self.root)
         picker.title(title)
         self._apply_app_icon(picker)
@@ -2152,7 +2175,7 @@ class YoloLabeler:
         picker.wait_window()
 
         if self._picker_result:
-            self.class_colors[self.active_class] = self._picker_result
+            self.class_colors[class_id] = self._picker_result
             self._update_color_btn()
             self._save_classes_file()
             self._annotate_tab.display_image()
@@ -2184,11 +2207,11 @@ class YoloLabeler:
 
     # ── Title & counter ──────────────────────────────────────────────────────
     def _apply_title(self, name=None):
-        """Write the image name, zoom, time on this image and user into the
-        window title.
+        """Write the image name, zoom, review counts, time on this image and
+        user into the window title.
 
-        These belong in the title bar rather than the toolbar, which has no
-        room for them at the default window width.
+        These belong in the title bar rather than the toolbar or status bar,
+        which have no room for them at the default window width.
         """
         if name is None:
             name = self.images[self.index] if self.images else None
@@ -2203,17 +2226,11 @@ class YoloLabeler:
             return
         tab = getattr(self, "_annotate_tab", None)
         zoom = int(tab.scale * 100) if tab is not None else 100
-        self.root.title(
-            " - ".join(
-                [
-                    "YoloLabeler",
-                    name,
-                    f"{zoom}%",
-                    self._image_elapsed,
-                    self._current_user,
-                ]
-            )
-        )
+        counts = self._review_panel.counts_text
+        parts = ["YoloLabeler", name, f"{zoom}%"]
+        parts += [counts] if counts else []
+        parts += [self._image_elapsed, self._current_user]
+        self.root.title(" - ".join(parts))
 
     def update_title(self):
         if not self.images:

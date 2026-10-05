@@ -339,6 +339,7 @@ class AnnotateTab:
                 f"{len(a.predictions_rejected)} prediction lines could not "
                 f"be read ({'; '.join(a.predictions_rejected)})."
             )
+        a._review_panel.adopt_orphan_verdicts()
         if messages:
             a.banner_text = "\n".join(messages)
         a._review_panel.refresh(keep_focus=False)
@@ -448,7 +449,7 @@ class AnnotateTab:
         """Annotations drawn right now, in draw order; hit-testing uses the
         same list.
 
-        The class dropdown's "All" lifts the class filter but not the kind
+        The review class filter's "All" lifts the class filter but not the kind
         filter, so Box mode still draws only boxes.
         """
         a = self.app
@@ -468,7 +469,7 @@ class AnnotateTab:
                     ann.kind == a.mode
                     and (
                         a._review_filter_class == "all"
-                        or ann.class_id == a.active_class
+                        or ann.class_id == a._review_filter_class
                     )
                 )
             ):
@@ -542,6 +543,7 @@ class AnnotateTab:
     def display_image(self):
         if not self._loading:
             self.render()
+            self.app._refresh_class_dropdown()
 
     def toggle_help(self, event=None):
         a = self.app
@@ -1090,9 +1092,19 @@ class AnnotateTab:
         so the reviewer is not asked to re-confirm geometry they just fixed and
         the prediction left behind is unreviewed again. Focus follows the
         edited annotation when its new item is in the visible queue.
+
+        A match is linked to its prediction first (as relabel_annotation does),
+        so an edit that only refines the shape never splits the pair; the link
+        lapses when the shape no longer overlaps the prediction at all.
         """
         a = self.app
         old_item = self._unfiltered_item_for(ann_id)
+        if (
+            old_item is not None
+            and old_item.kind == "tp"
+            and self._alive(ann_id)
+        ):
+            self.engine.link_prediction(ann_id, old_item.prediction.id)
         a._review_panel.refresh(keep_focus=True)
         if old_item is None:
             return
@@ -1112,6 +1124,35 @@ class AnnotateTab:
                 break
         a._review_panel.update_labels()
         self.display_image()
+
+    def relabel_annotation(self, ann_id, class_id):
+        """Set an annotation's class as one undo step; False when the image is
+        read-only.
+
+        A match keeps its pairing through the change: an annotation drawn by
+        hand and matched to a prediction by overlap is linked to it here, since
+        its class no longer agrees with the prediction's and overlap alone
+        would split the pair.
+        """
+        a = self.app
+        if not a._editable():
+            return False
+        img_name = a.images[a.index]
+        item = self._unfiltered_item_for(ann_id)
+        link = (
+            item.prediction.id
+            if item is not None and item.kind == "tp"
+            else None
+        )
+        self._push_undo()
+        self.engine.set_class(ann_id, class_id)
+        if link is not None:
+            self.engine.link_prediction(ann_id, link)
+        a._mark_image_annotated()
+        self._refresh_review_after_edit(ann_id, img_name)
+        self.display_image()
+        a.update_title()
+        return True
 
     def _clear_box_edit_state(self):
         a = self.app
@@ -1214,9 +1255,6 @@ class AnnotateTab:
             return
         if a._selected_annotation_id is not None:
             self.select_annotation(None)
-        if a._review_filter_class == "all":
-            a.show_banner("Select a class before drawing.")
-            return
         a.start_x = event.x
         a.start_y = event.y
         color = a._get_class_color(a.active_class)
@@ -1445,9 +1483,6 @@ class AnnotateTab:
         if Stream is on.
         """
         a = self.app
-        if a._review_filter_class == "all":
-            a.show_banner("Select a class before drawing.")
-            return
         ix, iy = self._clamp(*self._maybe_snap(ix, iy))
         a.current_polygon = [(ix, iy)]
         a._vertex_redo_stack.clear()

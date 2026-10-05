@@ -29,6 +29,12 @@ def click_at(tab, ix, iy):
     return type("E", (), {"x": int(cx), "y": int(cy)})()
 
 
+def filter_class(app, class_id):
+    """Pick a class in the review class filter, as its dropdown does."""
+    name = app.class_names[class_id]
+    app._review_panel.on_class_changed(f"{class_id}: {name}")
+
+
 def disk_verdicts(folder, image="a.jpg"):
     """The verdicts review_stats.json actually holds on disk for one image."""
     path = folder / "state" / "review_stats.json"
@@ -167,7 +173,7 @@ class TestAnnotate:
         self, app, monkeypatch
     ):
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._review_panel.focus_item(1)
         monkeypatch.setattr(
             app, "_class_name_dialog", lambda text, title: "hazelnut"
         )
@@ -186,7 +192,7 @@ class TestAnnotate:
 
     def test_draw_delete_undo(self, app):
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.on_button_press(click_at(tab, 50, 50))
         tab.on_button_release(click_at(tab, 150, 150))
         assert len(app.document.annotations) == 2
@@ -197,7 +203,7 @@ class TestAnnotate:
 
     def test_save_and_reload(self, app):
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.on_button_press(click_at(tab, 50, 50))
         tab.on_button_release(click_at(tab, 150, 150))
         assert tab.save_annotations() is None
@@ -217,9 +223,8 @@ class TestAnnotate:
         assert app._image_start_time is not None
 
     def test_hidden_class_is_not_a_delete_target(self, app):
-        app._select_class_for_filter_and_draw(0)
         app.class_names[1] = "other"
-        app._select_class_for_filter_and_draw(1)
+        filter_class(app, 1)
         assert app._annotate_tab.visible_annotations() == []
 
     def test_the_all_class_filter_shows_every_class(self, app):
@@ -227,17 +232,17 @@ class TestAnnotate:
         app.document.add(
             new_annotation("box", ((10, 10), (60, 60)), 1, "tester")
         )
-        app._select_class_for_filter_and_draw(0)
+        filter_class(app, 0)
         assert [
             a.class_id for a in app._annotate_tab.visible_annotations()
         ] == [0]
-        app._on_class_selected("All")
+        app._review_panel.on_class_changed("All")
         assert [
             a.class_id for a in app._annotate_tab.visible_annotations()
         ] == [0, 1]
 
-    def test_picking_a_class_clears_the_draw_prompt_banner(self, app):
-        app.show_banner("Select a class before drawing.")
+    def test_picking_a_class_clears_a_banner(self, app):
+        app.show_banner("Something to dismiss.")
         app._on_class_selected(f"0: {app.class_names[0]} (1)")
         assert app.banner_text is None
 
@@ -293,7 +298,7 @@ def box_setup(app):
     """The tab and the fixture's GT box, with its class chosen and the image in
     view.
     """
-    app._select_class_for_filter_and_draw(0)
+    app._select_class_by_id(0)
     tab = app._annotate_tab
     tab.fit_to_window()
     return tab, app.document.annotations[0]
@@ -326,6 +331,21 @@ class TestBoxEditing:
         assert fixed == (x2, y2)
         assert moved == pytest.approx(image_point(tab, x1 + 40, y1 + 30))
         assert app._box_edit_mode is None and app._box_edit_dirty is False
+
+    def test_a_refining_drag_keeps_a_hand_drawn_match_paired(self, app):
+        tab, ann = box_setup(app)
+        (x1, y1), (x2, y2) = ann.points
+        key = unfiltered_item_for(app, ann.id).key
+        tab.select_annotation(ann.id)
+        tab.on_button_press(click_at(tab, x1, y1))
+        tab.on_move_press(click_at(tab, x2 - 30, y2 - 20))
+        tab.on_button_release(click_at(tab, x2 - 30, y2 - 20))
+        item = unfiltered_item_for(app, ann.id)
+        assert item.kind == "tp" and item.key == key
+        assert item.iou < 0.5
+        assert app.document.get(ann.id).prediction_id == key
+        app.undo()
+        assert app.document.get(ann.id).prediction_id is None
 
     def test_dragging_the_outline_shifts_both_points_by_the_same_delta(
         self, app
@@ -367,7 +387,7 @@ class TestBoxEditing:
     def test_shift_press_in_box_mode_is_an_ordinary_press(self, app):
         tab = app._annotate_tab
         ann = app.document.annotations[0]
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.scale, tab.offset_x, tab.offset_y = 1.0, 0.0, 0.0
         tab.select_annotation(ann.id)
         cx, cy = box_center(ann)
@@ -661,7 +681,7 @@ class TestRenderSelection:
         tab = app._annotate_tab
         app.queue = []
         app._review_show_pred = False
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         app._set_mode("polygon")
         tab.scale, tab.offset_x, tab.offset_y = 1.0, 0.0, 0.0
         ann = new_annotation(
@@ -722,7 +742,7 @@ def polygon_setup(app, scale=1.0):
     polygon added.
     """
     tab = app._annotate_tab
-    app._select_class_for_filter_and_draw(0)
+    app._select_class_by_id(0)
     app._set_mode("polygon")
     tab.scale, tab.offset_x, tab.offset_y = scale, 0.0, 0.0
     return tab, add_polygon(app)
@@ -1129,7 +1149,7 @@ class TestPolygonInteraction:
 class TestLegend:
     def test_legend_chip_opens_and_closes_without_drawing(self, app):
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.render()
         count = len(app.document.annotations)
         x0, _y0, x1, y1 = tab._legend_bbox
@@ -1190,11 +1210,11 @@ class TestLegend:
     def test_the_class_rows_follow_what_the_canvas_draws(self, app):
         tab = app._annotate_tab
         tab._legend_open = True
-        app._select_class_for_filter_and_draw(1)
+        filter_class(app, 1)
         tab.render()
         texts = self.legend_texts(tab)
         assert "class_1" in texts and "class_0" not in texts
-        app._on_class_selected("All")
+        app._review_panel.on_class_changed("All")
         app._visible_var.set(False)
         app._on_visible_toggled()
         app._review_show_pred = False
@@ -1207,7 +1227,7 @@ class TestLegend:
         tab = app._annotate_tab
         tab._legend_open = True
         app.class_names[7] = "empty_class"
-        app._select_class_for_filter_and_draw(7)
+        filter_class(app, 7)
         tab.render()
         assert app.queue == [] and "In focus" in self.legend_texts(tab)
 
@@ -1269,10 +1289,18 @@ class TestBarLayout:
         assert in_widget(app.blind_cb, app.status_bar)
         assert in_widget(app._pred_cb, app.status_bar)
 
-    def test_the_counts_move_off_the_nav_side(self, app):
-        panel = app._review_panel
-        assert in_widget(panel.counts_label, app.status_bar)
-        assert not in_widget(panel.counts_label, panel.right)
+    def test_the_counts_sit_in_the_window_title_after_the_zoom(self, app):
+        app._update_status()
+        counts = app._review_panel.counts_text
+        assert counts.startswith("TP ")
+        title = app.root.title()
+        assert f"{int(app._annotate_tab.scale * 100)}% - {counts} - " in title
+
+    def test_a_blind_image_has_no_counts_in_the_title(self, app):
+        app._blind_var.set(True)
+        app._on_blind_toggled()
+        assert app._review_panel.counts_text == ""
+        assert "TP " not in app.root.title()
 
     def test_the_title_follows_the_zoom(self, app):
         app._annotate_tab.scale = 4.0
@@ -1511,70 +1539,122 @@ class TestItemStepper:
         assert panel.item_total_label.cget("text") == "/ 0"
 
 
-class TestClassFilterMerge:
-    def test_all_choice_sets_filter_and_leaves_active_class(self, app):
+class TestClassFilter:
+    def test_a_filter_choice_leaves_the_draw_class(self, app):
         before = app.active_class
-        app._on_class_selected("All")
-        assert app._review_filter_class == "all"
+        filter_class(app, 1)
+        assert app._review_filter_class == 1
         assert app.active_class == before
 
-    def test_specific_choice_sets_both_and_dropdown_shows_it(self, app):
-        # Regression guard: _review_filter_class must be set before
-        # _select_class_by_id runs, or _refresh_class_dropdown snaps back to
-        # "All".
-        count = app._count_class_annotations().get(0, 0)
-        choice = f"0: {app.class_names[0]} ({count})"
-        app._on_class_selected(choice)
+    def test_all_clears_the_filter(self, app):
+        filter_class(app, 1)
+        app._review_panel.on_class_changed("All")
+        assert app._review_filter_class == "all"
+        assert app._review_panel.class_var.get() == "All"
+
+    def test_the_filter_widget_shows_the_filtered_class(self, app):
+        filter_class(app, 1)
+        assert app._review_panel.class_var.get().startswith("1:")
+
+    def test_a_filter_keeps_the_focus_when_the_item_survives(self, app):
+        app._review_panel.focus_item(1)
+        assert app.queue[app.queue_index].kind == "tp"
+        filter_class(app, 0)
+        assert app.queue[app.queue_index].kind == "tp"
+        app._review_panel.on_class_changed("All")
+        assert app.queue[app.queue_index].kind == "tp"
+
+    def test_a_filter_that_drops_the_focused_item_resets_to_the_first(
+        self, app
+    ):
+        app._review_panel.focus_item(1)
+        filter_class(app, 1)
+        assert [q.kind for q in app.queue] == ["fp"]
+        assert app.queue_index == 0
+
+
+class TestClassPick:
+    def test_a_pick_on_an_fp_sets_the_draw_class_only(self, app):
+        app._review_panel.focus_item(0)
+        assert app.queue[0].annotation is None
+        app._on_class_selected(f"1: {app.class_names[1]} (0)")
+        assert app.active_class == 1
+        assert [a.class_id for a in app.document.annotations] == [0]
+        assert app._review_filter_class == "all"
+
+    def test_a_digit_relabels_the_focused_match_and_keeps_the_queue(self, app):
+        app._review_panel.focus_item(1)
+        before = [(q.kind, q.key) for q in app.queue]
+        app.ACTIONS["class_1"]()
+        (ann,) = app.document.annotations
+        assert ann.class_id == 1
+        assert [(q.kind, q.key) for q in app.queue] == before
+        assert app.queue[app.queue_index].kind == "tp"
+        assert ann.prediction_id == app.queue[app.queue_index].key
+        assert app.active_class == 1
+        assert app._review_filter_class == "all"
+        assert app.class_dropdown.get().startswith("1:")
+
+    def test_a_relabel_is_one_undo_step(self, app):
+        app._review_panel.focus_item(1)
+        app.ACTIONS["class_1"]()
+        app.undo()
+        assert app.document.annotations[0].class_id == 0
+
+    def test_the_dropdown_shows_the_selected_annotations_class(self, app):
+        tab, ann = box_setup(app)
+        app.document.replace(ann.id, class_id=1)
+        tab.select_annotation(ann.id)
+        assert app.class_dropdown.get().startswith("1:")
         assert app.active_class == 0
-        assert app._review_filter_class == 0
-        assert app.class_dropdown.get() == choice
 
-    def test_all_filter_survives_focus_item_on_other_class(self, app):
-        app._on_class_selected("All")
-        other = next(
-            i
-            for i, q in enumerate(app.queue)
-            if q.class_id != app.active_class
-        )
-        app._review_panel.focus_item(other)
-        assert app.active_class == app.queue[other].class_id
-        assert app.class_dropdown.get() == "All"
+    def test_stepping_to_another_item_drops_the_selection(self, app):
+        tab, ann = box_setup(app)
+        app._review_panel.focus_item(1)
+        tab.select_annotation(ann.id)
+        app._review_panel.focus_item(0)
+        assert app._selected_annotation_id is None
+        app.ACTIONS["class_1"]()
+        assert app.document.get(ann.id).class_id == 0
+
+    def test_refocusing_the_same_item_keeps_the_selection(self, app):
+        tab, ann = box_setup(app)
+        app._review_panel.focus_item(1)
+        tab.select_annotation(ann.id)
+        app._review_panel.focus_item(1)
+        assert app._selected_annotation_id == ann.id
+
+    def test_a_digit_relabels_the_selected_annotation_over_the_focus(
+        self, app
+    ):
+        tab, ann = box_setup(app)
+        app._review_panel.focus_item(0)
+        tab.select_annotation(ann.id)
+        app.ACTIONS["class_1"]()
+        assert app.document.get(ann.id).class_id == 1
 
 
-class TestClassRequiredToDraw:
-    def test_box_draw_blocked_while_filter_is_all(self, app):
+class TestDrawingNeedsNoClassPick:
+    def test_a_box_draws_while_the_class_filter_is_all(self, app):
         tab = app._annotate_tab
-        app._on_class_selected("All")
-        tab.fit_to_window()
-        before = len(app.document.annotations)
-        tab.on_button_press(click_at(tab, 50, 50))
-        tab.on_button_release(click_at(tab, 150, 150))
-        assert len(app.document.annotations) == before
-        assert "class" in app.banner_text
-
-    def test_polygon_draw_blocked_while_filter_is_all(self, poly_app):
-        tab = poly_app._annotate_tab
-        poly_app._on_class_selected("All")
-        tab.fit_to_window()
-        tab.on_button_press(click_at(tab, 500, 400))
-        assert poly_app.current_polygon == []
-        assert "class" in poly_app.banner_text
-
-    def test_numeric_shortcut_sets_the_filter_and_unblocks_drawing(self, app):
-        tab = app._annotate_tab
-        app._on_class_selected("All")
-        app.ACTIONS["class_0"]()
-        assert app._review_filter_class == 0
-        assert app.active_class == 0
+        app._review_panel.on_class_changed("All")
         tab.fit_to_window()
         before = len(app.document.annotations)
         tab.on_button_press(click_at(tab, 50, 50))
         tab.on_button_release(click_at(tab, 150, 150))
         assert len(app.document.annotations) == before + 1
+        assert app.document.annotations[-1].class_id == app.active_class
+
+    def test_a_polygon_starts_while_the_class_filter_is_all(self, poly_app):
+        tab = poly_app._annotate_tab
+        poly_app._review_panel.on_class_changed("All")
+        tab.fit_to_window()
+        tab.on_button_press(click_at(tab, 500, 400))
+        assert len(poly_app.current_polygon) == 1
 
     def test_existing_box_still_selectable_while_filter_is_all(self, app):
         tab, ann = box_setup(app)
-        app._on_class_selected("All")
+        app._review_panel.on_class_changed("All")
         tab.on_button_press(click_at(tab, *top_edge_mid(ann)))
         assert app._selected_annotation_id == ann.id
 
@@ -1653,34 +1733,23 @@ class TestActions:
         app.edit_pair()
         vx, vy = panel.current_item().annotation.points[0]
         assert panel.current_item().kind == "tp"
-        assert (
-            panel.counts_label.cget("text")
-            == "TP 1  FP 1  FN 0  (1 not reviewed)"
-        )
+        assert panel.counts_text == "TP 1  FP 1  FN 0  (1 not reviewed)"
         tab.on_button_press(click_at(tab, vx, vy))
         tab.on_move_press(click_at(tab, 10, 10))
         tab.on_button_release(click_at(tab, 10, 10))
-        # The drag alone pulls the GT below the IoU threshold, and the strip
-        # says so. The verdict moves to the new FN, so both FPs are left, and
-        # focus follows the edit.
-        assert (
-            panel.counts_label.cget("text")
-            == "TP 0  FP 2  FN 1  (2 not reviewed)"
-        )
-        assert panel.current_item().kind == "fn"
-        assert key not in app.verdicts
-        ann_id = panel.current_item().annotation.id
-        assert {
-            k: v
-            for k, v in app.verdicts[ann_id].items()
-            if k in ("action", "by", "at")
-        } == {k: v for k, v in before.items() if k in ("action", "by", "at")}
+        # The drag pulls the IoU under the threshold, but the GT still overlaps
+        # its prediction, so the pair and its verdict stay.
+        item = panel.current_item()
+        assert item.kind == "tp" and item.key == key
+        assert item.iou < 0.5
+        assert panel.counts_text == "TP 1  FP 1  FN 0  (1 not reviewed)"
+        assert app.verdicts[key] == before
 
     def test_drawing_an_unrelated_box_records_nothing_for_the_focused_item(
         self, app
     ):
         panel, tab = app._review_panel, app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         panel.focus_item(len(app.queue) - 1)
         item = panel.current_item()
         assert item.kind == "tp"
@@ -1694,7 +1763,7 @@ class TestActions:
         self, app, folder
     ):
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.on_button_press(click_at(tab, 420, 360))
         tab.on_button_release(click_at(tab, 520, 440))
         drawn = app.document.annotations[-1]
@@ -1713,7 +1782,7 @@ class TestActions:
         self, app, folder
     ):
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.on_button_press(click_at(tab, 420, 360))
         tab.on_button_release(click_at(tab, 520, 440))
         drawn = app.document.annotations[-1]
@@ -1746,7 +1815,7 @@ class TestActions:
 
     def test_undoing_a_hand_drawn_box_drops_its_verdict(self, app):
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.on_button_press(click_at(tab, 420, 360))
         tab.on_button_release(click_at(tab, 520, 440))
         drawn = app.document.annotations[-1]
@@ -1867,7 +1936,7 @@ class TestRightClickDelete:
 
     def test_deleting_an_unrelated_annotation_keeps_the_focus(self, app):
         panel, tab = app._review_panel, app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         panel.focus_item(
             next(i for i, q in enumerate(app.queue) if q.kind == "tp")
         )
@@ -1919,6 +1988,33 @@ def unfiltered_item_for(app, ann_id):
     )
 
 
+class TestAdoptOrphanVerdictsOnLoad:
+    def test_an_old_split_verdict_moves_to_its_prediction_on_load(
+        self, app, folder
+    ):
+        item = focus_kind(app, "tp")
+        ann, key = item.annotation, item.key
+        app.document.replace(ann.id, prediction_id=key)
+        app.verdicts[ann.id] = {
+            "action": "accepted",
+            "kind": "fn",
+            "class_id": 0,
+            "conf": None,
+            "iou": None,
+            "by": "karen",
+            "at": "2026-10-01T10:40:41",
+        }
+        app.save_now()
+        app._review.save_review_state()
+        app._annotate_tab.load_image()
+        assert ann.id not in app.verdicts
+        assert app.verdicts[key]["by"] == "karen"
+        assert app.verdicts[key]["kind"] == "tp"
+        assert app.banner_text is None
+        assert ann.id not in disk_verdicts(folder)
+        assert disk_verdicts(folder)[key]["at"] == "2026-10-01T10:40:41"
+
+
 class TestVerdictCarriesForward:
     def test_accepted_match_keeps_its_verdict_when_the_box_moves_away(
         self, app, folder
@@ -1959,12 +2055,13 @@ class TestVerdictCarriesForward:
         assert app.verdicts[ann.id]["action"] == "accepted"
         assert pred_key not in app.verdicts
 
-    def test_deleting_a_polygon_vertex_moves_the_verdict(self, poly_app):
+    def test_deleting_a_polygon_vertex_keeps_the_match_and_its_verdict(
+        self, poly_app
+    ):
         app = poly_app
         tab = app._annotate_tab
         ann = app.document.annotations[0]
-        # Shifted right so the match holds at IoU 0.52 and drops to 0.19 once a
-        # corner goes.
+        # IoU 0.52 shifted right, 0.19 once a corner goes; still overlapping.
         app._engine.set_points(
             ann.id, ((232, 144), (360, 144), (360, 240), (232, 240))
         )
@@ -1975,16 +2072,18 @@ class TestVerdictCarriesForward:
         tab.select_annotation(ann.id)
         tab.on_right_click(click_at(tab, 232, 144))
         assert len(app.document.get(ann.id).points) == 3
-        assert unfiltered_item_for(app, ann.id).kind == "fn"
-        assert app.verdicts[ann.id]["action"] == "accepted"
-        assert pred_key not in app.verdicts
+        item = unfiltered_item_for(app, ann.id)
+        assert item.kind == "tp" and item.key == pred_key
+        assert item.iou < 0.5
+        assert app.verdicts[pred_key]["action"] == "accepted"
+        assert ann.id not in app.verdicts
 
     def test_deleting_a_matched_annotation_drops_its_verdict(self, app):
         tab = app._annotate_tab
         item = focus_kind(app, "tp")
         app.accept_item()
         assert item.key in app.verdicts
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.fit_to_window()
         tab.on_right_click(click_at(tab, *top_edge_mid(item.annotation)))
         assert all(
@@ -2115,7 +2214,7 @@ class TestUndoRedoNoFolder:
 class TestNavigation:
     def test_go_to_image_saves_first(self, app, folder):
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.on_button_press(click_at(tab, 50, 50))
         tab.on_button_release(click_at(tab, 150, 150))
         assert app.go_to_image(1)
@@ -2441,11 +2540,11 @@ class TestCompletion:
 
     def test_complete_label_counts_unreviewed(self, app):
         assert app.complete_cb.cget("text") == "Completed"
-        assert "2 not reviewed" in app._review_panel.counts_label.cget("text")
+        assert "2 not reviewed" in app._review_panel.counts_text
         app._review_panel.focus_item(0)
         app.reject_item()
         assert app.complete_cb.cget("text") == "Completed"
-        assert "1 not reviewed" in app._review_panel.counts_label.cget("text")
+        assert "1 not reviewed" in app._review_panel.counts_text
 
     def test_blind_hides_predictions_until_complete(self, app):
         app._blind_var.set(True)
@@ -2535,7 +2634,7 @@ class TestLoadFailures:
         app._annotate_tab.load_image()
         app.clear_banner()
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.on_button_press(click_at(tab, 420, 360))
         tab.on_button_release(click_at(tab, 520, 440))
         assert len(app.document.annotations) == 1
@@ -2616,7 +2715,7 @@ class TestAcceptance:
 
     def test_draw_step_navigate_return(self, app):
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.on_button_press(click_at(tab, 100, 100))
         tab.on_button_release(click_at(tab, 160, 160))
         app._review_panel.step(1)
@@ -2816,7 +2915,7 @@ class TestCommentFlag:
         )
         app.comment_on_item()
         assert set(app.flag_markers) == {key}
-        assert "1 flagged" in panel.counts_label.cget("text")
+        assert "1 flagged" in panel.counts_text
         data = json.loads(
             (folder / "state" / "review_stats.json").read_text(
                 encoding="utf-8"
@@ -2864,7 +2963,7 @@ class TestCommentFlag:
         )
         app.ask_flag_comment = lambda heading, existing: ("save", "")
         app.comment_on_item()
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         app.queue = []
         tab.render()
         labels = [
@@ -2878,7 +2977,7 @@ class TestCommentFlag:
         self, app
     ):
         panel, tab = app._review_panel, app._annotate_tab
-        app._select_class_for_filter_and_draw(1)
+        app._select_class_by_id(1)
         panel.focus_item(0)
         assert panel.current_item().kind == "fp"
         focused_key = panel.current_item().key
@@ -2962,7 +3061,7 @@ class TestCommentFlag:
 class TestFlagResolvedByRemoval:
     def draw_unflagged_fn(self, app):
         tab = app._annotate_tab
-        app._select_class_for_filter_and_draw(0)
+        app._select_class_by_id(0)
         tab.fit_to_window()
         tab.on_button_press(click_at(tab, 420, 360))
         tab.on_button_release(click_at(tab, 520, 440))

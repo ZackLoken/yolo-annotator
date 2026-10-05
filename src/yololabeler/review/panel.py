@@ -37,6 +37,7 @@ class ReviewPanel:
     def __init__(self, app):
         self.app = app
         self.engine = app._review
+        self.counts_text = ""
 
     # ── widgets ────────────────────────────────────────────────────────────
 
@@ -89,12 +90,12 @@ class ReviewPanel:
     def build(self, left, centre, right):
         """Create the strip in the status bar's left, centre and right columns.
 
-        Left holds the prediction toggle, threshold, the Type filter and the
-        TP/FP/FN counts, after whatever the caller has already packed there;
-        centre holds Accept, Edit and Reject; right holds the Reviewed box, the
-        Review status filter and the item stepper, built to the same spec as
-        the toolbar's image stepper: Prev, a typable position entry, the total,
-        Next.
+        Left holds the prediction toggle, threshold, the Type and Class filters
+        and the TP/FP/FN counts, after whatever the caller has already packed
+        there; centre holds Accept, Edit and Reject; right holds the Reviewed
+        box, the Review status filter and the item stepper, built to the same
+        spec as the toolbar's image stepper: Prev, a typable position entry,
+        the total, Next.
         """
         a = self.app
         a._pred_var = tk.BooleanVar(value=a._review_show_pred)
@@ -135,8 +136,16 @@ class ReviewPanel:
             self.on_type_changed,
         )
         self.type_dd.pack(side="left", padx=(0, 8))
-        self.counts_label = self._label(left, "TP 0  FP 0  FN 0")
-        self.counts_label.pack(side="left", padx=(0, 6))
+        self._label(left, "Filter class").pack(side="left", padx=(0, 2))
+        self.class_var = tk.StringVar(value="All")
+        self.class_dd = self._combo(
+            left,
+            self.class_var,
+            ["All"],
+            150,
+            self.on_class_changed,
+        )
+        self.class_dd.pack(side="left", padx=(0, 8))
 
         self.accept_btn = self._button(centre, "Accept (A)", 96, a.accept_item)
         self.accept_btn.pack(side="left", padx=(0, 6))
@@ -199,6 +208,7 @@ class ReviewPanel:
         )
         self.reviewed_cb.pack(side="right", padx=(0, 12))
         self._show_threshold()
+        a._refresh_class_dropdown(force=True)
 
     # ── loading and refresh ────────────────────────────────────────────────
 
@@ -230,6 +240,23 @@ class ReviewPanel:
                 f"{dropped} old review entries matched no current prediction "
                 f"and were dropped."
             )
+
+    def adopt_orphan_verdicts(self):
+        """Move verdicts the old pairing filed under annotation ids onto their
+        matches, for the loaded image; returns how many moved.
+
+        Skipped on a read-only image, a blind one and one with no predictions.
+        """
+        a = self.app
+        if a.document is None or a.predictions_blind or not a.predictions:
+            return 0
+        if a.load_errors:
+            return 0
+        matches = match_document(
+            a.document, a.predictions, REVIEW_IOU_THRESHOLD, a.conf_threshold
+        )
+        items = build_queue(a.document, a.predictions, matches, a.verdicts)
+        return self.engine.adopt_orphan_verdicts(a.images[a.index], items)
 
     def refresh(self, keep_focus=True):
         """Rerun matching and rebuild the queue; called after every document
@@ -321,8 +348,18 @@ class ReviewPanel:
         a = self.app
         if not a.queue:
             return
+        previous = self.current_item()
         a.queue_index = index % len(a.queue)
         item = a.queue[a.queue_index]
+        own = item.annotation.id if item.annotation else None
+        if (
+            previous is not None
+            and previous.key != item.key
+            and a._selected_annotation_id != own
+        ):
+            # A selection left on the old item must not take the new item's
+            # edits and class picks.
+            a._selected_annotation_id = None
         if switch_class:
             a._select_class_by_id(item.class_id)
         kind = (
@@ -438,8 +475,28 @@ class ReviewPanel:
     def on_type_changed(self, choice):
         """Filter the queue by match type."""
         self.app._review_filter_type = choice.lower()
-        self.refresh(keep_focus=False)
+        self.refresh()
         self.app.canvas.focus_set()
+
+    def show_class_filter(self, labels, selected):
+        """Fill the Class filter with labels, a class id to label map, and show
+        the selected class id, or "all".
+        """
+        self.class_dd.configure(values=["All", *labels.values()])
+        self.class_var.set(labels.get(selected, "All"))
+
+    def on_class_changed(self, choice):
+        """Filter the queue and the drawn shapes by class; the class new shapes
+        are drawn in is not changed.
+        """
+        a = self.app
+        try:
+            a._review_filter_class = int(choice.split(":")[0].strip())
+        except ValueError:
+            a._review_filter_class = "all"
+        self.refresh()
+        a._refresh_class_dropdown(force=True)
+        a.canvas.focus_set()
 
     def on_status_changed(self, choice):
         """Filter the queue by verdict presence."""
@@ -450,20 +507,19 @@ class ReviewPanel:
             "Flagged": "flagged",
         }
         self.app._review_status_filter = mapping.get(choice, "all")
-        self.refresh(keep_focus=False)
+        self.refresh()
         self.app.canvas.focus_set()
 
     # ── labels ─────────────────────────────────────────────────────────────
 
     def update_labels(self):
-        """Refresh the item counter, the counts and the accept/reject button
-        state.
+        """Refresh the item counter, the counts text for the window title and
+        the accept/reject button state.
         """
         a = self.app
         item = self.current_item()
         self._show_item_position()
-        if a.predictions_blind:
-            self.counts_label.configure(text="")
+        self.counts_text = ""
         state = "disabled" if a.predictions_blind or item is None else "normal"
         self.accept_btn.configure(state=state)
         self.edit_btn.configure(state=state)
@@ -485,8 +541,8 @@ class ReviewPanel:
             if a.flag_markers:
                 notes.append(f"{len(a.flag_markers)} flagged")
             suffix = f"  ({', '.join(notes)})" if notes else ""
-            self.counts_label.configure(
-                text=f"TP {len(m.get('tp', []))}  FP {len(m.get('fp', []))}  "
+            self.counts_text = (
+                f"TP {len(m.get('tp', []))}  FP {len(m.get('fp', []))}  "
                 f"FN {len(m.get('fn', []))}{suffix}"
             )
         a.complete_cb.configure(text="Completed")
